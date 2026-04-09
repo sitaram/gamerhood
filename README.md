@@ -1,36 +1,94 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Gamerhood
+
+**Design it. Wear it. Sell it.**
+
+A kid-powered marketplace where young creators turn their ideas into real merch.
+AI-assisted design, premium print-on-demand, and a community that celebrates creativity.
+
+## The Problem
+
+Kids' tastes move faster than any supply chain. A kid who's obsessed with a new game today
+wants merch *now* — not in 6 months when a corporate buyer gets around to it. And when they
+outgrow it next month, the cycle starts again. Traditional retail can't keep up.
+
+## The Solution
+
+Gamerhood gives kids (supervised by parents) the power to:
+1. **Describe** a design in their own words
+2. **Watch AI** turn it into print-ready artwork in seconds
+3. **Preview** it on hoodies, tees, mugs, posters, and more
+4. **Sell** it in their own storefront — or just buy it for themselves
+
+## Tech Stack
+
+- **Framework**: Next.js 15 (App Router), TypeScript, React 19
+- **UI**: Tailwind CSS 4, shadcn/ui, Framer Motion
+- **Database**: Supabase (PostgreSQL + Auth + Storage)
+- **Payments**: Stripe Connect (marketplace splits)
+- **Print-on-Demand**: Printify API
+- **AI Design**: Replicate (SDXL/Flux) or OpenAI DALL-E
+- **State**: Zustand (client cart)
+- **Hosting**: Vercel
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+cp .env.example .env.local  # fill in your keys
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Project Structure
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```
+src/
+  app/
+    page.tsx              # Landing page
+    create/               # AI Design Studio
+    shop/                 # Browse all products
+    shop/[slug]/          # Creator storefront
+    product/[id]/         # Product detail
+    dashboard/            # Creator dashboard
+    auth/                 # Login / signup
+    api/                  # API routes
+  components/
+    layout/               # Navbar, footer
+    landing/              # Hero, how-it-works, featured, CTA
+    storefront/           # Product cards, grids
+    studio/               # Design creation components
+    ui/                   # shadcn/ui primitives
+  lib/
+    types.ts              # TypeScript types
+    mock-data.ts          # Development mock data
+    store.ts              # Zustand cart store
+    supabase/             # Supabase client helpers
+supabase/
+  migrations/             # Database schema
+```
 
-## Learn More
+## Key Features
 
-To learn more about Next.js, take a look at the following resources:
+- **AI Design Studio** — Describe your vision, pick a style, generate artwork
+- **Creator Storefronts** — Each creator gets their own branded shop page
+- **Gamification** — XP, levels, badges, achievements
+- **COPPA Compliant** — Parent-owned accounts, no child PII, parental consent
+- **Print-on-Demand** — No inventory, no risk, premium quality via Printify
+- **Marketplace Payments** — Stripe Connect splits revenue automatically
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## COPPA Compliance
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Parents create and own all accounts
+- Children operate as "managed profiles" with display names only (no PII)
+- Verifiable Parental Consent required before any child profile goes live
+- No tracking cookies, no behavioral advertising on child-facing pages
+- No direct messaging between children
 
-## Deploy on Vercel
+## Cost at Scale
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Traffic     | Monthly Cost |
+|------------|-------------|
+| MVP launch | ~$20-50     |
+| Growing    | ~$70-100    |
+| Scaling    | Linear      |
