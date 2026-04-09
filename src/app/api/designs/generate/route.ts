@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 import { GenerateDesignRequest } from "@/lib/types";
 import { moderateText } from "@/lib/moderation";
 
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
     const styleColors: Record<string, { bg: string; fg: string }> = {
@@ -56,47 +56,48 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const openai = new OpenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey });
     const styleHint = STYLE_MODIFIERS[body.style] || "";
-    const fullPrompt = `${body.prompt.trim()}, ${styleHint}, suitable for printing on merchandise, high quality, centered composition, no text or watermarks`;
+    const fullPrompt = `${body.prompt.trim()}, ${styleHint}, suitable for printing on merchandise, high quality, centered composition, no text or watermarks, square 1:1 aspect ratio`;
 
-    const response = await openai.images.generate({
-      model: "gpt-image-1",
-      prompt: fullPrompt,
-      n: 1,
-      size: "1024x1024",
-      quality: "medium",
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-image-preview",
+      contents: fullPrompt,
+      config: {
+        responseModalities: ["TEXT", "IMAGE"],
+      },
     });
 
-    const imageData = response.data?.[0];
-    if (!imageData) {
-      throw new Error("No image returned from OpenAI");
+    const parts = response.candidates?.[0]?.content?.parts;
+    if (!parts) {
+      throw new Error("No response from Gemini");
     }
 
-    let imageUrl: string;
+    for (const part of parts) {
+      if (part.inlineData) {
+        const mimeType = part.inlineData.mimeType || "image/png";
+        const imageUrl = `data:${mimeType};base64,${part.inlineData.data}`;
 
-    if (imageData.url) {
-      imageUrl = imageData.url;
-    } else if (imageData.b64_json) {
-      imageUrl = `data:image/png;base64,${imageData.b64_json}`;
-    } else {
-      throw new Error("No image URL or base64 in response");
+        return NextResponse.json({
+          imageUrl,
+          prompt: body.prompt,
+          style: body.style,
+        });
+      }
     }
 
-    return NextResponse.json({
-      imageUrl,
-      prompt: body.prompt,
-      style: body.style,
-    });
+    throw new Error("No image in Gemini response");
   } catch (err) {
-    if (err instanceof OpenAI.APIError && err.status === 400) {
+    const message = err instanceof Error ? err.message : String(err);
+
+    if (message.includes("SAFETY") || message.includes("blocked")) {
       return NextResponse.json(
-        { error: "Your prompt was rejected by our safety system. Please try a different description." },
+        { error: "Your prompt was flagged by our safety system. Please try a different description." },
         { status: 400 },
       );
     }
 
-    console.error("[Design Generate] OpenAI error:", err);
+    console.error("[Design Generate] Gemini error:", err);
     return NextResponse.json(
       { error: "Failed to generate design. Please try again." },
       { status: 500 },
