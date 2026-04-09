@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import Replicate from "replicate";
+import OpenAI from "openai";
 import { GenerateDesignRequest } from "@/lib/types";
-import { moderateText, moderateImage } from "@/lib/moderation";
+import { moderateText } from "@/lib/moderation";
 
 const STYLE_MODIFIERS: Record<string, string> = {
   anime: "anime art style, cel shaded, vibrant colors, manga inspired",
@@ -34,10 +34,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const replicateToken = process.env.REPLICATE_API_TOKEN;
+  const apiKey = process.env.OPENAI_API_KEY;
 
-  if (!replicateToken) {
-    // Fallback to placeholder when Replicate isn't configured
+  if (!apiKey) {
     const styleColors: Record<string, { bg: string; fg: string }> = {
       anime: { bg: "1a1a2e", fg: "e94560" },
       streetwear: { bg: "0f0e17", fg: "ff8906" },
@@ -57,40 +56,47 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const replicate = new Replicate({ auth: replicateToken });
+    const openai = new OpenAI({ apiKey });
     const styleHint = STYLE_MODIFIERS[body.style] || "";
-    const fullPrompt = `${body.prompt.trim()}, ${styleHint}, suitable for printing on merchandise, high quality, centered composition, transparent-friendly`;
+    const fullPrompt = `${body.prompt.trim()}, ${styleHint}, suitable for printing on merchandise, high quality, centered composition, no text or watermarks`;
 
-    const output = await replicate.run("black-forest-labs/flux-schnell", {
-      input: {
-        prompt: fullPrompt,
-        num_outputs: 1,
-        aspect_ratio: "1:1",
-        output_format: "png",
-        output_quality: 90,
-      },
+    const response = await openai.images.generate({
+      model: "gpt-image-1",
+      prompt: fullPrompt,
+      n: 1,
+      size: "1024x1024",
+      quality: "medium",
     });
 
-    const images = output as string[];
-    if (!images?.length) {
-      throw new Error("No image returned from model");
+    const imageData = response.data?.[0];
+    if (!imageData) {
+      throw new Error("No image returned from OpenAI");
     }
 
-    const imageCheck = await moderateImage(images[0]);
-    if (!imageCheck.safe) {
-      return NextResponse.json(
-        { error: "The generated image didn't pass our safety check. Please try a different prompt." },
-        { status: 400 },
-      );
+    let imageUrl: string;
+
+    if (imageData.url) {
+      imageUrl = imageData.url;
+    } else if (imageData.b64_json) {
+      imageUrl = `data:image/png;base64,${imageData.b64_json}`;
+    } else {
+      throw new Error("No image URL or base64 in response");
     }
 
     return NextResponse.json({
-      imageUrl: images[0],
+      imageUrl,
       prompt: body.prompt,
       style: body.style,
     });
   } catch (err) {
-    console.error("[Design Generate] Replicate error:", err);
+    if (err instanceof OpenAI.APIError && err.status === 400) {
+      return NextResponse.json(
+        { error: "Your prompt was rejected by our safety system. Please try a different description." },
+        { status: 400 },
+      );
+    }
+
+    console.error("[Design Generate] OpenAI error:", err);
     return NextResponse.json(
       { error: "Failed to generate design. Please try again." },
       { status: 500 },

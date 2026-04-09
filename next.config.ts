@@ -6,8 +6,7 @@ const nextConfig: NextConfig = {
       { hostname: "api.dicebear.com" },
       { hostname: "placehold.co" },
       { hostname: "images.unsplash.com" },
-      { hostname: "replicate.delivery" },
-      { hostname: "pbxt.replicate.delivery" },
+      { hostname: "oaidalleapiprodscus.blob.core.windows.net" },
     ],
   },
 };
