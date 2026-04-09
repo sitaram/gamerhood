@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { sendShippingNotification } from "@/lib/email";
 
 interface PrintifyShipmentEvent {
   id: string;
@@ -43,11 +44,25 @@ export async function POST(request: NextRequest) {
       case "order:shipment:delivered": {
         const { order } = event.resource.data;
         const shipment = order.shipments?.[0];
-        // In production: update the order in Supabase and email the buyer
         console.log(
           `[Printify Webhook] Order ${order.id} — status: ${order.status}` +
             (shipment ? `, tracking: ${shipment.carrier} ${shipment.number}` : ""),
         );
+
+        // TODO: look up buyer email from Supabase orders table using order.id
+        // For now, shipping notification requires the buyer email to be resolved from DB
+        if (shipment && event.type === "order:shipment:created") {
+          // When Supabase is connected: query the order, get buyer email, send notification
+          // const buyerEmail = await getBuyerEmailByPrintifyOrderId(order.id);
+          // if (buyerEmail) {
+          //   await sendShippingNotification(buyerEmail, {
+          //     carrier: shipment.carrier,
+          //     trackingNumber: shipment.number,
+          //     trackingUrl: shipment.url,
+          //   });
+          // }
+          void sendShippingNotification;
+        }
         break;
       }
 

@@ -124,14 +124,35 @@ export default function CreatePage() {
 
   async function handlePublish() {
     setPublishing(true);
-    // In production: calls Printify API to create products, then saves to Supabase
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setPublishing(false);
-    toast.success(
-      `${selectedProducts.size} product${selectedProducts.size > 1 ? "s" : ""} published to your shop!`,
-      { description: "Head to your dashboard to manage them." },
-    );
-    router.push("/dashboard");
+    setError(null);
+
+    try {
+      const res = await fetch("/api/designs/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageUrl: generatedImage,
+          prompt: prompt || null,
+          style,
+          productTypes: [...selectedProducts],
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Publish failed" }));
+        throw new Error(data.error || `Server error ${res.status}`);
+      }
+
+      const data = await res.json();
+      toast.success(
+        `${data.count} product${data.count > 1 ? "s" : ""} published to your shop!`,
+        { description: "Head to your dashboard to manage them." },
+      );
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to publish");
+      setPublishing(false);
+    }
   }
 
   return (

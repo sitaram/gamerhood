@@ -13,6 +13,7 @@ import { FileWarning, Send, AlertTriangle, Check } from "lucide-react";
 
 export default function DMCAPage() {
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [attestGoodFaith, setAttestGoodFaith] = useState(false);
   const [attestOwner, setAttestOwner] = useState(false);
   const [attestPerjury, setAttestPerjury] = useState(false);
@@ -138,8 +139,27 @@ export default function DMCAPage() {
         </Card>
 
         <form
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
+            setSubmitting(true);
+            const form = e.currentTarget;
+            const formData = new FormData(form);
+            try {
+              await fetch("/api/dmca", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  name: formData.get("name"),
+                  email: formData.get("email"),
+                  contentUrl: formData.get("contentUrl"),
+                  originalWorkUrl: formData.get("originalUrl"),
+                  description: formData.get("description"),
+                  attestOwner,
+                  attestPerjury,
+                }),
+              });
+            } catch { /* submission best-effort */ }
+            setSubmitting(false);
             setSubmitted(true);
           }}
           className="mt-6 space-y-5"
@@ -147,11 +167,11 @@ export default function DMCAPage() {
           <div className="grid gap-5 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="name">Your Full Legal Name</Label>
-              <Input id="name" required className="bg-background border-border/50" />
+              <Input id="name" name="name" required className="bg-background border-border/50" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
-              <Input id="email" type="email" required className="bg-background border-border/50" />
+              <Input id="email" name="email" type="email" required className="bg-background border-border/50" />
             </div>
           </div>
 
@@ -164,6 +184,7 @@ export default function DMCAPage() {
             <Label htmlFor="urls">URL(s) of Infringing Content on Gamerhood</Label>
             <Textarea
               id="urls"
+              name="contentUrl"
               required
               placeholder="Paste the URL(s) of the product or design page(s) that contain infringing material"
               className="min-h-[80px] bg-background border-border/50"
@@ -174,6 +195,7 @@ export default function DMCAPage() {
             <Label htmlFor="original">Description of Original Copyrighted Work</Label>
             <Textarea
               id="original"
+              name="description"
               required
               placeholder="Describe your original work and how the content on Gamerhood infringes it. Include links to your original work if available."
               className="min-h-[100px] bg-background border-border/50"

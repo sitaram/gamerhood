@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import { getStripe } from "@/lib/stripe/client";
 import { submitOrder, sendToProduction } from "@/lib/printify/client";
 import type { PrintifyOrderAddress } from "@/lib/printify/client";
+import { sendOrderConfirmation } from "@/lib/email";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -113,4 +114,17 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
   await sendToProduction(printifyOrder.id);
   console.log("[Stripe Webhook] Printify order created and sent to production:", printifyOrder.id);
+
+  const buyerEmail = session.customer_details?.email;
+  if (buyerEmail) {
+    await sendOrderConfirmation(buyerEmail, {
+      sessionId: session.id,
+      total: session.amount_total || 0,
+      items: items.map((i) => ({
+        name: i.productId,
+        quantity: i.quantity,
+        price: 0,
+      })),
+    }).catch((err) => console.error("[Stripe Webhook] Email send error:", err));
+  }
 }
