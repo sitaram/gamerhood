@@ -4,7 +4,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 
 export interface DesignRow {
   id: string;
-  creator_id: string;
+  profile_id: string;
   title: string;
   image_url: string;
   prompt: string | null;
@@ -16,7 +16,7 @@ export interface DesignRow {
 export async function insertDesign(
   supabase: SupabaseClient,
   data: {
-    creator_id: string;
+    profile_id: string;
     title: string;
     image_url: string;
     prompt: string | null;
@@ -26,12 +26,16 @@ export async function insertDesign(
   return supabase.from("designs").insert(data).select().single();
 }
 
-export async function getDesignsByCreator(supabase: SupabaseClient, creatorId: string) {
+export async function getDesignsByProfile(supabase: SupabaseClient, profileId: string) {
   return supabase
     .from("designs")
     .select("*")
-    .eq("creator_id", creatorId)
+    .eq("profile_id", profileId)
     .order("created_at", { ascending: false });
+}
+
+export async function getDesignById(supabase: SupabaseClient, id: string) {
+  return supabase.from("designs").select("*").eq("id", id).single();
 }
 
 // ── Products ──
@@ -39,19 +43,17 @@ export async function getDesignsByCreator(supabase: SupabaseClient, creatorId: s
 export interface ProductRow {
   id: string;
   design_id: string;
-  creator_id: string;
+  profile_id: string;
   title: string;
   description: string;
   product_type: string;
-  base_price: number;
-  markup: number;
-  price: number;
+  base_price_cents: number;
+  markup_cents: number;
   mockup_url: string;
   colors: string[];
   sizes: string[] | null;
   is_published: boolean;
   printify_product_id: string | null;
-  printify_variant_id: number | null;
   created_at: string;
   sales_count: number;
 }
@@ -60,29 +62,27 @@ export async function insertProduct(
   supabase: SupabaseClient,
   data: {
     design_id: string;
-    creator_id: string;
+    profile_id: string;
     title: string;
     description: string;
     product_type: string;
-    base_price: number;
-    markup: number;
-    price: number;
+    base_price_cents: number;
+    markup_cents: number;
     mockup_url: string;
     colors: string[];
     sizes: string[] | null;
     is_published: boolean;
     printify_product_id: string | null;
-    printify_variant_id: number | null;
   },
 ) {
   return supabase.from("products").insert(data).select().single();
 }
 
-export async function getProductsByCreator(supabase: SupabaseClient, creatorId: string) {
+export async function getProductsByProfile(supabase: SupabaseClient, profileId: string) {
   return supabase
     .from("products")
     .select("*")
-    .eq("creator_id", creatorId)
+    .eq("profile_id", profileId)
     .order("created_at", { ascending: false });
 }
 
@@ -157,6 +157,36 @@ export async function getOrdersByCreator(supabase: SupabaseClient, creatorId: st
     .limit(20);
 }
 
+// ── Parents ──
+
+export interface ParentRow {
+  id: string;
+  auth_user_id: string;
+  email: string;
+  display_name: string;
+  stripe_connect_id: string | null;
+  stripe_onboarding_complete: boolean;
+  consent_method: "credit_card" | "esign" | "id_verify" | null;
+  consent_verified_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function upsertParent(
+  supabase: SupabaseClient,
+  data: {
+    auth_user_id: string;
+    email: string;
+    display_name: string;
+  },
+) {
+  return supabase
+    .from("parents")
+    .upsert(data, { onConflict: "auth_user_id" })
+    .select()
+    .single();
+}
+
 // ── Profiles ──
 
 export interface ProfileRow {
@@ -175,12 +205,31 @@ export interface ProfileRow {
   created_at: string;
 }
 
-export async function getProfile(supabase: SupabaseClient, userId: string) {
+export async function getProfileByParentId(supabase: SupabaseClient, parentId: string) {
   return supabase
     .from("profiles")
     .select("*")
-    .eq("parent_id", userId)
+    .eq("parent_id", parentId)
     .single();
+}
+
+/**
+ * Look up the default profile for the currently-authenticated parent.
+ * Joins parents → profiles via the auth user id.
+ */
+export async function getDefaultProfileForAuthUser(
+  supabase: SupabaseClient,
+  authUserId: string,
+) {
+  const { data: parent, error: parentErr } = await supabase
+    .from("parents")
+    .select("id")
+    .eq("auth_user_id", authUserId)
+    .single();
+
+  if (parentErr || !parent) return { data: null, error: parentErr };
+
+  return getProfileByParentId(supabase, parent.id);
 }
 
 export async function upsertProfile(

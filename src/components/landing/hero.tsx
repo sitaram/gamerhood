@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Sparkles, ShoppingBag, ArrowRight } from "lucide-react";
 
-const WORDS = ["hoodies", "tees", "posters", "mugs", "stickers", "backpacks"];
+const WORDS = ["merch", "hoodies", "tees", "posters", "mugs", "stickers", "backpacks"];
 
 export function Hero() {
   return (
@@ -37,7 +37,7 @@ export function Hero() {
             <span className="block text-foreground">Imagine it.</span>
             <span className="block gradient-text">Create it.</span>
             <span className="block text-foreground">
-              Wear it on{" "}
+              Sell it on{" "}
               <RotatingWord words={WORDS} />
             </span>
           </motion.h1>

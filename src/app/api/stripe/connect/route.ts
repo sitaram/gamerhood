@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripe/client";
 import { createClient } from "@/lib/supabase/server";
-import { getProfile, updateProfileStripe } from "@/lib/supabase/queries";
+import { getDefaultProfileForAuthUser, updateProfileStripe } from "@/lib/supabase/queries";
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await getProfile(supabase, user.id);
+    const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
     const stripe = getStripe();
 
     let accountId = profile?.stripe_account_id;
@@ -58,7 +58,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await getProfile(supabase, user.id);
+    const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
 
     if (!profile?.stripe_account_id) {
       return NextResponse.json({ connected: false, onboarded: false });

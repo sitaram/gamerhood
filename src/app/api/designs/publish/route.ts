@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { insertDesign, insertProduct, getProfile } from "@/lib/supabase/queries";
+import { insertDesign, insertProduct, getDefaultProfileForAuthUser } from "@/lib/supabase/queries";
 import {
   uploadImage,
   createProduct as createPrintifyProduct,
@@ -50,13 +50,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: profile } = await getProfile(supabase, user.id);
-    const creatorId = profile?.id || user.id;
+    const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
+    if (!profile) {
+      return NextResponse.json({ error: "No creator profile found" }, { status: 400 });
+    }
+    const profileId = profile.id;
 
     const designTitle = body.title || body.prompt?.slice(0, 50) || "My Design";
 
     const { data: design, error: designErr } = await insertDesign(supabase, {
-      creator_id: creatorId,
+      profile_id: profileId,
       title: designTitle,
       image_url: body.imageUrl,
       prompt: body.prompt,
@@ -119,13 +122,12 @@ export async function POST(request: NextRequest) {
 
       const { data: product, error: productErr } = await insertProduct(supabase, {
         design_id: design.id,
-        creator_id: creatorId,
+        profile_id: profileId,
         title: `${designTitle} ${productType.charAt(0).toUpperCase() + productType.slice(1)}`,
         description: body.prompt || designTitle,
         product_type: productType,
-        base_price: basePrice / 100,
-        markup: markup / 100,
-        price: price / 100,
+        base_price_cents: basePrice,
+        markup_cents: markup,
         mockup_url: body.imageUrl,
         colors: ["Default"],
         sizes: ["hoodie", "tshirt"].includes(productType)
@@ -133,7 +135,6 @@ export async function POST(request: NextRequest) {
           : null,
         is_published: true,
         printify_product_id: printifyProductId,
-        printify_variant_id: printifyVariantId,
       });
 
       if (productErr) {

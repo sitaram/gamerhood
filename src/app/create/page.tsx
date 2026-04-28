@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useRef, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +15,7 @@ import {
   Upload,
   Check,
   AlertCircle,
+  Pencil,
 } from "lucide-react";
 import Image from "next/image";
 import { DesignStyle, ProductType } from "@/lib/types";
@@ -50,7 +51,16 @@ const PROMPTS = [
 ];
 
 export default function CreatePage() {
+  return (
+    <Suspense fallback={null}>
+      <CreatePageInner />
+    </Suspense>
+  );
+}
+
+function CreatePageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState<DesignStyle>("anime");
@@ -59,6 +69,30 @@ export default function CreatePage() {
   const [selectedProducts, setSelectedProducts] = useState<Set<ProductType>>(new Set(["hoodie", "tshirt"]));
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+
+  useEffect(() => {
+    const designId = searchParams.get("designId");
+    if (!designId) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/designs/${designId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setPrompt(data.prompt || "");
+        if (data.style) setStyle(data.style);
+        setGeneratedImage(data.imageUrl);
+        setStep("preview");
+      } catch {
+        // ignore — user lands on blank prompt screen
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
 
   async function handleGenerate() {
     if (!prompt.trim()) return;
@@ -112,6 +146,11 @@ export default function CreatePage() {
       else next.add(type);
       return next;
     });
+  }
+
+  function handleEdit() {
+    setStep("prompt");
+    setError(null);
   }
 
   function handleReset() {
@@ -322,10 +361,16 @@ export default function CreatePage() {
                       Put It On Merch
                     </Button>
                     {prompt && (
-                      <Button variant="outline" onClick={handleGenerate} className="gap-2">
-                        <Wand2 className="h-4 w-4" />
-                        Regenerate
-                      </Button>
+                      <>
+                        <Button variant="outline" onClick={handleEdit} className="gap-2">
+                          <Pencil className="h-4 w-4" />
+                          Edit
+                        </Button>
+                        <Button variant="outline" onClick={handleGenerate} className="gap-2">
+                          <Wand2 className="h-4 w-4" />
+                          Recreate
+                        </Button>
+                      </>
                     )}
                     <Button variant="outline" onClick={handleReset} className="gap-2">
                       <RotateCcw className="h-4 w-4" />

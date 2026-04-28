@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { GenerateDesignRequest } from "@/lib/types";
 import { moderateText } from "@/lib/moderation";
+import { createClient } from "@/lib/supabase/server";
+import { getDefaultProfileForAuthUser, insertDesign } from "@/lib/supabase/queries";
 
 const STYLE_MODIFIERS: Record<string, string> = {
   anime: "anime art style, cel shaded, vibrant colors, manga inspired",
@@ -78,10 +80,32 @@ export async function POST(request: NextRequest) {
         const mimeType = part.inlineData.mimeType || "image/png";
         const imageUrl = `data:${mimeType};base64,${part.inlineData.data}`;
 
+        let designId: string | null = null;
+        try {
+          const supabase = await createClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
+            if (profile) {
+              const { data: design } = await insertDesign(supabase, {
+                profile_id: profile.id,
+                title: body.prompt.slice(0, 80),
+                image_url: imageUrl,
+                prompt: body.prompt,
+                style: body.style,
+              });
+              designId = design?.id ?? null;
+            }
+          }
+        } catch (err) {
+          console.error("[Design Generate] Save error:", err);
+        }
+
         return NextResponse.json({
           imageUrl,
           prompt: body.prompt,
           style: body.style,
+          designId,
         });
       }
     }

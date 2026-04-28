@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Gamepad2, Mail, Lock, User, ArrowRight, Shield, Check, Loader2 } from "lucide-react";
 import { createBrowserClient } from "@supabase/ssr";
+import { OAuthButtons, OAuthDivider } from "@/components/auth/oauth-buttons";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -75,19 +76,24 @@ export default function SignupPage() {
         </CardHeader>
         <CardContent>
           {step === "account" && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setStep("consent");
-              }}
-              className="space-y-4"
-            >
+            <>
+              <OAuthButtons />
+              <OAuthDivider label="or sign up with email" />
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setStep("consent");
+                }}
+                className="space-y-4"
+              >
               <div className="space-y-2">
                 <Label htmlFor="name">Your Name</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="name"
+                    name="name"
+                    autoComplete="name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Your full name"
@@ -103,7 +109,9 @@ export default function SignupPage() {
                   <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="email"
+                    name="email"
                     type="email"
+                    autoComplete="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="parent@example.com"
@@ -119,7 +127,9 @@ export default function SignupPage() {
                   <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     id="password"
+                    name="password"
                     type="password"
+                    autoComplete="new-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="At least 8 characters"
@@ -134,7 +144,8 @@ export default function SignupPage() {
                 Continue
                 <ArrowRight className="h-4 w-4" />
               </Button>
-            </form>
+              </form>
+            </>
           )}
 
           {step === "consent" && (
