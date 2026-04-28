@@ -27,7 +27,12 @@ const PROVIDERS: OAuthProvider[] = [
   },
 ];
 
-export function OAuthButtons() {
+interface OAuthButtonsProps {
+  /** Path on this site to land on after auth completes. Defaults to /dashboard. */
+  next?: string;
+}
+
+export function OAuthButtons({ next }: OAuthButtonsProps = {}) {
   const [loading, setLoading] = useState<Provider | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,10 +45,13 @@ export function OAuthButtons() {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
     );
 
+    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    if (next) callbackUrl.searchParams.set("next", next);
+
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callbackUrl.toString(),
       },
     });
 

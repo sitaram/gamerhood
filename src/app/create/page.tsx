@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, Suspense } from "react";
+import { useState, useRef, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -16,10 +16,19 @@ import {
   Check,
   AlertCircle,
   Pencil,
+  Download,
+  LogIn,
 } from "lucide-react";
 import Image from "next/image";
 import { DesignStyle, ProductType } from "@/lib/types";
 import { toast } from "sonner";
+import { createBrowserClient } from "@supabase/ssr";
+import { OAuthButtons } from "@/components/auth/oauth-buttons";
+import {
+  MAX_FREE_GENERATIONS,
+  addAnonDesign,
+  getAnonDesigns,
+} from "@/lib/anon-designs";
 
 const STYLES: { value: DesignStyle; label: string; emoji: string }[] = [
   { value: "anime", label: "Anime", emoji: "⚔️" },
@@ -50,6 +59,8 @@ const PROMPTS = [
   "A graffiti-style lion with a crown made of lightning",
 ];
 
+type AuthState = "unknown" | "anon" | "signed-in";
+
 export default function CreatePage() {
   return (
     <Suspense fallback={null}>
@@ -70,6 +81,40 @@ function CreatePageInner() {
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
 
+  const [authState, setAuthState] = useState<AuthState>("unknown");
+  const [anonRemaining, setAnonRemaining] = useState<number>(MAX_FREE_GENERATIONS);
+
+  const refreshAnonCount = useCallback(() => {
+    setAnonRemaining(Math.max(0, MAX_FREE_GENERATIONS - getAnonDesigns().length));
+  }, []);
+
+  useEffect(() => {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    );
+
+    let mounted = true;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!mounted) return;
+      setAuthState(user ? "signed-in" : "anon");
+      refreshAnonCount();
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      setAuthState(session?.user ? "signed-in" : "anon");
+      refreshAnonCount();
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, [refreshAnonCount]);
+
+  // Hydrate from ?designId (signed-in users coming from dashboard)
   useEffect(() => {
     const designId = searchParams.get("designId");
     if (!designId) return;
@@ -94,8 +139,26 @@ function CreatePageInner() {
     };
   }, [searchParams]);
 
+  // Hydrate latest anon design from localStorage on mount (so refresh doesn't kill work)
+  useEffect(() => {
+    if (authState !== "anon") return;
+    if (searchParams.get("designId")) return;
+    if (generatedImage) return;
+
+    const designs = getAnonDesigns();
+    if (designs.length === 0) return;
+
+    const latest = designs[0];
+    setPrompt(latest.prompt || "");
+    setStyle((latest.style as DesignStyle) || "anime");
+    setGeneratedImage(latest.imageUrl);
+    setStep("preview");
+  }, [authState, searchParams, generatedImage]);
+
   async function handleGenerate() {
     if (!prompt.trim()) return;
+    if (authState === "anon" && anonRemaining <= 0) return;
+
     setStep("generating");
     setError(null);
 
@@ -114,6 +177,11 @@ function CreatePageInner() {
       const data = await res.json();
       setGeneratedImage(data.imageUrl);
       setStep("preview");
+
+      if (authState === "anon") {
+        addAnonDesign({ prompt: prompt.trim(), style, imageUrl: data.imageUrl });
+        refreshAnonCount();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
       setStep("prompt");
@@ -161,6 +229,17 @@ function CreatePageInner() {
     setError(null);
   }
 
+  function handleDownload() {
+    if (!generatedImage) return;
+    const a = document.createElement("a");
+    a.href = generatedImage;
+    a.download = `gamerhood-${(prompt || "design").slice(0, 24).replace(/\s+/g, "-")}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast.success("Saved to your downloads");
+  }
+
   async function handlePublish() {
     setPublishing(true);
     setError(null);
@@ -194,6 +273,9 @@ function CreatePageInner() {
     }
   }
 
+  const isAnon = authState === "anon";
+  const generationsExhausted = isAnon && anonRemaining <= 0;
+
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
       <div className="text-center">
@@ -203,6 +285,21 @@ function CreatePageInner() {
         <p className="mt-3 text-lg text-muted-foreground">
           Describe your design, pick a style, and watch the magic happen
         </p>
+        {isAnon && (
+          <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-4 py-1.5 text-sm">
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
+            <span className="text-foreground">
+              {anonRemaining > 0 ? (
+                <>
+                  <strong className="font-semibold">{anonRemaining}</strong> free creation
+                  {anonRemaining === 1 ? "" : "s"} left — sign in to keep going
+                </>
+              ) : (
+                <>You&apos;ve used your free creations — sign in to keep going</>
+              )}
+            </span>
+          </div>
+        )}
       </div>
 
       <input
@@ -286,17 +383,24 @@ function CreatePageInner() {
                 </div>
               </Card>
 
-              <div className="flex justify-center">
-                <Button
-                  size="lg"
-                  onClick={handleGenerate}
-                  disabled={!prompt.trim()}
-                  className="gap-2 bg-primary px-10 text-lg hover:bg-primary/90"
-                >
-                  <Wand2 className="h-5 w-5" />
-                  Generate Design
-                </Button>
-              </div>
+              {generationsExhausted ? (
+                <SignInGate
+                  title="Sign in to keep creating"
+                  description="You've used your free creations. Sign in and we'll save everything you've made so far."
+                />
+              ) : (
+                <div className="flex justify-center">
+                  <Button
+                    size="lg"
+                    onClick={handleGenerate}
+                    disabled={!prompt.trim()}
+                    className="gap-2 bg-primary px-10 text-lg hover:bg-primary/90"
+                  >
+                    <Wand2 className="h-5 w-5" />
+                    Generate Design
+                  </Button>
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -366,17 +470,30 @@ function CreatePageInner() {
                           <Pencil className="h-4 w-4" />
                           Edit
                         </Button>
-                        <Button variant="outline" onClick={handleGenerate} className="gap-2">
-                          <Wand2 className="h-4 w-4" />
-                          Recreate
-                        </Button>
+                        {!generationsExhausted && (
+                          <Button variant="outline" onClick={handleGenerate} className="gap-2">
+                            <Wand2 className="h-4 w-4" />
+                            Recreate
+                          </Button>
+                        )}
                       </>
                     )}
+                    <Button variant="outline" onClick={handleDownload} className="gap-2">
+                      <Download className="h-4 w-4" />
+                      Download
+                    </Button>
                     <Button variant="outline" onClick={handleReset} className="gap-2">
                       <RotateCcw className="h-4 w-4" />
                       Start Over
                     </Button>
                   </div>
+
+                  {generationsExhausted && (
+                    <SignInGate
+                      title="Sign in to keep this — and create more"
+                      description="Your designs live in your browser for now. Sign in to save them to your gallery and keep creating."
+                    />
+                  )}
 
                   <Card className="border-border/50 bg-card p-4">
                     <h3 className="text-sm font-semibold text-muted-foreground mb-3">Or upload your own artwork</h3>
@@ -448,32 +565,63 @@ function CreatePageInner() {
                 })}
               </div>
 
-              <div className="flex justify-center gap-4">
-                <Button variant="outline" onClick={() => setStep("preview")} className="gap-2">
-                  Back to Preview
-                </Button>
-                <Button
-                  disabled={selectedProducts.size === 0 || publishing}
-                  onClick={handlePublish}
-                  className="gap-2 bg-primary px-8 hover:bg-primary/90"
-                >
-                  {publishing ? (
-                    <>
-                      <Wand2 className="h-4 w-4 animate-spin" />
-                      Publishing...
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="h-4 w-4" />
-                      Publish to My Shop ({selectedProducts.size} items)
-                    </>
-                  )}
-                </Button>
-              </div>
+              {isAnon ? (
+                <>
+                  <SignInGate
+                    title="Sign in to publish your merch"
+                    description="Publishing creates a real shop where people can buy this. We'll save your designs the moment you sign in."
+                  />
+                  <div className="flex justify-center">
+                    <Button variant="outline" onClick={() => setStep("preview")} className="gap-2">
+                      Back to Preview
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-center gap-4">
+                  <Button variant="outline" onClick={() => setStep("preview")} className="gap-2">
+                    Back to Preview
+                  </Button>
+                  <Button
+                    disabled={selectedProducts.size === 0 || publishing}
+                    onClick={handlePublish}
+                    className="gap-2 bg-primary px-8 hover:bg-primary/90"
+                  >
+                    {publishing ? (
+                      <>
+                        <Wand2 className="h-4 w-4 animate-spin" />
+                        Publishing...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4" />
+                        Publish to My Shop ({selectedProducts.size} items)
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
       </div>
     </div>
+  );
+}
+
+function SignInGate({ title, description }: { title: string; description: string }) {
+  return (
+    <Card className="mx-auto max-w-md border-primary/30 bg-card p-6">
+      <div className="text-center">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <LogIn className="h-5 w-5" />
+        </div>
+        <h3 className="text-lg font-semibold">{title}</h3>
+        <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+      </div>
+      <div className="mt-5">
+        <OAuthButtons next="/create" />
+      </div>
+    </Card>
   );
 }

@@ -9,6 +9,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Gamepad2, Menu, Sparkles, ShoppingCart, User, LogIn, LogOut, LayoutDashboard } from "lucide-react";
 import { useCartStore } from "@/lib/store";
 import { createBrowserClient } from "@supabase/ssr";
+import { toast } from "sonner";
+import { getAnonDesigns, clearAnonDesigns } from "@/lib/anon-designs";
 
 const NAV_LINKS = [
   { href: "/shop", label: "Browse", icon: Gamepad2 },
@@ -58,7 +60,7 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
     );
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setUser({
           email: session.user.email ?? null,
@@ -69,6 +71,13 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
             "Creator",
           avatarUrl: session.user.user_metadata?.avatar_url ?? null,
         });
+
+        // Migrate any designs the user created while anonymous.
+        // SIGNED_IN fires on sign-in *and* on initial session restore from cookies,
+        // so we gate on actually having local designs to avoid spurious calls.
+        if (event === "SIGNED_IN") {
+          void migrateAnonDesignsIfAny();
+        }
       } else {
         setUser(null);
       }
@@ -274,6 +283,39 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
       </div>
     </header>
   );
+}
+
+async function migrateAnonDesignsIfAny() {
+  const designs = getAnonDesigns();
+  if (designs.length === 0) return;
+
+  try {
+    const res = await fetch("/api/designs/migrate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        designs: designs.map((d) => ({
+          prompt: d.prompt,
+          style: d.style,
+          imageUrl: d.imageUrl,
+          createdAt: d.createdAt,
+        })),
+      }),
+    });
+
+    if (!res.ok) return;
+    const data = await res.json();
+    const migrated: number = data.migrated ?? 0;
+
+    if (migrated > 0) {
+      clearAnonDesigns();
+      toast.success(
+        `Saved ${migrated} design${migrated === 1 ? "" : "s"} to your gallery`,
+      );
+    }
+  } catch {
+    // Quiet failure — designs remain in localStorage and we can retry on next sign-in.
+  }
 }
 
 function MenuLink({

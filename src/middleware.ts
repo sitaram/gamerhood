@@ -1,7 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PROTECTED_ROUTES = ["/dashboard", "/create"];
+// /create is intentionally public — anonymous users get N free generations
+// (gated client-side via localStorage counter; see lib/anon-designs.ts)
+const PROTECTED_ROUTES = ["/dashboard"];
 
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
@@ -46,5 +48,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/dashboard/:path*", "/create/:path*", "/auth/:path*"],
+  matcher: ["/dashboard/:path*", "/auth/:path*"],
 };
