@@ -1,4 +1,74 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import type { Product, Creator } from "@/lib/types";
+
+// ── Mappers (DB row → app types) ──
+
+type ProductRowWithProfile = {
+  id: string;
+  design_id: string;
+  profile_id: string;
+  title: string;
+  description: string | null;
+  product_type: string;
+  base_price_cents: number;
+  markup_cents: number;
+  mockup_url: string | null;
+  colors: string[] | null;
+  sizes: string[] | null;
+  is_published: boolean;
+  printify_product_id: string | null;
+  sales_count: number | null;
+  created_at: string;
+  profiles?: {
+    id: string;
+    display_name: string;
+    slug: string;
+    avatar_url: string | null;
+    bio: string | null;
+    level: number | null;
+    xp: number | null;
+  } | null;
+};
+
+function mapProfileToCreator(p: NonNullable<ProductRowWithProfile["profiles"]>): Creator {
+  return {
+    id: p.id,
+    displayName: p.display_name,
+    slug: p.slug,
+    avatarUrl: p.avatar_url ?? "",
+    bio: p.bio ?? "",
+    level: p.level ?? 1,
+    xp: p.xp ?? 0,
+    totalSales: 0,
+    totalDesigns: 0,
+    joinedAt: "",
+    badges: [],
+  };
+}
+
+function mapProductRow(row: ProductRowWithProfile): Product {
+  const basePrice = row.base_price_cents / 100;
+  const markup = row.markup_cents / 100;
+  return {
+    id: row.id,
+    designId: row.design_id,
+    creatorId: row.profile_id,
+    creator: row.profiles ? mapProfileToCreator(row.profiles) : undefined,
+    title: row.title,
+    description: row.description ?? "",
+    productType: row.product_type as Product["productType"],
+    basePrice,
+    markup,
+    price: basePrice + markup,
+    mockupUrl: row.mockup_url ?? "",
+    colors: row.colors ?? ["Default"],
+    sizes: row.sizes ?? undefined,
+    isPublished: row.is_published,
+    createdAt: row.created_at,
+    salesCount: row.sales_count ?? 0,
+    printifyProductId: row.printify_product_id ?? undefined,
+  };
+}
 
 // ── Designs ──
 
@@ -86,13 +156,45 @@ export async function getProductsByProfile(supabase: SupabaseClient, profileId: 
     .order("created_at", { ascending: false });
 }
 
-export async function getPublishedProducts(supabase: SupabaseClient, limit = 50) {
-  return supabase
+export async function getPublishedProducts(supabase: SupabaseClient, limit = 100): Promise<Product[]> {
+  const { data, error } = await supabase
     .from("products")
-    .select("*, profiles(display_name, slug, avatar_url)")
+    .select("*, profiles(id, display_name, slug, avatar_url, bio, level, xp)")
     .eq("is_published", true)
-    .order("sales_count", { ascending: false })
+    .order("created_at", { ascending: false })
     .limit(limit);
+
+  if (error || !data) return [];
+  return (data as ProductRowWithProfile[]).map(mapProductRow);
+}
+
+export async function getProductByIdWithCreator(
+  supabase: SupabaseClient,
+  id: string,
+): Promise<Product | null> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("*, profiles(id, display_name, slug, avatar_url, bio, level, xp)")
+    .eq("id", id)
+    .single();
+
+  if (error || !data) return null;
+  return mapProductRow(data as ProductRowWithProfile);
+}
+
+export async function getPublishedProductsByProfile(
+  supabase: SupabaseClient,
+  profileId: string,
+): Promise<Product[]> {
+  const { data, error } = await supabase
+    .from("products")
+    .select("*, profiles(id, display_name, slug, avatar_url, bio, level, xp)")
+    .eq("profile_id", profileId)
+    .eq("is_published", true)
+    .order("created_at", { ascending: false });
+
+  if (error || !data) return [];
+  return (data as ProductRowWithProfile[]).map(mapProductRow);
 }
 
 // ── Orders ──
@@ -205,6 +307,24 @@ export interface ProfileRow {
   created_at: string;
 }
 
+export async function getProfileBySlug(supabase: SupabaseClient, slug: string) {
+  return supabase
+    .from("profiles")
+    .select("*")
+    .eq("slug", slug)
+    .eq("is_active", true)
+    .single();
+}
+
+export async function getTrendingProfiles(supabase: SupabaseClient, limit = 4) {
+  return supabase
+    .from("profiles")
+    .select("*")
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+}
+
 export async function getProfileByParentId(supabase: SupabaseClient, parentId: string) {
   return supabase
     .from("profiles")
@@ -240,6 +360,7 @@ export async function upsertProfile(
     slug: string;
     avatar_url?: string;
     bio?: string;
+    is_active?: boolean;
   },
 ) {
   return supabase.from("profiles").upsert(data, { onConflict: "parent_id" }).select().single();

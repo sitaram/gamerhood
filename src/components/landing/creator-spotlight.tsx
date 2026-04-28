@@ -4,12 +4,19 @@ import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Star } from "lucide-react";
-import { getTrendingCreators } from "@/lib/mock-data";
 
-export function CreatorSpotlight() {
-  const creators = getTrendingCreators(4);
+export interface SpotlightCreator {
+  id: string;
+  displayName: string;
+  slug: string;
+  avatarUrl: string;
+  bio: string;
+  level: number;
+}
+
+export function CreatorSpotlight({ creators }: { creators: SpotlightCreator[] }) {
+  if (creators.length === 0) return null;
 
   return (
     <section className="py-24 bg-card/30">
@@ -53,19 +60,9 @@ export function CreatorSpotlight() {
                     <Star className="h-3.5 w-3.5 text-neon-orange fill-neon-orange" />
                     Level {creator.level}
                   </div>
-                  <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{creator.bio}</p>
-                  <div className="mt-4 flex justify-center gap-3 text-xs text-muted-foreground">
-                    <span>{creator.totalDesigns} designs</span>
-                    <span>&bull;</span>
-                    <span>{creator.totalSales} sales</span>
-                  </div>
-                  <div className="mt-3 flex flex-wrap justify-center gap-1">
-                    {creator.badges.slice(0, 3).map((badge) => (
-                      <span key={badge.id} className="text-base" title={badge.name}>
-                        {badge.icon}
-                      </span>
-                    ))}
-                  </div>
+                  {creator.bio && (
+                    <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{creator.bio}</p>
+                  )}
                 </div>
               </Link>
             </motion.div>

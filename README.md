@@ -61,7 +61,6 @@ src/
     ui/                   # shadcn/ui primitives
   lib/
     types.ts              # TypeScript types
-    mock-data.ts          # Development mock data
     store.ts              # Zustand cart store
     supabase/             # Supabase client helpers
 supabase/

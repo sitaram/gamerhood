@@ -68,6 +68,7 @@ export async function GET(request: NextRequest) {
         display_name: displayName,
         slug,
         avatar_url: user.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/thumbs/svg?seed=${user.id}`,
+        is_active: true,
       });
 
       if (profileError) {

@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { Navbar } from "@/components/layout/navbar";
 import { Footer } from "@/components/layout/footer";
+import { createClient } from "@/lib/supabase/server";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,11 +29,26 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const initialUser = user
+    ? {
+        email: user.email ?? null,
+        displayName:
+          user.user_metadata?.full_name ||
+          user.user_metadata?.name ||
+          user.email?.split("@")[0] ||
+          "Creator",
+        avatarUrl: user.user_metadata?.avatar_url ?? null,
+      }
+    : null;
+
   return (
     <html
       lang="en"
@@ -40,7 +56,7 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-grid">
         <TooltipProvider>
-          <Navbar />
+          <Navbar initialUser={initialUser} />
           <main className="flex-1">{children}</main>
           <Footer />
           <Toaster />
