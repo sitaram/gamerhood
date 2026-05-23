@@ -25,12 +25,19 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  const { count: publishedProductCount } = await supabase
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .eq("design_id", id)
+    .eq("is_published", true);
+
   return NextResponse.json({
     id: data.id,
     imageUrl: data.image_url,
     prompt: data.prompt,
     style: data.style,
     title: data.title,
+    hasPublishedProducts: (publishedProductCount ?? 0) > 0,
   });
 }
 

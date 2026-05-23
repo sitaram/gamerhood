@@ -149,6 +149,8 @@ function CreatePageInner() {
 
   const [authState, setAuthState] = useState<AuthState>("unknown");
   const [anonRemaining, setAnonRemaining] = useState<number>(MAX_FREE_GENERATIONS);
+  /** True when `/create?designId=` loaded a design that already has published listings. */
+  const [editingPublishedDesign, setEditingPublishedDesign] = useState(false);
 
   const refreshAnonCount = useCallback(() => {
     setAnonRemaining(Math.max(0, MAX_FREE_GENERATIONS - getAnonDesigns().length));
@@ -228,6 +230,7 @@ function CreatePageInner() {
         setPrompt(data.prompt || "");
         if (data.style) setStyle(data.style);
         setGeneratedImage(data.imageUrl);
+        setEditingPublishedDesign(Boolean(data.hasPublishedProducts));
         setStep("preview");
       } catch {
         // ignore — user lands on blank prompt screen
@@ -372,6 +375,7 @@ function CreatePageInner() {
     setPrintPlacement({ ...DEFAULT_STORED });
     setPlacementOverrides({});
     setTuningType(null);
+    setEditingPublishedDesign(false);
     setError(null);
   }
 
@@ -538,21 +542,27 @@ function CreatePageInner() {
                     <RotateCcw className="mr-1 h-3 w-3" />
                     Random idea
                   </Button>
-                  <span className="text-xs text-muted-foreground">or</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    <Upload className="mr-1 h-3 w-3" />
-                    Upload your own artwork
-                  </Button>
+                  {!editingPublishedDesign && (
+                    <>
+                      <span className="text-xs text-muted-foreground">or</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <Upload className="mr-1 h-3 w-3" />
+                        Upload your own artwork
+                      </Button>
+                    </>
+                  )}
                 </div>
-                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                  PNG, JPG, WebP, GIF, or SVG (max 8 MB). SVG uploads are rasterized server-side before
-                  print so logos stay crisp; transparency is preserved when your file has alpha.
-                </p>
+                {!editingPublishedDesign && (
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                    PNG, JPG, WebP, GIF, or SVG (max 8 MB). SVG uploads are rasterized server-side before
+                    print so logos stay crisp; transparency is preserved when your file has alpha.
+                  </p>
+                )}
               </Card>
 
               <Card className="border-border/50 bg-card p-6">
@@ -698,21 +708,23 @@ function CreatePageInner() {
                     />
                   )}
 
-                  <Card className="border-border/50 bg-card p-4">
-                    <h3 className="text-sm font-semibold text-muted-foreground mb-3">Or upload your own artwork</h3>
-                    <Button
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="gap-2 w-full border-dashed border-border"
-                    >
-                      <Upload className="h-4 w-4" />
-                      Upload Image
-                    </Button>
-                    <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                      SVG uploads are converted to print-ready PNG (high resolution); keep transparent
-                      backgrounds only where you intend them — that is what prints as “knockout” on merch.
-                    </p>
-                  </Card>
+                  {!editingPublishedDesign && (
+                    <Card className="border-border/50 bg-card p-4">
+                      <h3 className="text-sm font-semibold text-muted-foreground mb-3">Or upload your own artwork</h3>
+                      <Button
+                        variant="outline"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="gap-2 w-full border-dashed border-border"
+                      >
+                        <Upload className="h-4 w-4" />
+                        Upload Image
+                      </Button>
+                      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                        SVG uploads are converted to print-ready PNG (high resolution); keep transparent
+                        backgrounds only where you intend them — that is what prints as “knockout” on merch.
+                      </p>
+                    </Card>
+                  )}
                 </div>
               </div>
             </motion.div>
