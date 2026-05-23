@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import {
@@ -13,13 +15,13 @@ import {
   RotateCcw,
   ShoppingCart,
   Upload,
-  Check,
   AlertCircle,
   Pencil,
   Download,
   LogIn,
 } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { DesignStyle, ProductType } from "@/lib/types";
 import { toast } from "sonner";
 import { createBrowserClient } from "@supabase/ssr";
@@ -29,6 +31,18 @@ import {
   addAnonDesign,
   getAnonDesigns,
 } from "@/lib/anon-designs";
+import { sanitizeSlugInput, MAX_PRODUCT_CATEGORY_SLUG_LEN } from "@/lib/slug-utils";
+import { PrintPlacementEditor } from "@/components/create/print-placement-editor";
+import { CategoryProductPicker } from "@/components/create/category-product-picker";
+import { PRODUCT_TYPE_LABELS } from "@/components/storefront/product-card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { DEFAULT_STORED } from "@/lib/print/placement";
+import type { StoredPrintPlacement } from "@/lib/print/placement";
 
 const STYLES: { value: DesignStyle; label: string; emoji: string }[] = [
   { value: "anime", label: "Anime", emoji: "⚔️" },
@@ -41,15 +55,10 @@ const STYLES: { value: DesignStyle; label: string; emoji: string }[] = [
   { value: "realistic", label: "Realistic", emoji: "📷" },
 ];
 
-const PRODUCTS: { value: ProductType; label: string; emoji: string; base: number }[] = [
-  { value: "hoodie", label: "Hoodie", emoji: "🧥", base: 42 },
-  { value: "tshirt", label: "Tee", emoji: "👕", base: 26 },
-  { value: "poster", label: "Poster", emoji: "🖼️", base: 15 },
-  { value: "mug", label: "Mug", emoji: "☕", base: 18 },
-  { value: "sticker", label: "Sticker", emoji: "🏷️", base: 6 },
-  { value: "backpack", label: "Backpack", emoji: "🎒", base: 37 },
-  { value: "phone-case", label: "Phone Case", emoji: "📱", base: 22 },
-];
+
+/** Same host as `/api/designs/generate` when `GEMINI_API_KEY` is unset. */
+const DEV_DEMO_HOODIE_ART_URL =
+  "https://placehold.co/1024x1024/1a1a2e/e94560/png?text=Demo+hoodie+art";
 
 const PROMPTS = [
   "A dragon playing basketball in outer space with neon flames",
@@ -73,13 +82,70 @@ function CreatePageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** Local-only: `/create?demo=hoodie` loads placeholder art + hoodie-only to exercise publish without AI. */
+  const demoHoodieDev =
+    process.env.NODE_ENV === "development" && searchParams.get("demo") === "hoodie";
+  const demoHoodieProducts =
+    demoHoodieDev && searchParams.get("step") === "products";
+  const demoHoodieAppliedRef = useRef(false);
+
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState<DesignStyle>("anime");
-  const [step, setStep] = useState<"prompt" | "generating" | "preview" | "products">("prompt");
+  const [step, setStep] = useState<
+    "prompt" | "generating" | "preview" | "placement" | "products"
+  >("prompt");
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  // "ai" → image came from /api/designs/generate (already moderated server-side).
+  // "upload" → user picked a file from disk; needs server-side moderation on publish.
+  const [imageSource, setImageSource] = useState<"ai" | "upload">("ai");
+  /** Set when `/api/designs/generate` falls back to a placeholder (no GEMINI_API_KEY). */
+  const [placeholderNotice, setPlaceholderNotice] = useState<string | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Set<ProductType>>(new Set(["hoodie", "tshirt"]));
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  /** Optional shopper-facing copy + discovery fields applied to each product in this publish batch. */
+  const [listingDescription, setListingDescription] = useState("");
+  const [productTags, setProductTags] = useState("");
+  const [productCategory, setProductCategory] = useState("");
+  const [browseCategorySlugs, setBrowseCategorySlugs] = useState<string[]>([]);
+
+  const [printPlacement, setPrintPlacement] = useState<StoredPrintPlacement>(() => ({
+    ...DEFAULT_STORED,
+  }));
+  /** Per–product-type framing overrides on top of `printPlacement` (publish + previews). */
+  const [placementOverrides, setPlacementOverrides] = useState<
+    Partial<Record<ProductType, StoredPrintPlacement>>
+  >({});
+  const [tuningType, setTuningType] = useState<ProductType | null>(null);
+  const [dialogPlacement, setDialogPlacement] = useState<StoredPrintPlacement>(() => ({
+    ...DEFAULT_STORED,
+  }));
+
+  const handleAspectDetected = useCallback((aspect: number) => {
+    setPrintPlacement((prev) =>
+      prev.imageAspect === aspect ? prev : { ...prev, imageAspect: aspect },
+    );
+  }, []);
+
+  const handleDialogAspectDetected = useCallback((aspect: number) => {
+    setDialogPlacement((prev) =>
+      prev.imageAspect === aspect ? prev : { ...prev, imageAspect: aspect },
+    );
+  }, []);
+
+  const openTune = useCallback(
+    (type: ProductType) => {
+      setDialogPlacement({ ...(placementOverrides[type] ?? printPlacement) });
+      setTuningType(type);
+    },
+    [placementOverrides, printPlacement],
+  );
+
+  function applyTune() {
+    if (!tuningType) return;
+    setPlacementOverrides((prev) => ({ ...prev, [tuningType]: dialogPlacement }));
+    setTuningType(null);
+  }
 
   const [authState, setAuthState] = useState<AuthState>("unknown");
   const [anonRemaining, setAnonRemaining] = useState<number>(MAX_FREE_GENERATIONS);
@@ -113,6 +179,39 @@ function CreatePageInner() {
       sub.subscription.unsubscribe();
     };
   }, [refreshAnonCount]);
+
+  useEffect(() => {
+    if (authState !== "signed-in") return;
+    let cancelled = false;
+    fetch("/api/browse-categories")
+      .then((r) => r.json())
+      .then((j: { categories?: { slug: string }[] }) => {
+        if (cancelled || !Array.isArray(j.categories)) return;
+        setBrowseCategorySlugs(j.categories.map((c) => c.slug));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [authState]);
+
+  useEffect(() => {
+    if (
+      !demoHoodieDev ||
+      demoHoodieAppliedRef.current ||
+      searchParams.get("designId")
+    ) {
+      return;
+    }
+    demoHoodieAppliedRef.current = true;
+    setSelectedProducts(new Set<ProductType>(["hoodie"]));
+    setPrompt((prev) =>
+      prev.trim() ? prev : "Friendly alien in a cozy hoodie for local demo",
+    );
+    setGeneratedImage(DEV_DEMO_HOODIE_ART_URL);
+    setImageSource("ai");
+    setStep(demoHoodieProducts ? "products" : "preview");
+  }, [demoHoodieDev, demoHoodieProducts, searchParams]);
 
   // Hydrate from ?designId (signed-in users coming from dashboard)
   useEffect(() => {
@@ -176,6 +275,8 @@ function CreatePageInner() {
 
       const data = await res.json();
       setGeneratedImage(data.imageUrl);
+      setImageSource("ai");
+      setPlaceholderNotice(data.placeholder ? (data.placeholderReason ?? "") : null);
       setStep("preview");
 
       if (authState === "anon") {
@@ -197,21 +298,52 @@ function CreatePageInner() {
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      setError("Please upload an image file (PNG, JPG, SVG)");
+      setError("Please upload PNG, JPG, WebP, GIF, or SVG");
       return;
     }
 
-    const url = URL.createObjectURL(file);
-    setGeneratedImage(url);
-    setStep("preview");
-    setError(null);
+    // 8 MB raw → ~10.7 MB base64 once encoded. Keeps us under Next.js
+    // route-handler body limits and keeps Storage uploads snappy.
+    const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError("Image is too large — please pick something under 8 MB.");
+      e.target.value = "";
+      return;
+    }
+
+    // Read the file as a base64 data URL so the bytes can travel over the
+    // wire to /api/designs/publish (which uploads to Supabase Storage and
+    // hands the public URL to Printful). A blob: URL only exists in this
+    // tab and is invalid both server-side and after refresh.
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : null;
+      if (!dataUrl) {
+        setError("Couldn't read that image — try a different file.");
+        return;
+      }
+      setGeneratedImage(dataUrl);
+      setImageSource("upload");
+      setStep("preview");
+      setError(null);
+    };
+    reader.onerror = () => setError("Couldn't read that image — try a different file.");
+    reader.readAsDataURL(file);
+    e.target.value = "";
   }
 
   function toggleProduct(type: ProductType) {
     setSelectedProducts((prev) => {
       const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
+      if (next.has(type)) {
+        next.delete(type);
+        setPlacementOverrides((overrides) => {
+          const { [type]: _, ...rest } = overrides;
+          return rest;
+        });
+      } else {
+        next.add(type);
+      }
       return next;
     });
   }
@@ -225,7 +357,21 @@ function CreatePageInner() {
     setPrompt("");
     setStep("prompt");
     setGeneratedImage(null);
-    setSelectedProducts(new Set(["hoodie", "tshirt"]));
+    setImageSource("ai");
+    setSelectedProducts(
+      new Set([
+        "hoodie",
+        "kids-hoodie",
+        "kids-tshirt",
+        "kids-heavyweight-tee",
+        "kids-long-sleeve",
+        "kids-sports-tee",
+        "tshirt",
+      ]),
+    );
+    setPrintPlacement({ ...DEFAULT_STORED });
+    setPlacementOverrides({});
+    setTuningType(null);
     setError(null);
   }
 
@@ -250,9 +396,17 @@ function CreatePageInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageUrl: generatedImage,
+          imageSource,
           prompt: prompt || null,
           style,
           productTypes: [...selectedProducts],
+          listingDescription: listingDescription.trim() || null,
+          productTags: productTags.trim() || null,
+          productCategory: productCategory.trim() || null,
+          printPlacement,
+          ...(Object.keys(placementOverrides).length > 0
+            ? { printPlacementsByType: placementOverrides }
+            : {}),
         }),
       });
 
@@ -262,9 +416,26 @@ function CreatePageInner() {
       }
 
       const data = await res.json();
+
+      const failures = Array.isArray((data as { failures?: unknown }).failures)
+          ? (data as { failures: { productType: string; message: string }[] }).failures
+          : [];
+
+      if (failures.length > 0 && data.count === 0) {
+        throw new Error(
+          failures.map((f) => `${f.productType}: ${f.message}`).join("; ") ||
+            "No listings were saved.",
+        );
+      }
+
       toast.success(
         `${data.count} product${data.count > 1 ? "s" : ""} published to your shop!`,
-        { description: "Head to your dashboard to manage them." },
+        {
+          description:
+            failures.length > 0
+              ? `Skipped: ${failures.map((f) => `${f.productType}`).join(", ")} (${failures[0]?.message ?? "error"}${failures.length > 1 ? ", …" : ""})`
+              : "Head to your dashboard to manage them.",
+        },
       );
       router.push("/dashboard");
     } catch (err) {
@@ -317,6 +488,23 @@ function CreatePageInner() {
         </div>
       )}
 
+      {demoHoodieDev && (
+        <div className="mt-6 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+          <p className="font-medium text-amber-950 dark:text-amber-100">Developer hoodie demo</p>
+          <p className="mt-1 text-muted-foreground">
+            Loaded placeholder artwork and hoodie-only merch. Publishing still signs you in (
+            <Link href="/auth/login" className="underline underline-offset-2 hover:text-foreground">
+              /auth/login
+            </Link>
+            ) then runs{" "}
+            <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-xs">/api/designs/publish</code>.
+            Drop{" "}
+            <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-xs">?demo=hoodie</code> from the
+            URL when you&apos;re done.
+          </p>
+        </div>
+      )}
+
       <div className="mt-12">
         <AnimatePresence mode="wait">
           {step === "prompt" && (
@@ -361,6 +549,10 @@ function CreatePageInner() {
                     Upload your own artwork
                   </Button>
                 </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  PNG, JPG, WebP, GIF, or SVG (max 8 MB). SVG uploads are rasterized server-side before
+                  print so logos stay crisp; transparency is preserved when your file has alpha.
+                </p>
               </Card>
 
               <Card className="border-border/50 bg-card p-6">
@@ -432,12 +624,23 @@ function CreatePageInner() {
               exit={{ opacity: 0, y: -20 }}
               className="space-y-8"
             >
+              {placeholderNotice && (
+                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-foreground">
+                  <p className="font-medium text-amber-950 dark:text-amber-100">
+                    AI generation is in demo / placeholder mode
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    {placeholderNotice} Until then, this image is a placeholder so you can still test
+                    placement, publishing, and checkout flows.
+                  </p>
+                </div>
+              )}
               <div className="grid gap-8 lg:grid-cols-2">
                 <Card className="border-border/50 bg-card overflow-hidden">
                   <div className="relative aspect-square">
                     <Image
                       src={generatedImage}
-                      alt="Generated design"
+                      alt={placeholderNotice ? "Placeholder design (AI not configured)" : "Generated design"}
                       fill
                       className="object-cover"
                       unoptimized
@@ -460,7 +663,7 @@ function CreatePageInner() {
                   </div>
 
                   <div className="flex flex-wrap gap-3">
-                    <Button onClick={() => setStep("products")} className="gap-2 bg-primary hover:bg-primary/90">
+                    <Button onClick={() => setStep("placement")} className="gap-2 bg-primary hover:bg-primary/90">
                       <ShoppingCart className="h-4 w-4" />
                       Put It On Merch
                     </Button>
@@ -505,9 +708,42 @@ function CreatePageInner() {
                       <Upload className="h-4 w-4" />
                       Upload Image
                     </Button>
+                    <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                      SVG uploads are converted to print-ready PNG (high resolution); keep transparent
+                      backgrounds only where you intend them — that is what prints as “knockout” on merch.
+                    </p>
                   </Card>
                 </div>
               </div>
+            </motion.div>
+          )}
+
+          {step === "placement" && generatedImage && (
+            <motion.div
+              key="placement"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="mx-auto max-w-3xl space-y-8"
+            >
+              <Card className="border-border/50 bg-card p-6 sm:p-8">
+                <PrintPlacementEditor
+                  imageUrl={generatedImage}
+                  selectedProductTypes={selectedProducts}
+                  value={printPlacement}
+                  onChange={setPrintPlacement}
+                  onAspectDetected={handleAspectDetected}
+                />
+                <div className="mt-8 flex flex-wrap justify-center gap-3 border-t border-border/60 pt-6">
+                  <Button variant="outline" onClick={() => setStep("preview")} className="gap-2">
+                    Back to flat preview
+                  </Button>
+                  <Button onClick={() => setStep("products")} className="gap-2 bg-primary hover:bg-primary/90">
+                    <ShoppingCart className="h-4 w-4" />
+                    Continue — choose products
+                  </Button>
+                </div>
+              </Card>
             </motion.div>
           )}
 
@@ -523,47 +759,153 @@ function CreatePageInner() {
                 <h2 className="text-2xl font-bold">
                   Choose Your <span className="gradient-text">Merch</span>
                 </h2>
-                <p className="mt-2 text-muted-foreground">
-                  Select the products you want to create with your design
+                <p className="mt-2 max-w-xl mx-auto text-muted-foreground">
+                  Pick a category to expand the available Printful blanks, then check off the exact items you want to
+                  publish. Each preview shows your batch framing — use Fine-tune to adjust a single item without
+                  changing the rest.
                 </p>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {PRODUCTS.map((p) => {
-                  const selected = selectedProducts.has(p.value);
-                  return (
-                    <button
-                      key={p.value}
-                      onClick={() => toggleProduct(p.value)}
-                      className={`group relative overflow-hidden rounded-xl border p-4 text-left transition-all ${
-                        selected
-                          ? "border-primary bg-primary/10 glow-border-purple"
-                          : "border-border/50 bg-card hover:border-border"
-                      }`}
+              <CategoryProductPicker
+                imageUrl={generatedImage}
+                selected={selectedProducts}
+                onToggle={toggleProduct}
+                basePlacement={printPlacement}
+                placementOverrides={placementOverrides}
+                onTune={openTune}
+              />
+
+              <Dialog open={tuningType !== null} onOpenChange={(open) => !open && setTuningType(null)}>
+                <DialogContent className="max-h-[min(90vh,760px)] overflow-y-auto sm:max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>
+                      Fine-tune — {tuningType ? PRODUCT_TYPE_LABELS[tuningType] ?? tuningType : ""}
+                    </DialogTitle>
+                  </DialogHeader>
+                  {generatedImage && tuningType && (
+                    <PrintPlacementEditor
+                      imageUrl={generatedImage}
+                      selectedProductTypes={new Set<ProductType>([tuningType])}
+                      value={dialogPlacement}
+                      onChange={setDialogPlacement}
+                      onAspectDetected={handleDialogAspectDetected}
+                      hideBatchPlacementNote
+                    />
+                  )}
+                  <div className="flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-end">
+                    <Button variant="outline" onClick={() => setTuningType(null)}>
+                      Cancel
+                    </Button>
+                    <Button className="bg-primary hover:bg-primary/90" onClick={applyTune}>
+                      Apply to this product type
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              <Card className="border-border/50 bg-card p-6 text-left">
+                <h3 className="text-base font-semibold tracking-tight">Listing details</h3>
+                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+                  These parts are&nbsp;
+                  <strong className="font-medium text-foreground">instructions only</strong>
+                  — you don&apos;t type here. Scroll to the bordered section for the actual text boxes.
+                </p>
+                <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
+                  Whatever you enter applies to{' '}
+                  <strong className="font-medium text-foreground">every product</strong> in this publish
+                  batch. You can refine each listing later under{' '}
+                  <span className="font-medium text-foreground">Dashboard → Storefront</span>.
+                </p>
+
+                <div
+                  role="group"
+                  aria-labelledby="create-listing-fields-title"
+                  className="mt-5 space-y-4 rounded-xl border-2 border-dashed border-primary/35 bg-muted/50 p-4 shadow-inner dark:bg-muted/25 dark:border-primary/40"
+                >
+                  <div id="create-listing-fields-title" className="flex flex-wrap items-center gap-2">
+                    <span
+                      className="inline-flex rounded-md bg-primary px-2 py-1 text-xs font-semibold text-primary-foreground"
+                      aria-hidden
                     >
-                      {selected && (
-                        <div className="absolute top-3 right-3 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                          <Check className="h-3.5 w-3.5" />
-                        </div>
-                      )}
-                      <div className="relative mx-auto mb-3 h-24 w-24 overflow-hidden rounded-lg bg-secondary">
-                        <Image
-                          src={generatedImage}
-                          alt={p.label}
-                          fill
-                          className="object-cover"
-                          unoptimized
-                        />
-                      </div>
-                      <div className="text-center">
-                        <span className="text-2xl">{p.emoji}</span>
-                        <h3 className="mt-1 font-semibold">{p.label}</h3>
-                        <p className="text-sm text-muted-foreground">from ${p.base}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                      Type here
+                    </span>
+                    <span className="text-sm font-semibold text-foreground">
+                      Optional fields — tap or click inside each box
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="create-listing-description" className="text-sm font-medium text-foreground">
+                      Description{' '}
+                      <span className="font-normal text-muted-foreground">(multi-line)</span>
+                    </Label>
+                    <Textarea
+                      id="create-listing-description"
+                      value={listingDescription}
+                      onChange={(e) => setListingDescription(e.target.value)}
+                      placeholder="Type a short description shoppers will see..."
+                      rows={3}
+                      className="resize-none bg-background text-sm shadow-sm md:text-sm"
+                      aria-describedby="create-listing-description-hint"
+                    />
+                    <p id="create-listing-description-hint" className="text-xs text-muted-foreground">
+                      Larger box — your product story for search snippets and product pages.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="create-product-tags" className="text-sm font-medium text-foreground">
+                        Tags{' '}
+                        <span className="font-normal text-muted-foreground">(single line)</span>
+                      </Label>
+                      <Input
+                        id="create-product-tags"
+                        value={productTags}
+                        onChange={(e) => setProductTags(e.target.value)}
+                        placeholder="Type tags: gaming, retro, kids..."
+                        className="h-9 bg-background text-sm shadow-sm"
+                        aria-describedby="create-product-tags-hint"
+                      />
+                      <p id="create-product-tags-hint" className="text-xs text-muted-foreground">
+                        One rounded row — separate words with commas. These help shoppers find your design when they
+                        search and browse — not for old HTML meta-keywords tags.
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="create-product-category" className="text-sm font-medium text-foreground">
+                        Category slug{' '}
+                        <span className="font-normal text-muted-foreground">(single line)</span>
+                      </Label>
+                      <Input
+                        id="create-product-category"
+                        list="browse-seo-categories"
+                        value={productCategory}
+                        onChange={(e) =>
+                          setProductCategory(
+                            sanitizeSlugInput(e.target.value, MAX_PRODUCT_CATEGORY_SLUG_LEN),
+                          )
+                        }
+                        placeholder="Type a category, e.g. streetwear-style"
+                        className="h-9 bg-background text-sm shadow-sm"
+                        aria-describedby="create-product-category-hint"
+                      />
+                      <datalist id="browse-seo-categories">
+                        {browseCategorySlugs.map((s) => (
+                          <option key={s} value={s} />
+                        ))}
+                      </datalist>
+                      <p id="create-product-category-hint" className="text-xs text-muted-foreground">
+                        Same shape as Tags — lowercase and hyphens. Match an{' '}
+                        <Link href="/dashboard/categories" className="text-primary underline-offset-2 hover:underline">
+                          SEO category
+                        </Link>{' '}
+                        so browse URLs pick up your meta.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </Card>
 
               {isAnon ? (
                 <>
@@ -572,15 +914,15 @@ function CreatePageInner() {
                     description="Publishing creates a real shop where people can buy this. We'll save your designs the moment you sign in."
                   />
                   <div className="flex justify-center">
-                    <Button variant="outline" onClick={() => setStep("preview")} className="gap-2">
-                      Back to Preview
+                    <Button variant="outline" onClick={() => setStep("placement")} className="gap-2">
+                      Back to print layout
                     </Button>
                   </div>
                 </>
               ) : (
                 <div className="flex justify-center gap-4">
-                  <Button variant="outline" onClick={() => setStep("preview")} className="gap-2">
-                    Back to Preview
+                  <Button variant="outline" onClick={() => setStep("placement")} className="gap-2">
+                    Back to print layout
                   </Button>
                   <Button
                     disabled={selectedProducts.size === 0 || publishing}

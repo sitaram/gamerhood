@@ -14,12 +14,25 @@ import type { Product, ProductType } from "@/lib/types";
 const PRODUCT_TYPES: { value: ProductType | "all"; label: string }[] = [
   { value: "all", label: "All Products" },
   { value: "hoodie", label: "Hoodies" },
+  { value: "kids-hoodie", label: "Kids hoodies" },
+  { value: "kids-tshirt", label: "Kids tees" },
+  { value: "kids-heavyweight-tee", label: "Kids heavyweight tees" },
+  { value: "kids-long-sleeve", label: "Kids long sleeves" },
+  { value: "kids-sports-tee", label: "Kids sports tees" },
   { value: "tshirt", label: "Tees" },
   { value: "poster", label: "Posters" },
+  { value: "hardcover-journal", label: "Journals" },
+  { value: "puzzle", label: "Puzzles" },
   { value: "mug", label: "Mugs" },
   { value: "sticker", label: "Stickers" },
+  { value: "embroidered-patch", label: "Patches" },
+  { value: "ornament", label: "Ornaments" },
+  { value: "pillow", label: "Shaped pillows" },
+  { value: "blanket", label: "Sherpa blankets" },
+  { value: "pet-sweater", label: "Pet sweaters" },
   { value: "backpack", label: "Backpacks" },
   { value: "phone-case", label: "Phone Cases" },
+  { value: "tote-bag", label: "Eco totes" },
 ];
 
 type SortOption = "newest" | "popular" | "price-low" | "price-high";

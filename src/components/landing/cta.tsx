@@ -43,6 +43,17 @@ export function CTA() {
           <p className="mt-6 text-sm text-muted-foreground">
             Free to design &bull; Only pay when you order &bull; Premium quality guaranteed
           </p>
+
+          {process.env.NODE_ENV === "development" && (
+            <p className="mt-5 text-xs text-muted-foreground">
+              <Link
+                href="/create?demo=hoodie"
+                className="text-amber-700 underline decoration-amber-500/60 underline-offset-2 hover:text-amber-900 dark:text-amber-400 dark:hover:text-amber-200"
+              >
+                Dev: hoodie publish shortcut
+              </Link>
+            </p>
+          )}
         </motion.div>
       </div>
     </section>

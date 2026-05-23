@@ -5,13 +5,20 @@ import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { ShoppingCart } from "lucide-react";
 import { Product } from "@/lib/types";
+import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
+import { DEFAULT_STORED } from "@/lib/print/placement";
 
 interface ProductCardProps {
   product: Product;
 }
 
-const TYPE_LABELS: Record<string, string> = {
+export const PRODUCT_TYPE_LABELS: Record<string, string> = {
   hoodie: "Hoodie",
+  "kids-hoodie": "Kids hoodie",
+  "kids-tshirt": "Kids tee",
+  "kids-heavyweight-tee": "Kids heavyweight tee",
+  "kids-long-sleeve": "Kids long sleeve",
+  "kids-sports-tee": "Kids sports tee",
   tshirt: "Tee",
   joggers: "Joggers",
   mug: "Mug",
@@ -19,27 +26,69 @@ const TYPE_LABELS: Record<string, string> = {
   backpack: "Backpack",
   "phone-case": "Phone Case",
   sticker: "Sticker",
+  pillow: "Shaped pillow",
+  blanket: "Sherpa blanket",
+  "pet-sweater": "Pet sweater",
+  "tote-bag": "Eco tote",
+  ornament: "Metal ornament",
+  puzzle: "Jigsaw puzzle",
+  "embroidered-patch": "Embroidered patch",
+  "hardcover-journal": "Hardcover journal",
 };
 
+/**
+ * Prefer our composited “art + garment silhouette” preview whenever flat artwork exists.
+ * Printful-hosted mockups are often photoreal—but some catalog styles come back as flat /
+ * blueprint images, which look broken on grids; omit them whenever we can composite instead.
+ */
+export function shouldFallbackToPrintfulMockupCard(
+  designImageUrl: string | null | undefined,
+): boolean {
+  return !designImageUrl?.trim();
+}
+
 export function ProductCard({ product }: ProductCardProps) {
+  const showPrintfulThumb = shouldFallbackToPrintfulMockupCard(product.designImageUrl);
+
   return (
     <Link href={`/product/${product.id}`}>
       <div className="group overflow-hidden rounded-xl border border-border/50 bg-card transition-all hover:border-primary/30 hover:glow-border-purple">
         <div className="relative aspect-square overflow-hidden bg-secondary">
-          <Image
-            src={product.mockupUrl}
-            alt={product.title}
-            fill
-            className="object-cover transition-transform duration-300 group-hover:scale-105"
-            unoptimized
-          />
+          {!showPrintfulThumb ? (
+            <MerchPlacementPreview
+              imageUrl={product.designImageUrl!}
+              productType={product.productType}
+              placement={product.printPlacement ?? DEFAULT_STORED}
+              className="transition-transform duration-300 group-hover:scale-[1.02]"
+            />
+          ) : product.mockupUrl?.trim() ? (
+            <Image
+              src={product.mockupUrl}
+              alt={product.title}
+              fill
+              className="object-cover transition-transform duration-300 group-hover:scale-105"
+              unoptimized
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center bg-muted p-6 text-center text-xs text-muted-foreground">
+              No preview
+            </div>
+          )}
           <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
           <div className="absolute bottom-3 right-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground opacity-0 transition-all group-hover:opacity-100">
             <ShoppingCart className="h-4 w-4" />
           </div>
           <Badge className="absolute top-3 left-3 bg-background/80 text-foreground border-0 text-xs">
-            {TYPE_LABELS[product.productType] || product.productType}
+            {PRODUCT_TYPE_LABELS[product.productType] || product.productType}
           </Badge>
+          {product.category && (
+            <Badge
+              variant="secondary"
+              className="absolute top-3 right-3 border-border/50 bg-background/80 text-[10px] capitalize max-w-[40%] truncate"
+            >
+              {product.category.replace(/-/g, " ")}
+            </Badge>
+          )}
         </div>
         <div className="p-4">
           <h3 className="font-semibold text-sm truncate group-hover:text-primary transition-colors">

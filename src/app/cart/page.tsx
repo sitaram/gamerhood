@@ -40,8 +40,7 @@ export default function CartPage() {
         body: JSON.stringify({
           items: items.map((item) => ({
             productId: item.product.id,
-            printifyProductId: item.product.printifyProductId,
-            printifyVariantId: item.product.printifyVariantId,
+            printfulCatalogVariantId: item.product.printfulCatalogVariantId,
             title: item.product.title,
             price: item.product.price,
             quantity: item.quantity,

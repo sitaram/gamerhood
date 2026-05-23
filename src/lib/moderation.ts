@@ -3,11 +3,36 @@ export interface ModerationResult {
   flags: string[];
 }
 
-export async function moderateImage(imageUrl: string): Promise<ModerationResult> {
+// Safe-search levels that we treat as "fail closed". The kid-facing nature of
+// this product means anything LIKELY+ should be blocked; "POSSIBLE" still
+// passes since false positives there are common.
+const UNSAFE_LEVELS = new Set(["LIKELY", "VERY_LIKELY"]);
+
+interface SafeSearchAnnotation {
+  adult?: string;
+  violence?: string;
+  racy?: string;
+  medical?: string;
+  spoof?: string;
+}
+
+function flagsFromAnnotation(annotation: SafeSearchAnnotation): string[] {
+  const flags: string[] = [];
+  if (annotation.adult && UNSAFE_LEVELS.has(annotation.adult)) flags.push("adult");
+  if (annotation.violence && UNSAFE_LEVELS.has(annotation.violence)) flags.push("violence");
+  if (annotation.racy && UNSAFE_LEVELS.has(annotation.racy)) flags.push("racy");
+  if (annotation.medical && UNSAFE_LEVELS.has(annotation.medical)) flags.push("medical");
+  return flags;
+}
+
+async function callVision(
+  imagePayload: { source: { imageUri: string } } | { content: string },
+): Promise<ModerationResult> {
   const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
 
+  // No Vision API configured — pass through with a warning. Dev/preview only;
+  // in production we expect this to be set.
   if (!apiKey) {
-    // No Vision API configured — pass through (log a warning in dev)
     console.warn("[Moderation] GOOGLE_CLOUD_VISION_API_KEY not set, skipping moderation");
     return { safe: true, flags: [] };
   }
@@ -21,7 +46,7 @@ export async function moderateImage(imageUrl: string): Promise<ModerationResult>
         body: JSON.stringify({
           requests: [
             {
-              image: { source: { imageUri: imageUrl } },
+              image: imagePayload,
               features: [{ type: "SAFE_SEARCH_DETECTION" }],
             },
           ],
@@ -30,33 +55,39 @@ export async function moderateImage(imageUrl: string): Promise<ModerationResult>
     );
 
     if (!res.ok) {
-      console.error("[Moderation] Vision API error:", res.status);
-      return { safe: true, flags: [] };
+      console.error("[Moderation] Vision API error:", res.status, await res.text().catch(() => ""));
+      // Fail closed on API errors when handling base64 (untrusted) content;
+      // for public URLs, fail open (likely a transient issue).
+      const failClosed = "content" in imagePayload;
+      return { safe: !failClosed, flags: failClosed ? ["api_error"] : [] };
     }
 
-    const data = await res.json();
-    const annotation = data.responses?.[0]?.safeSearchAnnotation;
-
-    if (!annotation) {
-      return { safe: true, flags: [] };
-    }
-
-    const UNSAFE_LEVELS = ["LIKELY", "VERY_LIKELY"];
-    const flags: string[] = [];
-
-    if (UNSAFE_LEVELS.includes(annotation.adult)) flags.push("adult");
-    if (UNSAFE_LEVELS.includes(annotation.violence)) flags.push("violence");
-    if (UNSAFE_LEVELS.includes(annotation.racy)) flags.push("racy");
-    if (UNSAFE_LEVELS.includes(annotation.medical)) flags.push("medical");
-
-    return {
-      safe: flags.length === 0,
-      flags,
+    const data = (await res.json()) as {
+      responses?: { safeSearchAnnotation?: SafeSearchAnnotation }[];
     };
+    const annotation = data.responses?.[0]?.safeSearchAnnotation;
+    if (!annotation) return { safe: true, flags: [] };
+
+    const flags = flagsFromAnnotation(annotation);
+    return { safe: flags.length === 0, flags };
   } catch (err) {
     console.error("[Moderation] Error:", err);
     return { safe: true, flags: [] };
   }
+}
+
+/** Moderate a publicly-accessible image URL. */
+export async function moderateImage(imageUrl: string): Promise<ModerationResult> {
+  return callVision({ source: { imageUri: imageUrl } });
+}
+
+/**
+ * Moderate a base64-encoded image (e.g. directly from an AI generator's data
+ * URL). Accepts either a `data:image/...;base64,...` URL or raw base64.
+ */
+export async function moderateImageBase64(input: string): Promise<ModerationResult> {
+  const content = input.replace(/^data:[^;]+;base64,/, "");
+  return callVision({ content });
 }
 
 export async function moderateText(text: string): Promise<ModerationResult> {

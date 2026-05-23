@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Gamepad2 } from "lucide-react";
+import { BrandWordmark } from "@/components/brand/brand-logo";
 
 const LINKS = {
   Create: [
@@ -25,11 +25,8 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
         <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
           <div className="col-span-2 md:col-span-1">
-            <Link href="/" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/20 text-primary">
-                <Gamepad2 className="h-4 w-4" />
-              </div>
-              <span className="text-lg font-bold gradient-text">Gamerhood</span>
+            <Link href="/" className="inline-block w-full max-w-[min(100%,28rem)]">
+              <BrandWordmark className="object-center !h-auto !max-h-28 w-full md:!max-h-32" />
             </Link>
             <p className="mt-3 text-sm text-muted-foreground">
               Where young creators turn ideas into real merch. For the kids, by the kids.

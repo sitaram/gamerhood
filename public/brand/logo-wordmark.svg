@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="571" viewBox="0 0 1024 571" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="ww" x1="112" y1="286" x2="912" y2="286" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d8b4fe"/>
+      <stop offset="0.45" stop-color="#67e8f9"/>
+      <stop offset="1" stop-color="#f472b6"/>
+    </linearGradient>
+    <linearGradient id="wmark" x1="362" y1="120" x2="662" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#c084fc"/>
+      <stop offset="0.55" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#ec4899"/>
+    </linearGradient>
+  </defs>
+  <rect x="362" y="120" width="300" height="300" rx="72" fill="#0f172a" stroke="url(#wmark)" stroke-width="8"/>
+  <path d="M438 270h148M512 196v148" stroke="url(#wmark)" stroke-width="22" stroke-linecap="round"/>
+  <circle cx="472" cy="332" r="18" fill="#a855f7"/>
+  <circle cx="552" cy="332" r="18" fill="#22d3ee"/>
+  <text x="512" y="500" text-anchor="middle" fill="url(#ww)" font-family="ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="112" font-weight="900" letter-spacing="-0.03em">Gamerhood</text>
+  <text x="512" y="548" text-anchor="middle" fill="#64748b" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-size="48" font-weight="600">.GG</text>
+</svg>

@@ -5,18 +5,60 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { BrandNavLogo } from "@/components/brand/brand-logo";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Gamepad2, Menu, Sparkles, ShoppingCart, User, LogIn, LogOut, LayoutDashboard } from "lucide-react";
+import {
+  Gamepad2,
+  Menu,
+  Sparkles,
+  ShoppingCart,
+  LogIn,
+  LogOut,
+  LayoutDashboard,
+  Store,
+  ChevronDown,
+  ExternalLink,
+  Tags,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useCartStore } from "@/lib/store";
 import { createBrowserClient } from "@supabase/ssr";
 import { toast } from "sonner";
 import { getAnonDesigns, clearAnonDesigns } from "@/lib/anon-designs";
+import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
   { href: "/shop", label: "Browse", icon: Gamepad2 },
   { href: "/create", label: "Create", icon: Sparkles },
-  { href: "/dashboard", label: "Dashboard", icon: User },
 ];
+
+function buildStorefrontNavItems(shopSlug: string | null): { href: string; label: string; icon: LucideIcon }[] {
+  const items: { href: string; label: string; icon: LucideIcon }[] = [];
+  if (shopSlug) {
+    items.push({ href: `/shop/${shopSlug}`, label: "View my shop", icon: ExternalLink });
+  }
+  items.push(
+    { href: "/dashboard/storefront", label: "Storefront settings", icon: Store },
+    { href: "/dashboard/categories", label: "SEO categories", icon: Tags },
+  );
+  return items;
+}
+
+function isUnderStorefrontNav(pathname: string, shopSlug: string | null): boolean {
+  if (pathname === "/dashboard") return false;
+  if (pathname.startsWith("/dashboard/")) return true;
+  if (shopSlug && pathname.startsWith(`/shop/${shopSlug}`)) return true;
+  return false;
+}
+
+function storefrontNavItemActive(pathname: string, href: string): boolean {
+  if (pathname === href) return true;
+  return pathname.startsWith(`${href}/`);
+}
+
+function sellerDashboardNavActive(pathname: string): boolean {
+  return pathname === "/dashboard";
+}
 
 export type NavUser = {
   email: string | null;
@@ -24,15 +66,35 @@ export type NavUser = {
   avatarUrl: string | null;
 };
 
-export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
+export function Navbar({
+  initialUser,
+  creatorShopSlug,
+  stripeOnboarded: initialStripeOnboarded = null,
+}: {
+  initialUser: NavUser | null;
+  /** Default profile slug — powers “View my shop” in the Storefront menu. */
+  creatorShopSlug?: string | null;
+  /**
+   * Server-resolved Stripe Connect onboarding status. `false` triggers the
+   * amber "finish payouts" nudge in the seller-dashboard surfaces; `true`
+   * or `null` keep the navbar quiet. Passing it server-side prevents a
+   * client fetch flicker on first paint.
+   */
+  stripeOnboarded?: boolean | null;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [storefrontOpen, setStorefrontOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [user, setUser] = useState<NavUser | null>(initialUser);
+  const [stripeOnboarded, setStripeOnboarded] = useState<boolean | null>(
+    initialStripeOnboarded,
+  );
   const totalItems = useCartStore((s) => s.totalItems);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const storefrontRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -55,6 +117,28 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
   }, [menuOpen]);
 
   useEffect(() => {
+    if (!storefrontOpen) return;
+    function onClick(e: MouseEvent) {
+      if (storefrontRef.current && !storefrontRef.current.contains(e.target as Node)) {
+        setStorefrontOpen(false);
+      }
+    }
+    function onEscape(e: KeyboardEvent) {
+      if (e.key === "Escape") setStorefrontOpen(false);
+    }
+    document.addEventListener("mousedown", onClick);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("mousedown", onClick);
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [storefrontOpen]);
+
+  useEffect(() => {
+    setStorefrontOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
     const supabase = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
@@ -72,14 +156,33 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
           avatarUrl: session.user.user_metadata?.avatar_url ?? null,
         });
 
-        // Migrate any designs the user created while anonymous.
-        // SIGNED_IN fires on sign-in *and* on initial session restore from cookies,
-        // so we gate on actually having local designs to avoid spurious calls.
-        if (event === "SIGNED_IN") {
+        // Migrate any designs the user created while anonymous, and run
+        // /api/auth/bootstrap so the parent + child-profile rows exist
+        // before the dashboard renders.
+        //   - SIGNED_IN fires for client-side flows (email/password,
+        //     including the first sign-in after a user clicks the email
+        //     confirmation link).
+        //   - INITIAL_SESSION fires for OAuth — sign-in happens in the
+        //     server-side /auth/callback before the navbar ever mounts,
+        //     so by the time the browser hydrates, the session already
+        //     exists and only INITIAL_SESSION is emitted. /auth/callback
+        //     also calls bootstrapAccount itself; the duplicate fire
+        //     here is harmless because bootstrap is idempotent.
+        // Both helpers short-circuit on an empty workload, so firing on
+        // every page load is cheap.
+        if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
           void migrateAnonDesignsIfAny();
+          void bootstrapAccountIfNeeded();
+          // Refresh the Stripe onboarding flag after auth events so the
+          // amber nudge clears as soon as the user comes back from a
+          // successful Connect flow. The initial paint uses the
+          // server-rendered value (no flicker); this only ever flips
+          // the indicator off after a real auth state change.
+          void refreshStripeOnboarded(setStripeOnboarded);
         }
       } else {
         setUser(null);
+        setStripeOnboarded(null);
       }
     });
 
@@ -93,6 +196,7 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
     );
     await supabase.auth.signOut();
     setOpen(false);
+    setStorefrontOpen(false);
     router.push("/");
     router.refresh();
   }
@@ -102,17 +206,15 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="flex items-center gap-2 group">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/20 text-primary transition-colors group-hover:bg-primary/30">
-            <Gamepad2 className="h-5 w-5" />
-          </div>
-          <span className="text-xl font-bold tracking-tight gradient-text">
-            Gamerhood
-          </span>
+      <div className="mx-auto flex min-h-14 max-w-7xl items-center justify-between gap-3 px-4 py-2 sm:min-h-16 sm:px-6 lg:gap-6 lg:px-8">
+        <Link
+          href="/"
+          className="group flex shrink-0 items-center overflow-visible py-0.5 pr-2"
+        >
+          <BrandNavLogo className="brightness-[1.02] transition-opacity group-hover:opacity-95" priority />
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex">
+        <nav className="hidden flex-1 justify-center gap-1 md:flex md:items-center">
           {NAV_LINKS.map((link) => (
             <Link key={link.href} href={link.href}>
               <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
@@ -121,9 +223,98 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
               </Button>
             </Link>
           ))}
+          {user && (
+            <Link href="/dashboard">
+              <Button
+                variant="ghost"
+                size="sm"
+                title={
+                  stripeOnboarded === false
+                    ? "Connect your bank account to start earning"
+                    : undefined
+                }
+                className={cn(
+                  "gap-2 text-muted-foreground hover:text-foreground",
+                  sellerDashboardNavActive(pathname) && "text-foreground",
+                )}
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                Seller Dashboard
+                {stripeOnboarded === false && (
+                  <span
+                    aria-hidden
+                    className="ml-0.5 h-2 w-2 animate-pulse rounded-full bg-amber-400"
+                  />
+                )}
+              </Button>
+            </Link>
+          )}
+          {user && (
+            <div ref={storefrontRef} className="relative">
+              <button
+                type="button"
+                aria-label="Storefront menu"
+                aria-expanded={storefrontOpen}
+                aria-haspopup="menu"
+                onClick={() => setStorefrontOpen((v) => !v)}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
+                  storefrontOpen && "bg-accent text-accent-foreground",
+                  !storefrontOpen &&
+                    isUnderStorefrontNav(pathname, creatorShopSlug ?? null) &&
+                    "text-foreground",
+                  !storefrontOpen &&
+                    !isUnderStorefrontNav(pathname, creatorShopSlug ?? null) &&
+                    "text-muted-foreground",
+                )}
+              >
+                <Store className="h-4 w-4 shrink-0" aria-hidden />
+                Storefront
+                <ChevronDown
+                  className={cn("h-4 w-4 shrink-0 transition-transform duration-200", storefrontOpen && "rotate-180")}
+                  aria-hidden
+                />
+              </button>
+              {storefrontOpen && (
+                <div
+                  role="menu"
+                  className="absolute left-1/2 top-full z-50 mt-1 min-w-[14rem] -translate-x-1/2 rounded-lg border border-border/50 bg-popover py-1 text-popover-foreground shadow-lg md:left-0 md:translate-x-0"
+                >
+                  {buildStorefrontNavItems(creatorShopSlug ?? null).map((item) => {
+                    const active = storefrontNavItemActive(pathname, item.href);
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.href}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setStorefrontOpen(false);
+                          router.push(item.href);
+                        }}
+                        className={cn(
+                          "relative flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
+                          active && "bg-primary/5 text-foreground",
+                        )}
+                      >
+                        {active && (
+                          <span
+                            aria-hidden
+                            className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-primary"
+                          />
+                        )}
+                        <Icon className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
+                        {item.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
 
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <Link href="/cart">
             <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">
               <ShoppingCart className="h-5 w-5" />
@@ -162,9 +353,14 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
                   <div className="py-1">
                     <MenuLink
                       icon={<LayoutDashboard className="h-4 w-4" />}
-                      label="Dashboard"
+                      label="Seller Dashboard"
+                      subtitle={
+                        stripeOnboarded === false
+                          ? "Connect your bank account for profits"
+                          : "Manage products & payouts"
+                      }
                       href="/dashboard"
-                      active={pathname === "/dashboard"}
+                      active={sellerDashboardNavActive(pathname)}
                       onNavigate={(href) => {
                         setMenuOpen(false);
                         router.push(href);
@@ -219,7 +415,10 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
               <Menu className="h-5 w-5" />
             </SheetTrigger>
             <SheetContent side="right" className="w-72 bg-background border-border">
-              <SheetTitle className="gradient-text">Gamerhood</SheetTitle>
+              <SheetTitle className="sr-only">Gamerhood navigation</SheetTitle>
+              <Link href="/" onClick={() => setOpen(false)} className="block w-[min(100%,28rem)] pr-10">
+                <BrandNavLogo priority />
+              </Link>
 
               {user && (
                 <div className="mt-6 flex items-center gap-3 rounded-lg border border-border/50 bg-card p-3">
@@ -247,6 +446,54 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
                     </Button>
                   </Link>
                 ))}
+                {user && (
+                  <div className="flex flex-col">
+                    <Link href="/dashboard" onClick={() => setOpen(false)}>
+                      <Button
+                        variant="ghost"
+                        className={cn(
+                          "w-full justify-start gap-3",
+                          sellerDashboardNavActive(pathname) ? "bg-primary/5 text-foreground" : "text-muted-foreground",
+                        )}
+                      >
+                        <LayoutDashboard className="h-5 w-5 shrink-0" />
+                        Seller Dashboard
+                      </Button>
+                    </Link>
+                    {stripeOnboarded === false && (
+                      <p className="-mt-1 pl-12 pr-3 pb-1 text-xs text-muted-foreground">
+                        Connect your bank account for profits
+                      </p>
+                    )}
+                  </div>
+                )}
+                {user && (
+                  <div className="mt-4 border-t border-border/40 pt-4">
+                    <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Storefront
+                    </p>
+                    <div className="flex flex-col gap-1">
+                      {buildStorefrontNavItems(creatorShopSlug ?? null).map((item) => {
+                        const Icon = item.icon;
+                        const active = storefrontNavItemActive(pathname, item.href);
+                        return (
+                          <Link key={item.href} href={item.href} onClick={() => setOpen(false)}>
+                            <Button
+                              variant="ghost"
+                              className={cn(
+                                "w-full justify-start gap-3",
+                                active ? "bg-primary/5 text-foreground" : "text-muted-foreground",
+                              )}
+                            >
+                              <Icon className="h-5 w-5 shrink-0" />
+                              {item.label}
+                            </Button>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <Link href="/cart" onClick={() => setOpen(false)}>
                   <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
                     <ShoppingCart className="h-5 w-5" />
@@ -285,6 +532,27 @@ export function Navbar({ initialUser }: { initialUser: NavUser | null }) {
   );
 }
 
+/**
+ * Fire the idempotent `/api/auth/bootstrap` endpoint so a fresh user has
+ * their parent + default child-profile rows. This used to be called
+ * inline from the email signup page, but Supabase's email-confirmation
+ * flow means signUp doesn't actually start a session — the user has to
+ * click the confirmation link first, and only *then* do they sign in
+ * (which fires SIGNED_IN here). Doing it here also self-heals legacy
+ * users whose rows were never provisioned.
+ */
+async function bootstrapAccountIfNeeded() {
+  try {
+    await fetch("/api/auth/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch {
+    // Best-effort: a failing bootstrap will be retried on the next
+    // SIGNED_IN / INITIAL_SESSION event.
+  }
+}
+
 async function migrateAnonDesignsIfAny() {
   const designs = getAnonDesigns();
   if (designs.length === 0) return;
@@ -321,12 +589,18 @@ async function migrateAnonDesignsIfAny() {
 function MenuLink({
   icon,
   label,
+  subtitle,
   href,
   active,
   onNavigate,
 }: {
   icon: React.ReactNode;
   label: string;
+  /**
+   * Optional smaller, muted line shown beneath the label. Used by the
+   * Seller Dashboard entry to nudge creators toward Stripe Connect.
+   */
+  subtitle?: string;
   href: string;
   active: boolean;
   onNavigate: (href: string) => void;
@@ -336,7 +610,7 @@ function MenuLink({
       type="button"
       onClick={() => onNavigate(href)}
       aria-current={active ? "page" : undefined}
-      className={`relative flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${
+      className={`relative flex w-full items-start gap-2 px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground ${
         active ? "bg-primary/5 text-foreground" : ""
       }`}
     >
@@ -346,8 +620,36 @@ function MenuLink({
           className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-primary"
         />
       )}
-      {icon}
-      {label}
+      <span className="mt-0.5 shrink-0">{icon}</span>
+      <span className="flex min-w-0 flex-col text-left">
+        <span className="leading-snug">{label}</span>
+        {subtitle && (
+          <span className="text-[11px] leading-tight text-muted-foreground">
+            {subtitle}
+          </span>
+        )}
+      </span>
     </button>
   );
+}
+
+/**
+ * Pull the latest Connect onboarding flag from the API and feed it into
+ * the navbar's local state. Treated as best-effort: network / auth errors
+ * simply leave the previous value in place (the server-rendered initial
+ * paint is already authoritative for the first frame).
+ */
+async function refreshStripeOnboarded(
+  setStripeOnboarded: (next: boolean | null) => void,
+): Promise<void> {
+  try {
+    const res = await fetch("/api/stripe/connect", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { onboarded?: unknown };
+    if (typeof data?.onboarded === "boolean") {
+      setStripeOnboarded(data.onboarded);
+    }
+  } catch {
+    // Quiet failure — keep the existing value.
+  }
 }

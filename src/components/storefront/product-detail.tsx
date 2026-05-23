@@ -12,10 +12,14 @@ import { ShoppingCart, Heart, Share2, ArrowLeft, Truck, Shield, RotateCcw, Check
 import { useCartStore } from "@/lib/store";
 import { toast } from "sonner";
 import type { Product } from "@/lib/types";
+import { PrintfulCatalogDetails } from "@/components/storefront/printful-catalog-details";
+import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
+import { DEFAULT_STORED } from "@/lib/print/placement";
+import { shouldFallbackToPrintfulMockupCard } from "@/components/storefront/product-card";
 
 export function ProductDetail({ product }: { product: Product }) {
   const [selectedColor, setSelectedColor] = useState(product.colors[0]);
-  const [selectedSize, setSelectedSize] = useState(product.sizes?.[2] || "");
+  const [selectedSize, setSelectedSize] = useState(product.sizes?.[0] ?? "");
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
   const [liked, setLiked] = useState(false);
@@ -63,14 +67,26 @@ export function ProductDetail({ product }: { product: Product }) {
 
       <div className="grid gap-8 lg:grid-cols-2">
         <Card className="overflow-hidden border-border/50 bg-card">
-          <div className="relative aspect-square">
-            <Image
-              src={product.mockupUrl}
-              alt={product.title}
-              fill
-              className="object-cover"
-              unoptimized
-            />
+          <div className="relative aspect-square bg-muted">
+            {!shouldFallbackToPrintfulMockupCard(product.designImageUrl) ? (
+              <MerchPlacementPreview
+                imageUrl={product.designImageUrl!}
+                productType={product.productType}
+                placement={product.printPlacement ?? DEFAULT_STORED}
+              />
+            ) : product.mockupUrl?.trim() ? (
+              <Image
+                src={product.mockupUrl}
+                alt={product.title}
+                fill
+                className="object-cover"
+                unoptimized
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
+                No preview image for this listing yet.
+              </div>
+            )}
           </div>
         </Card>
 
@@ -203,6 +219,10 @@ export function ProductDetail({ product }: { product: Product }) {
           </Card>
         </div>
       </div>
+
+      {product.printfulCatalogMeta && (
+        <PrintfulCatalogDetails meta={product.printfulCatalogMeta} />
+      )}
     </div>
   );
 }

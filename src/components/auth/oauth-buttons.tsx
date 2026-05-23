@@ -48,10 +48,18 @@ export function OAuthButtons({ next }: OAuthButtonsProps = {}) {
     const callbackUrl = new URL("/auth/callback", window.location.origin);
     if (next) callbackUrl.searchParams.set("next", next);
 
+    /**
+     * `prompt=select_account` forces Google (and any OIDC provider that
+     * respects the parameter) to always show the account picker even when
+     * the browser already has a signed-in default. Without it, users on a
+     * shared device get silently auth'd as whoever happens to be logged in
+     * — which is the wrong account at least half the time.
+     */
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
         redirectTo: callbackUrl.toString(),
+        queryParams: { prompt: "select_account" },
       },
     });
 

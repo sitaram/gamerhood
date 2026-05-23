@@ -12,7 +12,7 @@ export function getStripe(): Stripe {
 }
 
 export const PLATFORM_FEE_PERCENT = Number(
-  process.env.STRIPE_PLATFORM_FEE_PERCENT || "15",
+  process.env.STRIPE_PLATFORM_FEE_PERCENT || "8",
 );
 
 export function calculatePlatformFee(amountCents: number): number {

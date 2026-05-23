@@ -64,7 +64,7 @@ We do **not** use information to:
 
 **Service Providers:** We share necessary data with service providers who help us operate the Platform, including:
 - Stripe (payment processing)
-- Printify (order fulfillment — buyer shipping address only)
+- Printful (order fulfillment — buyer shipping address only)
 - Supabase (database hosting)
 - Cloud providers (image storage and processing)
 - Content moderation services (uploaded images only)

@@ -25,7 +25,7 @@ Gamerhood gives kids (supervised by parents) the power to:
 - **UI**: Tailwind CSS 4, shadcn/ui, Framer Motion
 - **Database**: Supabase (PostgreSQL + Auth + Storage)
 - **Payments**: Stripe Connect (marketplace splits)
-- **Print-on-Demand**: Printify API
+- **Print-on-Demand**: Printful API (v2)
 - **AI Design**: Replicate (SDXL/Flux) or OpenAI DALL-E
 - **State**: Zustand (client cart)
 - **Hosting**: Vercel
@@ -73,7 +73,7 @@ supabase/
 - **Creator Storefronts** — Each creator gets their own branded shop page
 - **Gamification** — XP, levels, badges, achievements
 - **COPPA Compliant** — Parent-owned accounts, no child PII, parental consent
-- **Print-on-Demand** — No inventory, no risk, premium quality via Printify
+- **Print-on-Demand** — No inventory, no risk, premium quality via Printful
 - **Marketplace Payments** — Stripe Connect splits revenue automatically
 
 ## COPPA Compliance

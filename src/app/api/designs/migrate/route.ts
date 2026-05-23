@@ -47,6 +47,10 @@ export async function POST(request: NextRequest) {
       image_url: d.imageUrl,
       prompt: d.prompt ?? null,
       style: d.style || "anime",
+      // These came from /api/designs/generate which already ran text + image
+      // moderation before returning the URL, so we trust them on migrate.
+      status: "approved",
+      content_safe: true,
     });
 
     if (error) {

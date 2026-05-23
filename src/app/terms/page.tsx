@@ -43,7 +43,7 @@ You may revoke consent and request deletion of your child's profile and associat
     title: "5. Payments and Earnings",
     content: `**Payment Processing.** All payments are processed through Stripe. By using the Platform, you agree to Stripe's Terms of Service.
 
-**Revenue Split.** When a product is sold, revenue is distributed as follows: (1) the print provider's production and shipping cost; (2) a platform fee of 15%; (3) the remainder goes to the creator's parent-managed Stripe Connect account.
+**Revenue Split.** When a product is sold, revenue is distributed as follows: (1) the print provider's production and shipping cost; (2) a platform fee of 8%, which covers payment processing, AI design tools, content moderation, and hosting — roughly half of what comparable marketplaces like Etsy charge once all of their transaction, payment, and listing fees are combined; (3) the remainder goes to the creator's parent-managed Stripe Connect account.
 
 **Payouts.** Creator earnings are paid out on a regular schedule (typically weekly) to the bank account linked to the parent's Stripe Connect account. Gamerhood does not hold or control creator funds — they are managed entirely through Stripe.
 
@@ -76,7 +76,7 @@ We reserve the right to remove any content and suspend any account that violates
   },
   {
     title: "8. Product Quality and Fulfillment",
-    content: `**Print-on-Demand.** All products are manufactured and shipped by third-party print providers through Printify. Gamerhood does not manufacture, store, or ship physical products.
+    content: `**Print-on-Demand.** All products are manufactured and shipped by Printful, our print-on-demand fulfillment partner. Gamerhood does not manufacture, store, or ship physical products.
 
 **Quality Standards.** We select and vet print providers for quality, but we cannot guarantee every product will be free of defects. If you receive a defective product, contact us within 30 days for a replacement or refund.
 

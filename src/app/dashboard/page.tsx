@@ -1,40 +1,17 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Sparkles, Wand2, Pencil, ImageOff } from "lucide-react";
+import { Sparkles, Wand2, ImageOff, Store, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import {
   getDefaultProfileForAuthUser,
   getDesignsByProfile,
 } from "@/lib/supabase/queries";
+import { StripeConnectCard } from "@/components/dashboard/stripe-connect-card";
+import { DashboardDesignsGrid } from "@/components/dashboard/dashboard-designs-grid";
 
 export const dynamic = "force-dynamic";
-
-const STYLE_LABEL: Record<string, string> = {
-  anime: "Anime",
-  streetwear: "Streetwear",
-  "pixel-art": "Pixel Art",
-  graffiti: "Graffiti",
-  minimalist: "Minimal",
-  vaporwave: "Vaporwave",
-  comic: "Comic",
-  realistic: "Realistic",
-};
-
-function timeAgo(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
-}
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -72,6 +49,34 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
+      <div className="mt-8 flex flex-wrap gap-3">
+        {profile && (
+          <>
+            <Link href={`/shop/${profile.slug}`}>
+              <Button variant="outline" className="gap-2" size="lg">
+                <ExternalLink className="h-4 w-4" />
+                View my shop
+              </Button>
+            </Link>
+            <Link href="/dashboard/storefront">
+              <Button variant="secondary" className="gap-2" size="lg">
+                <Store className="h-4 w-4" />
+                Storefront settings
+              </Button>
+            </Link>
+            <Link href="/dashboard/categories">
+              <Button variant="outline" className="gap-2" size="lg">
+                SEO categories
+              </Button>
+            </Link>
+          </>
+        )}
+      </div>
+
+      <div className="mt-8">
+        <StripeConnectCard />
+      </div>
+
       <div className="mt-12">
         <div className="mb-6 flex items-center justify-between">
           <h2 className="text-xl font-semibold">
@@ -101,44 +106,7 @@ export default async function DashboardPage() {
             </Link>
           </Card>
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {designList.map((d) => (
-              <Card
-                key={d.id}
-                className="group overflow-hidden border-border/50 bg-card transition-all hover:border-primary/40"
-              >
-                <div className="relative aspect-square overflow-hidden bg-secondary">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={d.image_url}
-                    alt={d.title}
-                    className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                  />
-                </div>
-                <div className="p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="line-clamp-2 text-sm text-foreground">
-                      {d.prompt || d.title}
-                    </p>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="border-primary/30 text-xs text-primary">
-                        {STYLE_LABEL[d.style] || d.style}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">{timeAgo(d.created_at)}</span>
-                    </div>
-                    <Link href={`/create?designId=${d.id}`}>
-                      <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs">
-                        <Pencil className="h-3.5 w-3.5" />
-                        Edit
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-              </Card>
-            ))}
-          </div>
+          <DashboardDesignsGrid designs={designList} />
         )}
       </div>
     </div>

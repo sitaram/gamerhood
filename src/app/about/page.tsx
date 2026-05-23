@@ -8,10 +8,10 @@ import {
   ShieldCheck,
   Zap,
   ArrowRight,
-  Gamepad2,
   Palette,
   TrendingUp,
 } from "lucide-react";
+import { BrandMark } from "@/components/brand/brand-logo";
 
 const VALUES = [
   {
@@ -85,8 +85,8 @@ export default function AboutPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6 lg:px-8">
       <div className="text-center">
-        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20 text-primary">
-          <Gamepad2 className="h-8 w-8" />
+        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20 ring-1 ring-primary/25">
+          <BrandMark className="h-12 w-12" />
         </div>
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
           About <span className="gradient-text">Gamerhood</span>

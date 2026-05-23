@@ -60,7 +60,7 @@ const FAQ_SECTIONS: { title: string; tag: string; tagColor: string; items: FAQIt
       {
         question: "How does my child get paid?",
         answer:
-          "Earnings accumulate in your parent-managed Stripe Connect account. When a product sells, the revenue splits: Printify's production cost is covered, Gamerhood takes a platform fee (15%), and the rest goes to your account. Payouts are on a regular schedule to your bank account.",
+          "Earnings accumulate in your parent-managed Stripe Connect account. When a product sells, the revenue splits: Printful's production cost is covered, GamerHood.GG takes an 8% platform fee — about half of what marketplaces like Etsy charge once you add up their transaction, payment processing, and listing fees — and the rest goes to your account. That 8% covers payment processing, AI design tools, content moderation, and hosting. Payouts are on a regular schedule to your bank account.",
       },
       {
         question: "Can I review designs before they go public?",
@@ -77,7 +77,7 @@ const FAQ_SECTIONS: { title: string; tag: string; tagColor: string; items: FAQIt
       {
         question: "Who makes the products?",
         answer:
-          "Products are printed on demand by vetted print providers through Printify. We've tested multiple providers with real orders and selected the ones with the best print quality, material quality, and shipping speed. We don't hold inventory — each item is made fresh when ordered.",
+          "Products are printed on demand by Printful, which manufactures everything in-house at owned facilities (no third-party providers). They use premium blanks like Bella+Canvas, Champion, and AS Colour, and ship from fulfillment centers in the US, EU, and Asia. We don't hold inventory — each item is made fresh when ordered.",
       },
       {
         question: "What's the quality like?",
@@ -114,12 +114,12 @@ const FAQ_SECTIONS: { title: string; tag: string; tagColor: string; items: FAQIt
       {
         question: "Can I upload my own artwork instead of using AI?",
         answer:
-          "Absolutely. You can upload PNG, JPG, or SVG files. We recommend at least 4500 x 5400 pixels for the best print quality. Uploaded artwork goes through the same content moderation as AI-generated designs.",
+          "Absolutely. Upload PNG, JPG, WebP, GIF, or SVG. SVG is converted to a high-resolution print file automatically; use alpha for transparent areas so your design knocks out cleanly on colored garments. We recommend at least 3000 px on the longest side for non-vector art for the best print clarity.",
       },
       {
         question: "How do I set my prices?",
         answer:
-          "Each product has a base cost (what Printify charges to produce it). You set a markup on top of that — this is your profit. For example, if a hoodie costs $28 to produce and you add a $14 markup, it sells for $42, and you earn $14 minus the platform fee.",
+          "Each product has a base cost (what Printful charges to produce it). You set a markup on top of that — this is your profit. For example, if a hoodie costs $28 to produce and you add a $14 markup, it sells for $42, and you earn $14 minus the platform fee.",
       },
       {
         question: "What about copyright? Can I make fan art?",
