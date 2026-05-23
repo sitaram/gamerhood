@@ -12,9 +12,8 @@ const root = path.join(__dirname, "..");
  * Source: public/brand/mascot-axolotl-head.png
  *
  * The export may bake in a gray checkerboard (no alpha). We key that out,
- * trim to the character, then center on a square canvas with a fully
- * transparent background (contain — not cover — so tabs show the axolotl
- * shape, not a filled square).
+ * trim to the character, center on a square transparent canvas (equal W×H
+ * bounding box), then scale to favicon sizes.
  */
 const sourcePng = path.join(root, "public/brand/mascot-axolotl-head.png");
 
@@ -53,13 +52,32 @@ async function loadTrimmedCharacter() {
   });
 }
 
+
+/** Center trimmed pixels on a square canvas (max side = max(w,h)). */
+async function centerOnSquareCanvas(trimmedPipeline) {
+  const trimmedPng = await trimmedPipeline.clone().png().toBuffer();
+  const meta = await sharp(trimmedPng).metadata();
+  const size = Math.max(meta.width, meta.height);
+  const left = Math.floor((size - meta.width) / 2);
+  const top = Math.floor((size - meta.height) / 2);
+
+  return sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: { r: 0, g: 0, b: 0, alpha: 0 },
+    },
+  })
+    .composite([{ input: trimmedPng, left, top }]);
+}
+
 /** Scale to ~97% of the square so small favicons stay legible. */
 const FILL_RATIO = 0.97;
 
-async function makeSquarePng(size, trimmedPipeline) {
+async function makeSquarePng(size, squareBuf) {
   const inner = Math.max(1, Math.round(size * FILL_RATIO));
-  const resized = await trimmedPipeline
-    .clone()
+  const resized = await sharp(squareBuf)
     .resize(inner, inner, {
       fit: "inside",
       background: { r: 0, g: 0, b: 0, alpha: 0 },
@@ -86,20 +104,20 @@ async function makeSquarePng(size, trimmedPipeline) {
 }
 
 const trimmed = await loadTrimmedCharacter();
-
-// Refresh brand source with real alpha so other tooling sees transparency.
-await trimmed
-  .clone()
+const squareCharacter = await (await centerOnSquareCanvas(trimmed))
   .png({ compressionLevel: 9 })
-  .toFile(sourcePng);
+  .toBuffer();
+
+// Refresh brand source: trimmed RGBA on a square canvas.
+fs.writeFileSync(sourcePng, squareCharacter);
 
 // ── 192x192 high-DPI raster (used by Android / PWA / modern browsers) ──
-const icon192 = await makeSquarePng(192, trimmed);
+const icon192 = await makeSquarePng(192, squareCharacter);
 fs.writeFileSync(path.join(root, "public/icon.png"), icon192);
 fs.writeFileSync(path.join(root, "src/app/icon.png"), icon192);
 
 // ── 180x180 Apple touch icon (iOS home screen) ──
-const apple180 = await makeSquarePng(180, trimmed);
+const apple180 = await makeSquarePng(180, squareCharacter);
 fs.writeFileSync(path.join(root, "public/apple-icon.png"), apple180);
 fs.writeFileSync(path.join(root, "src/app/apple-icon.png"), apple180);
 
@@ -109,7 +127,7 @@ const sizes = [16, 32, 48];
 const pngPaths = [];
 for (const s of sizes) {
   const p = path.join(tmpDir, `${s}.png`);
-  fs.writeFileSync(p, await makeSquarePng(s, trimmed));
+  fs.writeFileSync(p, await makeSquarePng(s, squareCharacter));
   pngPaths.push(p);
 }
 const icoBuf = await pngToIco(pngPaths);
@@ -118,7 +136,7 @@ fs.writeFileSync(path.join(root, "src/app/favicon.ico"), icoBuf);
 fs.rmSync(tmpDir, { recursive: true, force: true });
 
 console.log("Wrote:");
-console.log(`  public/brand/mascot-axolotl-head.png (trimmed RGBA)`);
+console.log(`  public/brand/mascot-axolotl-head.png (square trimmed RGBA)`);
 console.log(`  public/icon.png        (192x192, ${icon192.length} bytes)`);
 console.log(`  src/app/icon.png       (192x192, ${icon192.length} bytes)`);
 console.log(`  public/apple-icon.png  (180x180, ${apple180.length} bytes)`);
