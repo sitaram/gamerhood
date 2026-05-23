@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getDefaultProfileForAuthUser, insertDesign } from "@/lib/supabase/queries";
+import { uploadDesignImage } from "@/lib/storage";
 
 interface MigrateDesign {
   prompt: string;
@@ -57,7 +58,23 @@ export async function POST(request: NextRequest) {
       console.error("[Migrate] insert error:", error);
       continue;
     }
-    if (data?.id) inserted.push({ id: data.id, createdAt: d.createdAt });
+    if (data?.id) {
+      try {
+        const publicUrl = await uploadDesignImage(data.id, d.imageUrl);
+        if (publicUrl !== d.imageUrl) {
+          await supabase
+            .from("designs")
+            .update({ image_url: publicUrl })
+            .eq("id", data.id)
+            .then(({ error: updateErr }) => {
+              if (updateErr) console.warn("[Migrate] image_url rewrite failed:", updateErr);
+            });
+        }
+      } catch (uploadErr) {
+        console.warn("[Migrate] Storage upload failed:", uploadErr);
+      }
+      inserted.push({ id: data.id, createdAt: d.createdAt });
+    }
   }
 
   return NextResponse.json({ migrated: inserted.length, designs: inserted });

@@ -1,0 +1,26 @@
+import type { DesignRow } from "@/lib/supabase/queries";
+
+/**
+ * URL safe to pass through the RSC → client-component boundary.
+ * Inline `data:` URLs (multi‑KB base64 from Gemini) can break Flight
+ * serialization for the whole designs array, so dashboard cards use a
+ * same-origin proxy instead.
+ */
+export function designCardImageSrc(d: Pick<DesignRow, "id" | "image_url">): string {
+  const url = d.image_url?.trim();
+  if (!url) return `/api/designs/${d.id}/image`;
+  if (url.startsWith("data:")) return `/api/designs/${d.id}/image`;
+  return url;
+}
+
+/** Plain JSON row for client components — never includes inline data URLs. */
+export function toDashboardDesignCard(d: DesignRow) {
+  return {
+    id: d.id,
+    title: d.title,
+    prompt: d.prompt,
+    style: d.style,
+    created_at: d.created_at,
+    image_url: designCardImageSrc(d),
+  };
+}

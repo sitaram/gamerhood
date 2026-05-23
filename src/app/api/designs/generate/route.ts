@@ -4,6 +4,7 @@ import { GenerateDesignRequest } from "@/lib/types";
 import { moderateText, moderateImageBase64 } from "@/lib/moderation";
 import { createClient } from "@/lib/supabase/server";
 import { getDefaultProfileForAuthUser, insertDesign } from "@/lib/supabase/queries";
+import { uploadDesignImage } from "@/lib/storage";
 
 const STYLE_MODIFIERS: Record<string, string> = {
   anime: "anime art style, cel shaded, vibrant colors, manga inspired",
@@ -117,6 +118,24 @@ export async function POST(request: NextRequest) {
               content_safe: true,
             });
             designId = design?.id ?? null;
+            if (designId) {
+              try {
+                const publicUrl = await uploadDesignImage(designId, imageUrl);
+                if (publicUrl !== imageUrl) {
+                  await supabase
+                    .from("designs")
+                    .update({ image_url: publicUrl })
+                    .eq("id", designId)
+                    .then(({ error: updateErr }) => {
+                      if (updateErr) {
+                        console.warn("[Design Generate] image_url rewrite failed:", updateErr);
+                      }
+                    });
+                }
+              } catch (uploadErr) {
+                console.warn("[Design Generate] Storage upload failed:", uploadErr);
+              }
+            }
           }
         }
       } catch (err) {

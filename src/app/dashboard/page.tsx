@@ -10,6 +10,7 @@ import {
 } from "@/lib/supabase/queries";
 import { StripeConnectCard } from "@/components/dashboard/stripe-connect-card";
 import { DashboardDesignsGrid } from "@/components/dashboard/dashboard-designs-grid";
+import { toDashboardDesignCard } from "@/lib/design-image-url";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export default async function DashboardPage() {
     ? await getDesignsByProfile(supabase, profile.id)
     : { data: [] };
 
-  const designList = designs ?? [];
+  const designList = (designs ?? []).map(toDashboardDesignCard);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
