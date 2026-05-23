@@ -108,6 +108,15 @@ export interface StripeConnectErrorInfo {
  * (test vs live), inferred from STRIPE_SECRET_KEY. Defaults to test so we
  * never accidentally send the developer to the live console.
  */
+function vercelEnvSettingsUrl(): string {
+  const owner = process.env.VERCEL_GIT_REPO_OWNER?.trim();
+  const slug = process.env.VERCEL_GIT_REPO_SLUG?.trim();
+  if (owner && slug) {
+    return `https://vercel.com/${owner}/${slug}/settings/environment-variables`;
+  }
+  return "https://vercel.com/docs/projects/environment-variables";
+}
+
 function stripeConnectSettingsUrl(): string {
   const key = process.env.STRIPE_SECRET_KEY?.trim() ?? "";
   if (key.startsWith("sk_live_")) {
@@ -145,6 +154,20 @@ function extractStripeRawMessage(err: unknown): string {
 export function classifyStripeConnectError(err: unknown): StripeConnectErrorInfo {
   const raw = extractStripeRawMessage(err);
   const fallback = stripeConnectErrorMessage(err);
+
+  const missingKey =
+    (err instanceof Error && /STRIPE_SECRET_KEY is not set/i.test(err.message)) ||
+    (raw && /STRIPE_SECRET_KEY is not set/i.test(raw));
+  if (missingKey) {
+    const onVercel = process.env.VERCEL === "1";
+    return {
+      message: onVercel
+        ? "Stripe secret key is missing on this deployment — add STRIPE_SECRET_KEY in Vercel → Settings → Environment Variables (Production), then redeploy."
+        : "Stripe secret key is missing — set STRIPE_SECRET_KEY in .env.local and restart the dev server (e.g. bash scripts/dev-e2e-stripe.sh).",
+      code: "bad_api_key",
+      ...(onVercel ? { actionUrl: vercelEnvSettingsUrl() } : {}),
+    };
+  }
 
   // Platform-level: their Stripe account hasn't completed Connect platform
   // onboarding yet, so `accounts.create({type:"express"})` 400s.

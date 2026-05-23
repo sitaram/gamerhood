@@ -126,6 +126,35 @@ export function StripeConnectCard() {
     );
   }
 
+  if (error && error.code === "bad_api_key") {
+    return (
+      <Card className="flex flex-col gap-3 border-amber-500/40 bg-amber-500/10 p-4 text-foreground">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-amber-950 dark:text-amber-100">
+              Stripe server key not configured
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">{error.message}</p>
+          </div>
+        </div>
+        {error.actionUrl ? (
+          <a
+            href={error.actionUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex"
+          >
+            <Button className="gap-2 bg-amber-500 text-amber-950 hover:bg-amber-400">
+              Open Vercel environment variables
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+          </a>
+        ) : null}
+      </Card>
+    );
+  }
+
   // ── Structured platform-level error (e.g. Connect not enabled) ──
   // Only reaches here for platform admins; the API filters this view away
   // from regular creators. Amber "do this one thing" treatment so it's
