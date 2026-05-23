@@ -599,6 +599,7 @@ export interface ProfileRow {
   display_name: string;
   slug: string;
   avatar_url: string | null;
+  catchphrase: string | null;
   bio: string;
   level: number;
   xp: number;
@@ -678,6 +679,8 @@ export type ProfileStorefrontUpdate = Partial<
     ProfileRow,
     | "slug"
     | "bio"
+    | "catchphrase"
+    | "avatar_url"
     | "display_name"
     | "storefront_hero_image_url"
     | "storefront_headline"

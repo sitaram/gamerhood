@@ -28,6 +28,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import { toast } from "sonner";
 import { getAnonDesigns, clearAnonDesigns } from "@/lib/anon-designs";
 import { cn } from "@/lib/utils";
+import { profileInitials } from "@/lib/profile-avatar";
 
 const NAV_LINKS = [
   { href: "/shop", label: "Browse", icon: Gamepad2 },
@@ -208,7 +209,7 @@ export function Navbar({
   }
 
   const cartCount = mounted ? totalItems() : 0;
-  const initials = user?.displayName.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase() || "?";
+  const initials = profileInitials(user?.displayName ?? "");
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">

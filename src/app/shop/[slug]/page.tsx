@@ -9,6 +9,7 @@ import { CreatorStorefrontHero } from "@/components/storefront/creator-storefron
 import { createClient } from "@/lib/supabase/server";
 import { getProfileBySlug, getPublishedProductsByProfile } from "@/lib/supabase/queries";
 import { siteUrl } from "@/lib/site";
+import { profileInitials } from "@/lib/profile-avatar";
 import type { Product } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -103,9 +104,9 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
   const xpToNext = (level + 1) * 500;
   const xpProgress = Math.min(100, Math.round((xp / xpToNext) * 100));
 
-  const avatarUrl =
-    profile.avatar_url ||
-    `https://api.dicebear.com/7.x/thumbs/svg?seed=${profile.id}`;
+  const avatarUrl = profile.avatar_url;
+  const avatarInitials = profileInitials(profile.display_name);
+  const catchphrase = profile.catchphrase?.trim() || null;
 
   const hasHero = Boolean(
     (profile as { storefront_hero_image_url?: string | null }).storefront_hero_image_url,
@@ -140,20 +141,27 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
 
       <div className="rounded-2xl border border-border/50 bg-card p-8">
         <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-          <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-full border-2 border-primary/30 bg-secondary">
-            <Image
-              src={avatarUrl}
-              alt={profile.display_name}
-              fill
-              className="object-cover"
-              unoptimized
-            />
+          <div className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-primary/30 bg-primary/10 text-2xl font-semibold text-primary">
+            {avatarUrl ? (
+              <Image
+                src={avatarUrl}
+                alt={profile.display_name}
+                fill
+                className="object-cover"
+                unoptimized
+              />
+            ) : (
+              avatarInitials
+            )}
           </div>
 
           <div className="flex-1 text-center sm:text-left">
             {!hasHero && <h1 className="text-3xl font-bold">{profile.display_name}</h1>}
             {hasHero && (
               <p className="text-lg font-semibold text-muted-foreground">{profile.display_name}</p>
+            )}
+            {catchphrase && (
+              <p className="mt-1 text-base font-medium text-primary">{catchphrase}</p>
             )}
             {profile.bio && !hasHero && (
               <p className="mt-2 text-muted-foreground max-w-lg">{profile.bio}</p>

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Sparkles, Wand2, ImageOff, Store, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { createClient } from "@/lib/supabase/server";
 import {
   getDefaultProfileForAuthUser,
@@ -11,6 +12,7 @@ import {
 import { StripeConnectCard } from "@/components/dashboard/stripe-connect-card";
 import { DashboardDesignsGrid } from "@/components/dashboard/dashboard-designs-grid";
 import { toDashboardDesignCard } from "@/lib/design-image-url";
+import { profileInitials } from "@/lib/profile-avatar";
 
 export const dynamic = "force-dynamic";
 
@@ -20,13 +22,19 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/auth/login");
 
+  const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
+
   const displayName =
+    profile?.display_name ||
     user.user_metadata?.full_name ||
     user.user_metadata?.name ||
     user.email?.split("@")[0] ||
     "Creator";
 
-  const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
+  const catchphrase = profile?.catchphrase?.trim() || null;
+  const avatarUrl = profile?.avatar_url ?? null;
+  const initials = profileInitials(displayName);
+
   const { data: designs } = profile
     ? await getDesignsByProfile(supabase, profile.id)
     : { data: [] };
@@ -36,11 +44,22 @@ export default async function DashboardPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
       <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <p className="text-sm text-muted-foreground">Welcome back,</p>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            {displayName}
-          </h1>
+        <div className="flex items-start gap-4">
+          <Avatar className="h-14 w-14 shrink-0">
+            {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
+            <AvatarFallback className="bg-primary/20 text-lg font-semibold text-primary">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <p className="text-sm text-muted-foreground">Welcome back,</p>
+            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              {displayName}
+            </h1>
+            {catchphrase && (
+              <p className="mt-1 text-sm font-medium text-primary">{catchphrase}</p>
+            )}
+          </div>
         </div>
         <Link href="/create">
           <Button size="lg" className="gap-2 bg-primary px-8 text-base hover:bg-primary/90">

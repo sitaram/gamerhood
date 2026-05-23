@@ -5,6 +5,7 @@ type ProfilePublic = Pick<
   ProfileRow,
   | "display_name"
   | "avatar_url"
+  | "catchphrase"
   | "bio"
   | "storefront_hero_image_url"
   | "storefront_headline"
@@ -16,7 +17,10 @@ export function CreatorStorefrontHero({ profile }: { profile: ProfilePublic }) {
   const heroUrl = profile.storefront_hero_image_url;
   const overlay = profile.storefront_hero_overlay ?? "dark";
   const headline = profile.storefront_headline?.trim() || profile.display_name;
-  const sub = profile.storefront_subhead?.trim() || profile.bio?.trim();
+  const sub =
+    profile.storefront_subhead?.trim() ||
+    profile.catchphrase?.trim() ||
+    profile.bio?.trim();
 
   const overlayClass =
     overlay === "none"

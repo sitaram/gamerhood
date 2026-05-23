@@ -248,3 +248,59 @@ export async function uploadStorefrontHeroImage(
   }
   return data.publicUrl;
 }
+
+const PROFILE_AVATARS_PREFIX = "profile-avatars";
+
+/**
+ * Creator profile photo — shown in nav, dashboard, and storefront header.
+ */
+export async function uploadProfileAvatar(
+  profileId: string,
+  imageUrl: string,
+): Promise<string> {
+  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+    return imageUrl;
+  }
+
+  if (!isStorageConfigured()) {
+    throw new Error(
+      "Storage isn't configured on this deployment (missing SUPABASE_SERVICE_ROLE_KEY).",
+    );
+  }
+
+  const payload = decodeOrThrow(imageUrl);
+  const allowed = new Set(["png", "jpg", "jpeg", "webp"]);
+  if (!allowed.has(payload.extension)) {
+    throw new Error("Profile photo must be PNG, JPG, or WebP.");
+  }
+
+  const path = `${PROFILE_AVATARS_PREFIX}/${profileId}.${payload.extension}`;
+  const supabase = getServiceClient();
+  const { error } = await supabase.storage.from(BUCKET).upload(path, payload.bytes, {
+    contentType: payload.mimeType.split(";")[0].trim(),
+    upsert: true,
+  });
+
+  if (error) {
+    throw new Error(`Profile avatar upload failed: ${error.message}`);
+  }
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  if (!data?.publicUrl) {
+    throw new Error(`Profile avatar upload succeeded but no public URL for ${path}`);
+  }
+  return data.publicUrl;
+}
+
+/** Best-effort remove profile avatar object(s) from the public bucket. */
+export async function removeProfileAvatarFromStorage(profileId: string): Promise<void> {
+  if (!isStorageConfigured()) return;
+  const supabase = getServiceClient();
+  const paths = (["png", "jpg", "jpeg", "webp"] as const).map(
+    (ext) => `${PROFILE_AVATARS_PREFIX}/${profileId}.${ext}`,
+  );
+  const { error } = await supabase.storage.from(BUCKET).remove(paths);
+  if (error && !/not found/i.test(String(error.message))) {
+    console.warn("[storage] remove profile avatar:", error.message);
+  }
+}

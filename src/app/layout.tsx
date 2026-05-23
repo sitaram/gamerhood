@@ -56,19 +56,8 @@ export default async function RootLayout({
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const initialUser = user
-    ? {
-        email: user.email ?? null,
-        displayName:
-          user.user_metadata?.full_name ||
-          user.user_metadata?.name ||
-          user.email?.split("@")[0] ||
-          "Creator",
-        avatarUrl: user.user_metadata?.avatar_url ?? null,
-      }
-    : null;
-
   let creatorShopSlug: string | null = null;
+  let profileAvatarUrl: string | null = null;
   // `null` = unknown (not signed in, no parent row yet, or fetch failed).
   // The navbar treats `false` as "show the amber Connect nudge" and any
   // other value as "no nudge" — so leaving it null on errors keeps the UI
@@ -80,10 +69,27 @@ export default async function RootLayout({
       getParentByAuthUserId(supabase, user.id),
     ]);
     creatorShopSlug = profile?.slug ?? null;
+    profileAvatarUrl = profile?.avatar_url ?? null;
     if (parent) {
       stripeOnboarded = Boolean(parent.stripe_onboarding_complete);
     }
   }
+
+  const initialUser = user
+    ? {
+        email: user.email ?? null,
+        displayName:
+          user.user_metadata?.full_name ||
+          user.user_metadata?.name ||
+          user.email?.split("@")[0] ||
+          "Creator",
+        avatarUrl:
+          profileAvatarUrl ??
+          (typeof user.user_metadata?.avatar_url === "string"
+            ? user.user_metadata.avatar_url
+            : null),
+      }
+    : null;
 
   return (
     <html

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getDefaultProfileForAuthUser } from "@/lib/supabase/queries";
 import { ProfileSettingsForm } from "@/components/dashboard/profile-settings-form";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,8 @@ export default async function AccountSettingsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/auth/login");
 
+  const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
       <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
@@ -41,12 +44,14 @@ export default async function AccountSettingsPage() {
       </Link>
       <h1 className="mt-4 text-3xl font-bold tracking-tight">Account settings</h1>
       <p className="mt-2 text-muted-foreground">
-        Update how your name appears across Gamerhood.
+        Personalize how you show up across Gamerhood — photo, name, and catchphrase.
       </p>
 
       <div className="mt-10">
         <ProfileSettingsForm
-          initialDisplayName={deriveDisplayName(user)}
+          initialDisplayName={profile?.display_name ?? deriveDisplayName(user)}
+          initialCatchphrase={profile?.catchphrase ?? null}
+          initialAvatarUrl={profile?.avatar_url ?? null}
           email={user.email ?? null}
           hasEmailPassword={hasEmailPasswordProvider(user)}
         />
