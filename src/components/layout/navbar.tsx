@@ -19,6 +19,8 @@ import {
   ChevronDown,
   ExternalLink,
   Tags,
+  Pencil,
+  UserRound,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCartStore } from "@/lib/store";
@@ -97,6 +99,10 @@ export function Navbar({
   const storefrontRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    setUser(initialUser);
+  }, [initialUser]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -345,12 +351,35 @@ export function Navbar({
               {menuOpen && (
                 <div className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-lg border border-border/50 bg-popover text-popover-foreground shadow-lg">
                   <div className="border-b border-border/50 px-4 py-3">
-                    <p className="text-sm font-medium leading-tight">{user.displayName}</p>
-                    {user.email && (
-                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
-                    )}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium leading-tight">{user.displayName}</p>
+                        {user.email && (
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
+                        )}
+                      </div>
+                      <Link
+                        href="/dashboard/settings"
+                        onClick={() => setMenuOpen(false)}
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        aria-label="Edit profile"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Edit
+                      </Link>
+                    </div>
                   </div>
                   <div className="py-1">
+                    <MenuLink
+                      icon={<UserRound className="h-4 w-4" />}
+                      label="Edit profile"
+                      href="/dashboard/settings"
+                      active={pathname === "/dashboard/settings"}
+                      onNavigate={(href) => {
+                        setMenuOpen(false);
+                        router.push(href);
+                      }}
+                    />
                     <MenuLink
                       icon={<LayoutDashboard className="h-4 w-4" />}
                       label="Seller Dashboard"
@@ -421,18 +450,29 @@ export function Navbar({
               </Link>
 
               {user && (
-                <div className="mt-6 flex items-center gap-3 rounded-lg border border-border/50 bg-card p-3">
-                  <Avatar className="h-10 w-10">
-                    {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.displayName} />}
-                    <AvatarFallback className="bg-primary/20 text-sm font-semibold text-primary">
-                      {initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{user.displayName}</p>
-                    {user.email && (
-                      <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-                    )}
+                <div className="mt-6 rounded-lg border border-border/50 bg-card p-3">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="h-10 w-10">
+                      {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.displayName} />}
+                      <AvatarFallback className="bg-primary/20 text-sm font-semibold text-primary">
+                        {initials}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{user.displayName}</p>
+                      {user.email && (
+                        <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                      )}
+                    </div>
+                    <Link
+                      href="/dashboard/settings"
+                      onClick={() => setOpen(false)}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      aria-label="Edit profile"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      Edit
+                    </Link>
                   </div>
                 </div>
               )}

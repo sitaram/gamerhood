@@ -578,6 +578,19 @@ export async function updateParentStripe(
     .eq("auth_user_id", authUserId);
 }
 
+export async function updateParentDisplayName(
+  supabase: SupabaseClient,
+  authUserId: string,
+  displayName: string,
+) {
+  return supabase
+    .from("parents")
+    .update({ display_name: displayName })
+    .eq("auth_user_id", authUserId)
+    .select()
+    .single();
+}
+
 // ── Profiles ──
 
 export interface ProfileRow {
@@ -665,6 +678,7 @@ export type ProfileStorefrontUpdate = Partial<
     ProfileRow,
     | "slug"
     | "bio"
+    | "display_name"
     | "storefront_hero_image_url"
     | "storefront_headline"
     | "storefront_subhead"
