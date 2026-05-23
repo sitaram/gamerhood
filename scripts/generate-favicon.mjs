@@ -53,8 +53,8 @@ async function loadTrimmedCharacter() {
   });
 }
 
-/** Scale to ~88% of the square so small favicons stay legible. */
-const FILL_RATIO = 0.88;
+/** Scale to ~97% of the square so small favicons stay legible. */
+const FILL_RATIO = 0.97;
 
 async function makeSquarePng(size, trimmedPipeline) {
   const inner = Math.max(1, Math.round(size * FILL_RATIO));
