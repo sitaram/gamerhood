@@ -17,6 +17,12 @@ function Slider({
       : [min, max]
 
   return (
+    // Keep `thumbAlignment` at its default ("center"). The "edge" mode opts into
+    // a Base UI pre-hydration `<script>` tag inside SliderThumb (used to fix
+    // initial layout before JS boots), which React 19 now warns about in dev:
+    // "Encountered a script tag while rendering React component…". The visual
+    // difference is sub-pixel for our small (~12 px) thumb, so the trade-off
+    // is purely upside.
     <SliderPrimitive.Root
       className={cn("data-horizontal:w-full data-vertical:h-full", className)}
       data-slot="slider"
@@ -24,7 +30,6 @@ function Slider({
       value={value}
       min={min}
       max={max}
-      thumbAlignment="edge"
       {...props}
     >
       <SliderPrimitive.Control className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-vertical:h-full data-vertical:min-h-40 data-vertical:w-auto data-vertical:flex-col">

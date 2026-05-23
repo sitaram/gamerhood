@@ -331,11 +331,17 @@ export async function POST(request: NextRequest) {
       );
 
       let listingMockupUrl = publicImageUrl;
+      // Printful fetches the design by URL, so we can only call mockup generation
+      // when `publicImageUrl` is a real http(s) URL — not when we fell back to an
+      // inline data URL because Storage wasn't configured.
+      const designUrlIsFetchable =
+        publicImageUrl.startsWith("http://") || publicImageUrl.startsWith("https://");
       if (
         isPrintfulConfigured() &&
         catalog?.catalogVariantId &&
         printfulCatalogProductId &&
-        catalog
+        catalog &&
+        designUrlIsFetchable
       ) {
         const pfListing = await generateListingMockupUrl({
           catalogProductId: printfulCatalogProductId,

@@ -15,6 +15,19 @@ import { getServiceClient } from "@/lib/supabase/admin";
 
 const BUCKET = "design-images";
 
+/**
+ * Returns true when Storage uploads are usable (service-role configured).
+ * Lets callers degrade gracefully — e.g. keep the inline data URL on the
+ * design row when Storage isn't set up rather than failing the whole
+ * publish. Printful fulfillment is unavailable in that mode (Printful
+ * fetches by URL), but the storefront still renders.
+ */
+function isStorageConfigured(): boolean {
+  return Boolean(
+    process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.NEXT_PUBLIC_SUPABASE_URL,
+  );
+}
+
 export interface DecodedDesignDataUrl {
   bytes: Buffer;
   mimeType: string;
@@ -84,14 +97,30 @@ function decodeOrThrow(input: string): DataUrlPayload {
  * fetch directly. If the input is already an http(s) URL we return it
  * unchanged — designs migrated from external sources don't need re-hosting.
  *
- * Throws on storage errors so callers can decide whether to fail the
- * publish or fall back to the original URL.
+ * When `SUPABASE_SERVICE_ROLE_KEY` is missing (common on partial Vercel
+ * setups), this falls back to the original data URL so publish keeps
+ * working end-to-end — the storefront still renders, just with the
+ * larger inline image; Printful fulfillment stays disabled until the
+ * env var is set on the deployment.
+ *
+ * Throws on storage errors (other than missing service-role config) so
+ * callers can decide whether to fail the publish or fall back to the
+ * original URL.
  */
 export async function uploadDesignImage(
   designId: string,
   imageUrl: string,
 ): Promise<string> {
   if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+    return imageUrl;
+  }
+
+  if (!isStorageConfigured()) {
+    console.warn(
+      "[storage] SUPABASE_SERVICE_ROLE_KEY not set — keeping inline data URL on " +
+        "design row. Add the env var on the deployment to enable Storage hosting " +
+        "and Printful fulfillment.",
+    );
     return imageUrl;
   }
 
@@ -154,6 +183,14 @@ export async function uploadProductListingMockup(
     return imageUrl;
   }
 
+  if (!isStorageConfigured()) {
+    console.warn(
+      "[storage] SUPABASE_SERVICE_ROLE_KEY not set — listing mockup upload skipped " +
+        "(keeping original URL).",
+    );
+    return imageUrl;
+  }
+
   const payload = decodeOrThrow(imageUrl);
   const path = `${LISTING_MOCKUPS_PREFIX}/${productId}.${payload.extension}`;
   const supabase = getServiceClient();
@@ -184,6 +221,13 @@ export async function uploadStorefrontHeroImage(
 ): Promise<string> {
   if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
     return imageUrl;
+  }
+
+  if (!isStorageConfigured()) {
+    throw new Error(
+      "Storage isn't configured on this deployment (missing SUPABASE_SERVICE_ROLE_KEY) " +
+        "— please upload a hosted image URL instead, or set the env var.",
+    );
   }
 
   const payload = decodeOrThrow(imageUrl);
