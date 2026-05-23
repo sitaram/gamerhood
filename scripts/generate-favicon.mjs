@@ -8,18 +8,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, "..");
 
 /**
- * Source mascot art for all tab/app icons. PNG (not SVG) because the
- * mascot is illustrated — we want the actual brushwork preserved, not
- * a flat vector. Source is whatever lives at public/brand/mascot-axolotl.png.
+ * Head-only axolotl mascot (headset) for tab/app icons. PNG preserves the
+ * illustrated art. Source: public/brand/mascot-axolotl-head.png — regenerate
+ * that file from the latest brand asset via trim + square cover-crop when needed.
  *
- * We cover-crop to a square so the icon fills the whole pixel box (no
- * letterboxing in tabs), then downsize to the standard target sizes.
+ * We cover-crop to a square so the icon fills the pixel box (no letterboxing),
+ * then downsize to standard target sizes with Lanczos3.
  */
-const sourcePng = path.join(root, "public/brand/mascot-axolotl.png");
+const sourcePng = path.join(root, "public/brand/mascot-axolotl-head.png");
 
 async function makeSquarePng(size) {
-  // High-quality Lanczos3 downsize; cover-fit center-crops to square.
-  // Background is irrelevant since the source already fills the frame.
   return sharp(sourcePng)
     .resize(size, size, { fit: "cover", position: "center", kernel: "lanczos3" })
     .png({ compressionLevel: 9 })
