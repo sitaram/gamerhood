@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,13 @@ const MAX_DISPLAY_NAME_LEN = 80;
 const MAX_CATCHPHRASE_LEN = 120;
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const ALLOWED_AVATAR_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
+
+const AXOLOTL_DESIGN_FIELD_MAX = 80;
+// Mirrors the server-side rate limit in /api/account/generate-axolotl
+// — keeps the Generate button locked client-side so a kid clicking
+// "Try again" rapid-fire doesn't get a 429 toast in their face.
+const AXOLOTL_DESIGN_COOLDOWN_MS = 15_000;
+const AXOLOTL_REFERENCE_IMAGE_PATH = "/brand/axolotl-style-reference.png";
 
 type Props = {
   initialDisplayName: string;
@@ -63,6 +70,8 @@ export function ProfileSettingsForm({
 
   const [personalGalleryOpen, setPersonalGalleryOpen] = useState(false);
   const [storefrontGalleryOpen, setStorefrontGalleryOpen] = useState(false);
+  const [personalDesignerOpen, setPersonalDesignerOpen] = useState(false);
+  const [storefrontDesignerOpen, setStorefrontDesignerOpen] = useState(false);
 
   const initials = useMemo(() => profileInitials(displayName), [displayName]);
   const personalPreviewUrl = getDisplayAvatar({ id: profileId, avatar_url: avatarUrl });
@@ -252,6 +261,15 @@ export function ProfileSettingsForm({
     }
   }
 
+  function handleAiAxolotlSaved(slot: "personal" | "storefront", url: string) {
+    if (slot === "storefront") {
+      setStorefrontAvatarUrl(url);
+    } else {
+      setAvatarUrl(url);
+    }
+    router.refresh();
+  }
+
   const displayNameDirty = displayName.trim() !== initialDisplayName.trim();
   const catchphraseDirty =
     catchphrase.trim() !== (initialCatchphrase?.trim() ?? "");
@@ -298,6 +316,16 @@ export function ProfileSettingsForm({
               >
                 {personalGalleryOpen ? "Hide gallery" : "Choose from gallery"}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={avatarBusy}
+                aria-expanded={personalDesignerOpen}
+                aria-controls="personal-axolotl-designer"
+                onClick={() => setPersonalDesignerOpen((open) => !open)}
+              >
+                {personalDesignerOpen ? "Hide designer" : "Design your own axolotl"}
+              </Button>
               {avatarUrl && (
                 <Button
                   type="button"
@@ -317,6 +345,14 @@ export function ProfileSettingsForm({
             selected={personalGalleryPick}
             busy={avatarBusy}
             onPick={(url) => void handlePickDefaultAvatar(url)}
+          />
+        )}
+        {personalDesignerOpen && (
+          <AxolotlDesigner
+            id="personal-axolotl-designer"
+            slot="personal"
+            onSaved={(url) => handleAiAxolotlSaved("personal", url)}
+            onClose={() => setPersonalDesignerOpen(false)}
           />
         )}
       </Card>
@@ -366,6 +402,16 @@ export function ProfileSettingsForm({
               >
                 {storefrontGalleryOpen ? "Hide gallery" : "Choose from gallery"}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={storefrontAvatarBusy}
+                aria-expanded={storefrontDesignerOpen}
+                aria-controls="storefront-axolotl-designer"
+                onClick={() => setStorefrontDesignerOpen((open) => !open)}
+              >
+                {storefrontDesignerOpen ? "Hide designer" : "Design your own axolotl"}
+              </Button>
               {storefrontAvatarUrl && (
                 <Button
                   type="button"
@@ -385,6 +431,14 @@ export function ProfileSettingsForm({
             selected={storefrontGalleryPick}
             busy={storefrontAvatarBusy}
             onPick={(url) => void handlePickDefaultStorefrontAvatar(url)}
+          />
+        )}
+        {storefrontDesignerOpen && (
+          <AxolotlDesigner
+            id="storefront-axolotl-designer"
+            slot="storefront"
+            onSaved={(url) => handleAiAxolotlSaved("storefront", url)}
+            onClose={() => setStorefrontDesignerOpen(false)}
           />
         )}
       </Card>
@@ -539,4 +593,252 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error("Could not read file"));
     reader.readAsDataURL(file);
   });
+}
+
+type AxolotlDesignerProps = {
+  id: string;
+  slot: "personal" | "storefront";
+  onSaved: (avatarUrl: string) => void;
+  onClose: () => void;
+};
+
+/**
+ * Inline AI-generation panel — kid types two short prompts ("a pirate hat",
+ * "playing soccer"), Gemini draws a chibi axolotl on the curated reference
+ * style, and the resulting PNG becomes the avatar. The endpoint at
+ * `/api/account/generate-axolotl` saves the avatar server-side as part of
+ * generation, so the preview in this panel is the *already-saved* state —
+ * "Use this axolotl" is just a confirmation; "Try again" overwrites it
+ * with a fresh draw.
+ *
+ * `slot` switches between profiles.avatar_url and profiles.storefront_avatar_url
+ * so the same component services both photo cards.
+ */
+function AxolotlDesigner({ id, slot, onSaved, onClose }: AxolotlDesignerProps) {
+  const [wearing, setWearing] = useState("");
+  const [activity, setActivity] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [placeholderMode, setPlaceholderMode] = useState(false);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
+
+  const cooldownRemaining = Math.max(0, cooldownUntil - now);
+  const cooldownActive = cooldownRemaining > 0;
+
+  // Tick once a second while a cooldown is pending so the button label
+  // counts down. Skipped when there's no cooldown so we don't burn cycles.
+  useEffect(() => {
+    if (!cooldownActive) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(interval);
+  }, [cooldownActive]);
+
+  const trimmedWearing = wearing.trim();
+  const trimmedActivity = activity.trim();
+  const canGenerate =
+    !busy &&
+    !cooldownActive &&
+    trimmedWearing.length > 0 &&
+    trimmedActivity.length > 0;
+
+  async function handleGenerate() {
+    if (!canGenerate) return;
+    setBusy(true);
+    setErrorMessage(null);
+    setPlaceholderMode(false);
+    try {
+      const res = await fetch("/api/account/generate-axolotl", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wearing: trimmedWearing,
+          activity: trimmedActivity,
+          slot,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        avatarUrl?: string;
+        error?: string;
+        placeholder?: boolean;
+      };
+      if (!res.ok) {
+        if (res.status === 503 && data.placeholder) {
+          setPlaceholderMode(true);
+          setErrorMessage(
+            data.error ??
+              "AI generation isn't configured yet — coming soon.",
+          );
+          return;
+        }
+        setErrorMessage(
+          data.error ??
+            "Couldn't draw your axolotl right now. Please try again.",
+        );
+        return;
+      }
+      if (!data.avatarUrl) {
+        setErrorMessage("Couldn't draw your axolotl right now. Please try again.");
+        return;
+      }
+      setPreviewUrl(data.avatarUrl);
+      onSaved(data.avatarUrl);
+      setCooldownUntil(Date.now() + AXOLOTL_DESIGN_COOLDOWN_MS);
+      toast.success(
+        slot === "storefront"
+          ? "Storefront axolotl drawn!"
+          : "Your axolotl is ready!",
+      );
+    } catch {
+      setErrorMessage(
+        "Couldn't reach the drawing service. Check your connection and try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleTryAgain() {
+    setPreviewUrl(null);
+    setErrorMessage(null);
+  }
+
+  function handleConfirm() {
+    setPreviewUrl(null);
+    setWearing("");
+    setActivity("");
+    setErrorMessage(null);
+    onClose();
+  }
+
+  const generateLabel = (() => {
+    if (busy) return "Drawing your axolotl…";
+    if (cooldownActive) return `Try again in ${Math.ceil(cooldownRemaining / 1000)}s`;
+    if (previewUrl) return "Draw another";
+    return "Generate";
+  })();
+
+  return (
+    <div
+      id={id}
+      className="space-y-4 rounded-lg border border-border/50 bg-muted/30 p-4"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={AXOLOTL_REFERENCE_IMAGE_PATH}
+          alt=""
+          className="h-20 w-auto shrink-0 rounded-md border border-border/60 bg-black object-contain"
+          loading="lazy"
+          draggable={false}
+        />
+        <p className="text-xs text-muted-foreground">
+          Your axolotl will match this art style — chibi, pink, sticker-like,
+          on a black background. Tell us what to wear and what to do, and our
+          drawing helper will sketch one just for you.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor={`${id}-wearing`} className="text-xs">
+            What is your axolotl wearing?
+          </Label>
+          <Input
+            id={`${id}-wearing`}
+            value={wearing}
+            onChange={(e) => setWearing(e.target.value)}
+            maxLength={AXOLOTL_DESIGN_FIELD_MAX}
+            placeholder="a yellow raincoat, a Lakers jersey, a Mario costume…"
+            disabled={busy}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor={`${id}-activity`} className="text-xs">
+            What is it doing?
+          </Label>
+          <Input
+            id={`${id}-activity`}
+            value={activity}
+            onChange={(e) => setActivity(e.target.value)}
+            maxLength={AXOLOTL_DESIGN_FIELD_MAX}
+            placeholder="playing soccer, baking cookies, reading a comic…"
+            disabled={busy}
+          />
+        </div>
+      </div>
+
+      {errorMessage && (
+        <div
+          role="alert"
+          className={cn(
+            "rounded-md border px-3 py-2 text-xs",
+            placeholderMode
+              ? "border-amber-500/40 bg-amber-500/10 text-amber-200"
+              : "border-destructive/40 bg-destructive/10 text-destructive",
+          )}
+        >
+          {errorMessage}
+        </div>
+      )}
+
+      {previewUrl && (
+        <div className="flex flex-col gap-3 rounded-md border border-border/60 bg-background/40 p-3 sm:flex-row sm:items-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewUrl}
+            alt="Your custom axolotl"
+            className="h-32 w-32 shrink-0 rounded-lg border border-border/60 bg-black object-cover"
+          />
+          <div className="flex flex-col gap-2">
+            <p className="text-sm font-medium">
+              {slot === "storefront"
+                ? "Saved as your storefront axolotl."
+                : "Saved as your profile axolotl."}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Want to tweak it? &ldquo;Try again&rdquo; will draw a new one
+              with the same words — adjust them first to change the result.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" onClick={handleConfirm}>
+                Use this axolotl
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={handleTryAgain}
+                disabled={busy || cooldownActive}
+              >
+                Try again
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!previewUrl && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            onClick={() => void handleGenerate()}
+            disabled={!canGenerate}
+          >
+            {generateLabel}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            disabled={busy}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
