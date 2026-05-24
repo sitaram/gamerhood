@@ -11,10 +11,14 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
 import {
+  DEFAULT_AVATAR_POOL,
   getDisplayAvatar,
   getStorefrontAvatar,
   profileInitials,
 } from "@/lib/profile-avatar";
+import { cn } from "@/lib/utils";
+
+const DEFAULT_AVATAR_SET: ReadonlySet<string> = new Set(DEFAULT_AVATAR_POOL);
 
 const MAX_DISPLAY_NAME_LEN = 80;
 const MAX_CATCHPHRASE_LEN = 120;
@@ -57,6 +61,9 @@ export function ProfileSettingsForm({
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [storefrontAvatarBusy, setStorefrontAvatarBusy] = useState(false);
 
+  const [personalGalleryOpen, setPersonalGalleryOpen] = useState(false);
+  const [storefrontGalleryOpen, setStorefrontGalleryOpen] = useState(false);
+
   const initials = useMemo(() => profileInitials(displayName), [displayName]);
   const personalPreviewUrl = getDisplayAvatar({ id: profileId, avatar_url: avatarUrl });
   const storefrontPreviewUrl = getStorefrontAvatar({
@@ -66,6 +73,11 @@ export function ProfileSettingsForm({
   });
   const usingDefaultPersonal = !avatarUrl;
   const usingPersonalOnStorefront = !storefrontAvatarUrl;
+  const personalGalleryPick = avatarUrl && DEFAULT_AVATAR_SET.has(avatarUrl) ? avatarUrl : null;
+  const storefrontGalleryPick =
+    storefrontAvatarUrl && DEFAULT_AVATAR_SET.has(storefrontAvatarUrl)
+      ? storefrontAvatarUrl
+      : null;
 
   async function patchProfile(body: Record<string, unknown>) {
     const res = await fetch("/api/account/profile", {
@@ -171,9 +183,22 @@ export function ProfileSettingsForm({
     setAvatarBusy(true);
     try {
       await patchProfile({ clearAvatar: true });
-      toast.success("Profile photo removed");
+      toast.success("Picked a random axolotl for you");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not remove photo");
+      toast.error(err instanceof Error ? err.message : "Could not reset photo");
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  async function handlePickDefaultAvatar(pick: string) {
+    if (!DEFAULT_AVATAR_SET.has(pick)) return;
+    setAvatarBusy(true);
+    try {
+      await patchProfile({ pickDefaultAvatar: pick });
+      toast.success("Profile axolotl updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not pick axolotl");
     } finally {
       setAvatarBusy(false);
     }
@@ -214,6 +239,19 @@ export function ProfileSettingsForm({
     }
   }
 
+  async function handlePickDefaultStorefrontAvatar(pick: string) {
+    if (!DEFAULT_AVATAR_SET.has(pick)) return;
+    setStorefrontAvatarBusy(true);
+    try {
+      await patchProfile({ pickDefaultStorefrontAvatar: pick });
+      toast.success("Storefront axolotl updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not pick axolotl");
+    } finally {
+      setStorefrontAvatarBusy(false);
+    }
+  }
+
   const displayNameDirty = displayName.trim() !== initialDisplayName.trim();
   const catchphraseDirty =
     catchphrase.trim() !== (initialCatchphrase?.trim() ?? "");
@@ -236,7 +274,7 @@ export function ProfileSettingsForm({
           <div className="flex flex-col gap-2">
             {usingDefaultPersonal && (
               <p className="text-xs text-muted-foreground">
-                Using one of our default Gamerhood axolotls. Upload your own anytime.
+                Using one of our default Gamerhood axolotls. Upload your own, or pick a favorite below.
               </p>
             )}
             <div className="flex flex-wrap gap-2">
@@ -248,8 +286,18 @@ export function ProfileSettingsForm({
                   onChange={onAvatarFile}
                   disabled={avatarBusy}
                 />
-                {avatarBusy ? "Uploading…" : avatarUrl ? "Replace photo" : "Upload photo"}
+                {avatarBusy ? "Working…" : avatarUrl ? "Replace photo" : "Upload photo"}
               </label>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={avatarBusy}
+                aria-expanded={personalGalleryOpen}
+                aria-controls="personal-axolotl-gallery"
+                onClick={() => setPersonalGalleryOpen((open) => !open)}
+              >
+                {personalGalleryOpen ? "Hide gallery" : "Choose from gallery"}
+              </Button>
               {avatarUrl && (
                 <Button
                   type="button"
@@ -257,12 +305,20 @@ export function ProfileSettingsForm({
                   disabled={avatarBusy}
                   onClick={() => void handleRemoveAvatar()}
                 >
-                  Remove
+                  Use a random axolotl
                 </Button>
               )}
             </div>
           </div>
         </div>
+        {personalGalleryOpen && (
+          <AxolotlGallery
+            id="personal-axolotl-gallery"
+            selected={personalGalleryPick}
+            busy={avatarBusy}
+            onPick={(url) => void handlePickDefaultAvatar(url)}
+          />
+        )}
       </Card>
 
       <Card className="space-y-4 border-border/50 bg-card p-6">
@@ -295,11 +351,21 @@ export function ProfileSettingsForm({
                   disabled={storefrontAvatarBusy}
                 />
                 {storefrontAvatarBusy
-                  ? "Uploading…"
+                  ? "Working…"
                   : storefrontAvatarUrl
                     ? "Replace storefront photo"
                     : "Upload storefront photo"}
               </label>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={storefrontAvatarBusy}
+                aria-expanded={storefrontGalleryOpen}
+                aria-controls="storefront-axolotl-gallery"
+                onClick={() => setStorefrontGalleryOpen((open) => !open)}
+              >
+                {storefrontGalleryOpen ? "Hide gallery" : "Choose from gallery"}
+              </Button>
               {storefrontAvatarUrl && (
                 <Button
                   type="button"
@@ -313,6 +379,14 @@ export function ProfileSettingsForm({
             </div>
           </div>
         </div>
+        {storefrontGalleryOpen && (
+          <AxolotlGallery
+            id="storefront-axolotl-gallery"
+            selected={storefrontGalleryPick}
+            busy={storefrontAvatarBusy}
+            onPick={(url) => void handlePickDefaultStorefrontAvatar(url)}
+          />
+        )}
       </Card>
 
       <Card className="space-y-4 border-border/50 bg-card p-6">
@@ -392,6 +466,65 @@ export function ProfileSettingsForm({
           </Link>
         </Card>
       )}
+    </div>
+  );
+}
+
+type AxolotlGalleryProps = {
+  id: string;
+  selected: string | null;
+  busy: boolean;
+  onPick: (url: string) => void;
+};
+
+function AxolotlGallery({ id, selected, busy, onPick }: AxolotlGalleryProps) {
+  return (
+    <div id={id} className="rounded-lg border border-border/50 bg-muted/30 p-4">
+      <p className="mb-3 text-xs text-muted-foreground">
+        Pick your axolotl — kids love a personal mascot. You can change this anytime.
+      </p>
+      <div
+        role="radiogroup"
+        aria-label="Axolotl gallery"
+        className="grid grid-cols-3 gap-3 sm:gap-4"
+      >
+        {DEFAULT_AVATAR_POOL.map((url, index) => {
+          const isSelected = selected === url;
+          return (
+            <button
+              key={url}
+              type="button"
+              role="radio"
+              aria-checked={isSelected}
+              aria-label={`Axolotl ${index + 1}${isSelected ? " (selected)" : ""}`}
+              disabled={busy}
+              onClick={() => onPick(url)}
+              className={cn(
+                "group relative aspect-square overflow-hidden rounded-lg border-2 bg-background outline-none transition",
+                "hover:border-primary/60 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/40",
+                "disabled:cursor-not-allowed disabled:opacity-60",
+                isSelected
+                  ? "border-primary ring-2 ring-primary/40"
+                  : "border-border/60",
+              )}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={url}
+                alt=""
+                className="h-full w-full object-cover"
+                loading="lazy"
+                draggable={false}
+              />
+              {isSelected && (
+                <span className="absolute bottom-1 right-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold text-primary-foreground shadow">
+                  Selected
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

@@ -12,6 +12,9 @@ import {
   removeStorefrontProfileAvatarFromStorage,
 } from "@/lib/storage";
 import { moderateImageBase64, moderateText } from "@/lib/moderation";
+import { DEFAULT_AVATAR_POOL } from "@/lib/profile-avatar";
+
+const DEFAULT_AVATAR_ALLOWLIST: ReadonlySet<string> = new Set(DEFAULT_AVATAR_POOL);
 
 export const dynamic = "force-dynamic";
 
@@ -150,9 +153,19 @@ export async function PATCH(request: NextRequest) {
       ? body.avatarImageDataUrl
       : null;
 
-  if (body.clearAvatar === true) {
-    profilePatch.avatar_url = null;
-    authPatch.avatar_url = null;
+  // Action priority for personal avatar: explicit gallery pick > upload > clear.
+  // The pool is our own curated set, so it skips Vision moderation but must
+  // pass the allowlist check to prevent arbitrary URL injection.
+  if (body.pickDefaultAvatar !== undefined) {
+    if (typeof body.pickDefaultAvatar !== "string" ||
+        !DEFAULT_AVATAR_ALLOWLIST.has(body.pickDefaultAvatar)) {
+      return NextResponse.json(
+        { error: "That axolotl isn't in our gallery." },
+        { status: 400 },
+      );
+    }
+    profilePatch.avatar_url = body.pickDefaultAvatar;
+    authPatch.avatar_url = body.pickDefaultAvatar;
     await removeProfileAvatarFromStorage(profile.id);
   } else if (avatarDataUrl) {
     const validation = await validateAndModerateAvatar(avatarDataUrl, "Profile photo");
@@ -167,6 +180,10 @@ export async function PATCH(request: NextRequest) {
       const msg = e instanceof Error ? e.message : "Avatar upload failed";
       return NextResponse.json({ error: msg }, { status: 400 });
     }
+  } else if (body.clearAvatar === true) {
+    profilePatch.avatar_url = null;
+    authPatch.avatar_url = null;
+    await removeProfileAvatarFromStorage(profile.id);
   }
 
   const storefrontAvatarDataUrl =
@@ -175,8 +192,15 @@ export async function PATCH(request: NextRequest) {
       ? body.storefrontAvatarImageDataUrl
       : null;
 
-  if (body.clearStorefrontAvatar === true) {
-    profilePatch.storefront_avatar_url = null;
+  if (body.pickDefaultStorefrontAvatar !== undefined) {
+    if (typeof body.pickDefaultStorefrontAvatar !== "string" ||
+        !DEFAULT_AVATAR_ALLOWLIST.has(body.pickDefaultStorefrontAvatar)) {
+      return NextResponse.json(
+        { error: "That axolotl isn't in our gallery." },
+        { status: 400 },
+      );
+    }
+    profilePatch.storefront_avatar_url = body.pickDefaultStorefrontAvatar;
     await removeStorefrontProfileAvatarFromStorage(profile.id);
   } else if (storefrontAvatarDataUrl) {
     const validation = await validateAndModerateAvatar(
@@ -196,6 +220,9 @@ export async function PATCH(request: NextRequest) {
       const msg = e instanceof Error ? e.message : "Storefront photo upload failed";
       return NextResponse.json({ error: msg }, { status: 400 });
     }
+  } else if (body.clearStorefrontAvatar === true) {
+    profilePatch.storefront_avatar_url = null;
+    await removeStorefrontProfileAvatarFromStorage(profile.id);
   }
 
   if (Object.keys(profilePatch).length === 0) {
