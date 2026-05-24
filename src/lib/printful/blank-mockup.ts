@@ -45,7 +45,7 @@ const DUMMY_PATH = "_system/blank-print-layer.png";
 const TRANSPARENT_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=";
 
-interface BlankMockupRow {
+export interface BlankMockupRow {
   product_type: ProductType;
   mockup_url: string;
   catalog_product_id: number | null;
@@ -53,6 +53,9 @@ interface BlankMockupRow {
   mockup_style_id: number | null;
   technique: string | null;
   placement: string | null;
+  /** From `placement_dimensions[placement].width` (inches). Overrides hardcoded DEFAULT_PRINT_AREA_IN. */
+  print_area_width_in: number | null;
+  print_area_height_in: number | null;
   generated_at: string;
 }
 
@@ -99,21 +102,56 @@ async function ensureDummyDesignUrl(): Promise<string> {
   return dummyUrlMemo;
 }
 
-/** Fetch the variant in order to discover its `catalog_product_id` (Printful doesn't expose it on the config). */
-async function resolveCatalogProductId(catalogVariantId: number): Promise<number | null> {
+interface PlacementDim {
+  placement?: string;
+  width?: number;
+  height?: number;
+}
+
+interface CatalogVariantSummary {
+  catalogProductId: number | null;
+  placementDims: PlacementDim[];
+}
+
+/**
+ * Fetch the variant's `catalog_product_id` AND its `placement_dimensions[]`
+ * in a single call. Printful exposes per-placement print-area sizes (in
+ * inches) here, which we cache so the editor can size its print box to
+ * the real SKU instead of a hardcoded default.
+ */
+async function fetchCatalogVariantSummary(catalogVariantId: number): Promise<CatalogVariantSummary> {
   try {
     const res = await printfulRequest<{
-      data?: { catalog_product_id?: number };
+      data?: {
+        catalog_product_id?: number;
+        placement_dimensions?: PlacementDim[];
+      };
     }>(`/catalog-variants/${catalogVariantId}`);
-    const id = res.data?.catalog_product_id;
-    return typeof id === "number" ? id : null;
+    const data = res.data ?? {};
+    return {
+      catalogProductId: typeof data.catalog_product_id === "number" ? data.catalog_product_id : null,
+      placementDims: Array.isArray(data.placement_dimensions) ? data.placement_dimensions : [],
+    };
   } catch (err) {
     console.warn(
-      "[Printful blank-mockup] resolve catalog_product_id failed:",
+      "[Printful blank-mockup] catalog-variants fetch failed:",
       err instanceof Error ? err.message : err,
     );
-    return null;
+    return { catalogProductId: null, placementDims: [] };
   }
+}
+
+/** First `placement_dimensions` entry whose `placement` matches; sizes may be 0/missing on some embroidery SKUs. */
+function pickPrintAreaForPlacement(
+  dims: PlacementDim[],
+  placement: string,
+): { width: number; height: number } | null {
+  const match = dims.find((d) => d.placement === placement);
+  if (!match) return null;
+  const w = typeof match.width === "number" && match.width > 0 ? match.width : null;
+  const h = typeof match.height === "number" && match.height > 0 ? match.height : null;
+  if (!w || !h) return null;
+  return { width: w, height: h };
 }
 
 export interface BlankMockupResult {
@@ -121,6 +159,8 @@ export interface BlankMockupResult {
   catalogProductId: number;
   catalogVariantId: number;
   mockupStyleId: number;
+  /** Print area in inches for the configured placement, when Printful reports it. */
+  printArea: { width: number; height: number } | null;
 }
 
 /**
@@ -135,8 +175,11 @@ export async function generateFlatBlankMockup(
   const cfg = getCatalogConfig(productType);
   if (!cfg) return null;
 
-  const catalogProductId = await resolveCatalogProductId(cfg.catalogVariantId);
+  const summary = await fetchCatalogVariantSummary(cfg.catalogVariantId);
+  const catalogProductId = summary.catalogProductId;
   if (!catalogProductId) return null;
+
+  const printArea = pickPrintAreaForPlacement(summary.placementDims, cfg.placement);
 
   const groups = await fetchCatalogMockupStyles(catalogProductId, cfg.placement, {
     includeAll: true,
@@ -206,6 +249,7 @@ export async function generateFlatBlankMockup(
     catalogProductId,
     catalogVariantId: cfg.catalogVariantId,
     mockupStyleId: picked.styleId,
+    printArea,
   };
 }
 
@@ -232,6 +276,8 @@ export async function getOrGenerateFlatBlankMockup(
       mockup_style_id: generated.mockupStyleId,
       technique: null,
       placement: null,
+      print_area_width_in: generated.printArea?.width ?? null,
+      print_area_height_in: generated.printArea?.height ?? null,
       generated_at: new Date().toISOString(),
     };
   }
@@ -264,6 +310,8 @@ export async function getOrGenerateFlatBlankMockup(
     mockup_style_id: generated.mockupStyleId,
     technique: cfg?.technique ?? null,
     placement: cfg?.placement ?? null,
+    print_area_width_in: generated.printArea?.width ?? null,
+    print_area_height_in: generated.printArea?.height ?? null,
     generated_at: new Date().toISOString(),
   };
 

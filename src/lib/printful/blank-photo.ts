@@ -26,6 +26,13 @@ export type BlankPhotoStatus = "ready" | "generating" | "unavailable";
 export interface BlankPhotoResult {
   url: string | null;
   status: BlankPhotoStatus;
+  /**
+   * Real Printful print area in inches for this variant's configured
+   * placement, when cached. `null` while generating or if Printful didn't
+   * report dims (some embroidery SKUs omit them). Client falls back to
+   * `DEFAULT_PRINT_AREA_IN` from catalog.ts.
+   */
+  printArea: { width: number; height: number } | null;
 }
 
 interface MemoEntry {
@@ -49,14 +56,18 @@ async function readCachedBlank(productType: ProductType): Promise<BlankPhotoResu
     const supabase = getServiceClient();
     const { data } = await supabase
       .from("printful_blank_mockups")
-      .select("mockup_url")
+      .select("mockup_url, print_area_width_in, print_area_height_in")
       .eq("product_type", productType)
       .maybeSingle();
     const url = data?.mockup_url;
-    if (typeof url === "string" && url) {
-      return { url, status: "ready" };
-    }
-    return null;
+    if (typeof url !== "string" || !url) return null;
+    const w = data?.print_area_width_in;
+    const h = data?.print_area_height_in;
+    const printArea =
+      typeof w === "number" && typeof h === "number" && w > 0 && h > 0
+        ? { width: w, height: h }
+        : null;
+    return { url, status: "ready", printArea };
   } catch {
     return null;
   }
@@ -80,7 +91,7 @@ function startBackgroundGeneration(productType: ProductType): Promise<BlankPhoto
     });
 
     if (!generated) {
-      const result: BlankPhotoResult = { url: null, status: "unavailable" };
+      const result: BlankPhotoResult = { url: null, status: "unavailable", printArea: null };
       memo.set(productType, { result });
       return result;
     }
@@ -90,17 +101,29 @@ function startBackgroundGeneration(productType: ProductType): Promise<BlankPhoto
     const result: BlankPhotoResult = {
       url: row?.mockup_url ?? generated.url,
       status: "ready",
+      printArea: extractRowPrintArea(row) ?? generated.printArea,
     };
     memo.set(productType, { result });
     return result;
   })();
 
   memo.set(productType, {
-    result: { url: null, status: "generating" },
+    result: { url: null, status: "generating", printArea: null },
     pending: p,
   });
 
   return p;
+}
+
+function extractRowPrintArea(
+  row: { print_area_width_in: number | null; print_area_height_in: number | null } | null,
+): { width: number; height: number } | null {
+  const w = row?.print_area_width_in;
+  const h = row?.print_area_height_in;
+  if (typeof w === "number" && typeof h === "number" && w > 0 && h > 0) {
+    return { width: w, height: h };
+  }
+  return null;
 }
 
 /**
@@ -115,7 +138,7 @@ export async function getBlankPhotoForProductType(
   if (memoEntry && memoEntry.result.status === "ready") return memoEntry.result;
 
   if (!isPrintfulConfigured()) {
-    const result: BlankPhotoResult = { url: null, status: "unavailable" };
+    const result: BlankPhotoResult = { url: null, status: "unavailable", printArea: null };
     memo.set(productType, { result });
     return result;
   }
@@ -127,10 +150,10 @@ export async function getBlankPhotoForProductType(
   }
 
   if (memoEntry?.pending) {
-    return { url: null, status: "generating" };
+    return { url: null, status: "generating", printArea: null };
   }
 
   /** Fire-and-await-elsewhere: do NOT await `p`, return generating status now. */
   void startBackgroundGeneration(productType);
-  return { url: null, status: "generating" };
+  return { url: null, status: "generating", printArea: null };
 }

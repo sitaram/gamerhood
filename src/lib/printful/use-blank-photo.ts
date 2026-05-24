@@ -8,6 +8,8 @@ type Status = "idle" | "loading" | "ready" | "unavailable";
 interface CacheEntry {
   status: Status;
   url: string | null;
+  /** Real Printful print area in inches from the DB cache, when populated. */
+  area: { width: number; height: number } | null;
 }
 
 /** Shared across all components mounted in the same browser tab. */
@@ -25,17 +27,34 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchOnce(productType: ProductType): Promise<{ url: string | null; status: string } | null> {
+interface FetchOnceResult {
+  url: string | null;
+  status: string;
+  area: { width: number; height: number } | null;
+}
+
+async function fetchOnce(productType: ProductType): Promise<FetchOnceResult | null> {
   try {
     const res = await fetch(
       `/api/printful/blank-photo?type=${encodeURIComponent(productType)}`,
       { cache: "no-store" },
     );
     if (!res.ok) return null;
-    const j = (await res.json()) as { url?: string | null; status?: string };
+    const j = (await res.json()) as {
+      url?: string | null;
+      status?: string;
+      printArea?: { width?: number; height?: number } | null;
+    };
+    const w = j.printArea?.width;
+    const h = j.printArea?.height;
+    const area =
+      typeof w === "number" && typeof h === "number" && w > 0 && h > 0
+        ? { width: w, height: h }
+        : null;
     return {
       url: typeof j.url === "string" && j.url ? j.url : null,
       status: typeof j.status === "string" ? j.status : "unavailable",
+      area,
     };
   } catch {
     return null;
@@ -58,33 +77,33 @@ function ensureFetch(productType: ProductType, onChange: () => void): Promise<vo
       const r = await fetchOnce(productType);
 
       if (!r) {
-        browserCache.set(productType, { status: "unavailable", url: null });
+        browserCache.set(productType, { status: "unavailable", url: null, area: null });
         onChange();
         return;
       }
 
       if (r.status === "ready" && r.url) {
-        browserCache.set(productType, { status: "ready", url: r.url });
+        browserCache.set(productType, { status: "ready", url: r.url, area: r.area });
         onChange();
         return;
       }
 
       if (r.status === "unavailable") {
-        browserCache.set(productType, { status: "unavailable", url: null });
+        browserCache.set(productType, { status: "unavailable", url: null, area: r.area });
         onChange();
         return;
       }
 
       /** "generating" — back off and poll again. */
       if (browserCache.get(productType)?.status !== "loading") {
-        browserCache.set(productType, { status: "loading", url: null });
+        browserCache.set(productType, { status: "loading", url: null, area: r.area });
         onChange();
       }
       const delay = POLL_DELAYS_MS[Math.min(attempt, POLL_DELAYS_MS.length - 1)];
       attempt += 1;
       if (attempt > POLL_DELAYS_MS.length + 2) {
         /** Give up after ~90 s — the SVG silhouette continues to render. */
-        browserCache.set(productType, { status: "unavailable", url: null });
+        browserCache.set(productType, { status: "unavailable", url: null, area: null });
         onChange();
         return;
       }
@@ -106,6 +125,12 @@ function ensureFetch(productType: ProductType, onChange: () => void): Promise<vo
 export function usePrintfulBlankPhoto(productType: ProductType): {
   url: string | null;
   loading: boolean;
+  /**
+   * Printful-reported print area in inches for this variant's configured
+   * placement, when available. Use it to size the print box; fall back to
+   * `getPrintAreaInches(productType)` when null (during first generation).
+   */
+  area: { width: number; height: number } | null;
 } {
   const [, setTick] = useState(0);
 
@@ -127,5 +152,6 @@ export function usePrintfulBlankPhoto(productType: ProductType): {
   return {
     url: entry?.status === "ready" ? entry.url : null,
     loading: !entry || entry.status === "loading",
+    area: entry?.area ?? null,
   };
 }

@@ -87,10 +87,16 @@ export function PrintPlacementEditor({
       : pickStablePreviewType(selectedProductTypes);
 
   const baseLayout = getMerchPreviewLayout(previewType);
-  const area = getPrintAreaInches(previewType);
-  const Aw = area?.width ?? 12;
-  const Ah = area?.height ?? 15;
-  const { url: blankPhotoUrl } = usePrintfulBlankPhoto(previewType);
+  const { url: blankPhotoUrl, area: liveArea } = usePrintfulBlankPhoto(previewType);
+  /**
+   * Print area in inches: prefer the live Printful-reported dims (cached on
+   * `printful_blank_mockups` and surfaced via the blank-photo API), fall back
+   * to our hardcoded DEFAULT_PRINT_AREA_IN values. This keeps the box
+   * accurate even when we point env vars at a new SKU without redeploying.
+   */
+  const hardcodedArea = getPrintAreaInches(previewType);
+  const Aw = liveArea?.width ?? hardcodedArea?.width ?? 12;
+  const Ah = liveArea?.height ?? hardcodedArea?.height ?? 15;
   /** Flat photo backdrop swaps in the per-SKU print band tune (different framing than the silhouette). */
   const layout = blankPhotoUrl && baseLayout.photoBand
     ? { ...baseLayout, ...baseLayout.photoBand }
@@ -173,9 +179,14 @@ export function PrintPlacementEditor({
   const zoomMaxPct = Math.round(PLACEMENT_ZOOM_MAX * 100);
   const zoomPercent = Math.round(value.zoom * 100);
 
+  /**
+   * Artwork itself — no inner background tint, so transparent PNGs reveal
+   * the checkered "print area" pattern behind them (matching how Printful's
+   * editor previews a transparent design).
+   */
   const artworkInner = (
     <div
-      className="pointer-events-none absolute overflow-hidden bg-[#26262b]"
+      className="pointer-events-none absolute overflow-hidden"
       style={{
         width: `${(pf.width / pf.area_width) * 100}%`,
         height: `${(pf.height / pf.area_height) * 100}%`,
@@ -188,12 +199,24 @@ export function PrintPlacementEditor({
         alt="Your artwork placement preview"
         fill
         sizes="480px"
-        className="object-cover object-center"
+        className="object-contain object-center"
         unoptimized
         draggable={false}
       />
     </div>
   );
+
+  /**
+   * CSS checkerboard pattern (8 px squares) — drawn behind the artwork so
+   * the print box looks transparent the way Printful's does. Matches the
+   * "this is the printable area; design lives inside it" mental model.
+   */
+  const checkerStyle = {
+    backgroundImage:
+      "linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)",
+    backgroundSize: "16px 16px",
+    backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+  } as const;
 
   if (!imageUrl) return null;
 
@@ -331,19 +354,57 @@ export function PrintPlacementEditor({
                   : {}),
               }}
             >
+              {/**
+                * Print boundary: a single dashed outline with a translucent
+                * checker behind the artwork — closely mirrors Printful's
+                * "this is the printable area" affordance. Cyan corner dots
+                * + center mid-handles render on top so the box reads as a
+                * selectable object (matches Printful's selection state).
+                */}
               <div
-                className="relative max-h-full overflow-hidden rounded-md border-2 border-dashed border-primary bg-black/25 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] ring-2 ring-background/70"
+                className="relative max-h-full overflow-visible rounded-sm border border-dashed border-cyan-400/80 ring-1 ring-cyan-300/20"
                 style={{
                   aspectRatio: `${Aw} / ${Ah}`,
                   width: `${layout.printMaxWidthPct}%`,
                 }}
               >
-                <div className="relative h-full w-full">{artworkInner}</div>
+                <div
+                  className="absolute inset-0 overflow-hidden rounded-sm"
+                  style={checkerStyle}
+                >
+                  {artworkInner}
+                </div>
+
+                {/** Four cyan corner handles + 4 mid-edge dots, Printful-style. */}
+                {[
+                  { className: "-top-1 -left-1" },
+                  { className: "-top-1 -right-1" },
+                  { className: "-bottom-1 -left-1" },
+                  { className: "-bottom-1 -right-1" },
+                ].map((p) => (
+                  <span
+                    key={p.className}
+                    aria-hidden
+                    className={`pointer-events-none absolute h-2 w-2 rounded-full bg-cyan-400 ring-1 ring-white ${p.className}`}
+                  />
+                ))}
+                {[
+                  { className: "left-1/2 -top-[3px] -translate-x-1/2" },
+                  { className: "left-1/2 -bottom-[3px] -translate-x-1/2" },
+                  { className: "top-1/2 -left-[3px] -translate-y-1/2" },
+                  { className: "top-1/2 -right-[3px] -translate-y-1/2" },
+                ].map((p) => (
+                  <span
+                    key={p.className}
+                    aria-hidden
+                    className={`pointer-events-none absolute h-1.5 w-1.5 rounded-full bg-cyan-300/90 ${p.className}`}
+                  />
+                ))}
               </div>
             </div>
 
             <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-2 text-center text-[10px] leading-snug text-muted-foreground/90">
-              Drag or use arrow keys (Shift = bigger step) to move • Zoom out for whitespace, in to crop • Purple dashed frame = Printful print box
+              Drag or use arrow keys (Shift = bigger step) to move • Zoom out for whitespace, in to crop • Cyan frame = printable area
             </p>
           </div>
         )}

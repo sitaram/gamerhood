@@ -210,40 +210,69 @@ function readIntEnv(envKey: string): number | undefined {
 }
 
 /**
- * Approximate nominal print-area size for editor preview + Printful `position`.
- * Override with PRINTFUL_<TYPE>_PRINT_AREA_WIDTH_IN / _HEIGHT_IN (inches).
+ * Nominal print-area size for editor preview + Printful `position`.
+ *
+ * Per-SKU values come from Printful's
+ * `GET /v2/catalog-variants/{id}.placement_dimensions[<placement>]` field
+ * for the variant you've configured in env. They are the *maximum* printable
+ * box on the placement (e.g. "front" / "leg_left"); Printful accepts any
+ * sub-rectangle, but our editor and order layer both use the full box so
+ * creators get the same on-garment scale they see in the editor.
+ *
+ * For SKUs without an env-configured variant we fall back to a generic
+ * placeholder; once you set `PRINTFUL_<TYPE>_VARIANT_ID` you should also
+ * verify the dims here (or override via `PRINTFUL_<TYPE>_PRINT_AREA_*_IN`
+ * env vars and re-run `scripts/printful-refresh-blanks.mts` so the DB
+ * cache picks them up alongside the blank mockup).
+ *
+ * The DB cache layer (`printful_blank_mockups.print_area_*_in`) takes
+ * precedence over these defaults server-side when present — see
+ * `getCachedPrintAreaInches`.
  */
 const DEFAULT_PRINT_AREA_IN: Partial<Record<ProductType, { w: number; h: number }>> = {
-  hoodie: { w: 12, h: 15 },
+  // Gildan 18500 Unisex Heavy Blend Hoodie (catalog_product_id 146).
+  // `placement_dimensions.front`: 14×14 — square, NOT 12×15. Printful's
+  // editor draws the print box at this exact size on its Flat 2 mockup.
+  hoodie: { w: 14, h: 14 },
+  // Bella + Canvas 3001 (catalog_product_id 71). `front`: 12×16.
   tshirt: { w: 12, h: 16 },
+  // Kids variants tracked separately so we don't reuse the adult 14×14 box.
+  // Verify per SKU once env IDs are set; values below are conservative.
   "kids-hoodie": { w: 10, h: 12 },
   "kids-heavyweight-tee": { w: 10, h: 12 },
   "kids-long-sleeve": { w: 10, h: 12 },
   "kids-tshirt": { w: 10, h: 12 },
   "kids-sports-tee": { w: 10, h: 12 },
-  // M7580 leg_left — approximate tall strip; tune vs catalog placement box or env overrides.
-  joggers: { w: 4.25, h: 13 },
-  mug: { w: 8, h: 3.25 },
+  // Jerzees 975MPR Unisex Joggers (catalog_product_id 412). `leg_left`: 3.5×14.5.
+  joggers: { w: 3.5, h: 14.5 },
+  // White Glossy Mug 11 oz (catalog_product_id ~19). `default`: 9×3.5.
+  mug: { w: 9, h: 3.5 },
+  // Enhanced Matte Paper Poster 12″×18″. `default`: 12×18.
   poster: { w: 12, h: 18 },
-  // Kiss-cut: square nominal inches for framing preview — override per variant dimensions from catalog.
-  sticker: { w: 4, h: 4 },
-  // Custom-shaped pillow — nominal square print field for larger variants (e.g. 16″); override per SKU.
+  // Kiss-Cut Stickers 3″×3″ (catalog_product_id 358). `default`: 3×3.
+  sticker: { w: 3, h: 3 },
+  // Custom-shaped pillow — nominal square print field for larger variants
+  // (e.g. 16″); override per SKU once env IDs are set.
   pillow: { w: 16, h: 16 },
-  // BP40 embroidery hoop — nominal box for placement preview; real limits come from catalog / stitch area.
+  // BP40 sherpa embroidery — nominal stitch box; real limits live on catalog.
   blanket: { w: 12, h: 12 },
-  // Pet knit — nominal embroidery chest box; override per catalog stitch limits.
+  // Pet knit — nominal embroidery chest box.
   "pet-sweater": { w: 8, h: 8 },
-  backpack: { w: 12, h: 14 },
-  "phone-case": { w: 2.94, h: 5.78 },
-  // EC8000 front print rectangle — nominal; override from catalog placement dimensions.
+  // All-Over Print Backpack (catalog_product_id ~462). `front`: 14.5×20.5.
+  backpack: { w: 14.5, h: 20.5 },
+  // iPhone snap case — varies per device variant. The default below is for
+  // iPhone 15 Plus (`default`: 4.43×7.32); other models will be overridden
+  // via the DB cache once their blank mockup runs.
+  "phone-case": { w: 4.43, h: 7.32 },
+  // EC8000 tote (~367) — front print rectangle; verify per SKU.
   "tote-bag": { w: 14, h: 16 },
-  // Small metal panel — nominal square; shapes vary by variant (round, bell, oval, tree).
+  // Metal ornament panel — shape varies (round, bell, oval, tree).
   ornament: { w: 3, h: 3 },
-  // Puzzle face — nominal rectangle; piece count / dimensions vary by variant.
+  // Jigsaw puzzle face — varies by piece count / finished size.
   puzzle: { w: 11, h: 14 },
-  // Patch stitch field — nominal square; backing / dimensions vary by variant.
+  // Patch stitch field — varies by patch shape / backing.
   "embroidered-patch": { w: 4, h: 4 },
-  // Wraparound cover flat — nominal landscape strip; tune vs catalog placement template.
+  // Wraparound cover flat — verify against catalog placement template.
   "hardcover-journal": { w: 17, h: 9 },
 };
 

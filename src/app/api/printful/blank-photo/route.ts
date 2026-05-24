@@ -29,14 +29,17 @@ const KNOWN_TYPES = new Set<ProductType>([
 ]);
 
 /**
- * Returns `{ url, status }` for the flat blank product mockup of a given product type.
+ * Returns `{ url, status, printArea }` for the flat blank product mockup of a given product type.
  *   - status="ready"        — `url` is a Printful CDN URL safe to use as a backdrop
  *   - status="generating"   — first-time generation in flight (client should re-poll)
  *   - status="unavailable"  — Printful not configured or catalog mapping missing
+ *   - printArea             — `{ width, height }` in inches from Printful's
+ *                             `placement_dimensions` (when cached); falls back
+ *                             to hardcoded DEFAULT_PRINT_AREA_IN on the client.
  *
- * Mockups are cached in `printful_blank_mockups` (DB) plus an in-process memo.
- * Generation takes ~10–30 s for a cold SKU; the route returns "generating"
- * immediately and finishes the job in the background.
+ * Mockups + print area dims are cached in `printful_blank_mockups` (DB) plus
+ * an in-process memo. Generation takes ~10–30 s for a cold SKU; the route
+ * returns "generating" immediately and finishes the job in the background.
  */
 export async function GET(request: NextRequest) {
   const type = request.nextUrl.searchParams.get("type");

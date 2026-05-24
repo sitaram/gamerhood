@@ -10,16 +10,26 @@ export interface StoredPrintPlacement {
   imageAspect: number;
 }
 
-/** 1 = “contain” the print rectangle (artwork fits fully inside the print box). */
+/** 1 = "contain" the print rectangle (artwork fits fully inside the print box). */
 export const PLACEMENT_ZOOM_MIN = 0.3;
 export const PLACEMENT_ZOOM_MAX = 2.5;
 /**
- * Default uses `contain` semantics: at zoom = 1 the full artwork is visible
- * inside the print box, touching whichever axis matches the box aspect and
- * leaving slack on the other. Creators can then drag in the slack axis,
- * zoom in to crop (overflow ⇒ both axes draggable), or zoom out to shrink.
+ * Default uses `contain` semantics: at zoom = 1 the full artwork would touch
+ * whichever axis matches the box aspect and leave slack on the other. We
+ * default to 0.7 so the design lands at ~70 % of that contain size — small
+ * enough that a square design on a 14×14 hoodie box renders at ~10" wide
+ * (room around it for the garment to show through) rather than filling the
+ * full chest from shoulder to shoulder.
+ *
+ * This matches Printful's own design-maker default behavior: it imports
+ * uploaded art at a comfortable mid-chest size rather than stretching it
+ * to fill the printable area. Creators can still drag the slider up to 1.0
+ * to fill, or beyond 1.0 to crop.
+ *
+ * Stored placements on existing products keep their saved zoom value, so
+ * this default only affects newly-created designs.
  */
-export const PLACEMENT_ZOOM_DEFAULT = 1.0;
+export const PLACEMENT_ZOOM_DEFAULT = 0.7;
 
 const DEFAULT_STORED: StoredPrintPlacement = {
   zoom: PLACEMENT_ZOOM_DEFAULT,

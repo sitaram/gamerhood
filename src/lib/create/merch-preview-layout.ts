@@ -59,21 +59,21 @@ export function getMerchPreviewLayout(productType: ProductType): MerchPreviewLay
         printMaxWidthPct: 25,
         /**
          * Flat Printful mockup (1200×1200, Gildan 18500, mockup style 1563
-         * "Flat 2" = sleeves spread outward / T-pose). Measured from the
-         * actual rendered photo:
-         *   - Hood/yoke ends around y≈28 %; pocket top around y≈66 %.
-         *   - Torso (sleeves excluded) is ~52 % of frame wide. A 12 in.
-         *     print on a ~22 in. chest is 55 % of body = ~28 % of frame,
-         *     so we cap `printMaxWidthPct` at 24 % to leave a small margin.
-         * The previous tuning (22 / 32 / 35) was for the "Flat" style with
-         * sleeves tucked across the body — bumping the top up to 30 puts
-         * the box right under the hood/yoke seam where chest prints land.
+         * "Flat 2" = sleeves spread outward / T-pose). Tuned to mirror what
+         * Printful's own design maker draws on top of this same photo:
+         *   - Hood/yoke seam lands around y ≈ 38 %; pocket top around y ≈ 70 %.
+         *   - Garment body (sleeves excluded) ≈ 52 % of frame width;
+         *     Gildan 18500 `front` print area = 14×14" on a ~22" chest =
+         *     ~64 % of body = ~33 % of frame.
+         * Print area is now square (was 12×15), so we widen the band and
+         * pull the bottom up — the box sits right under the yoke and stops
+         * above the kangaroo pocket, matching the reference Printful UI.
          */
         photoBand: {
           garmentAspect: 1,
-          printBandTopPct: 30,
-          printBandBottomPct: 35,
-          printMaxWidthPct: 24,
+          printBandTopPct: 38,
+          printBandBottomPct: 30,
+          printMaxWidthPct: 33,
         },
       };
     case "kids-hoodie":
@@ -84,14 +84,15 @@ export function getMerchPreviewLayout(productType: ProductType): MerchPreviewLay
         printBandBottomPct: 24,
         printMaxWidthPct: 26,
         /**
-         * Kids hoodie shares the same Gildan-style "Flat 2" framing
-         * conventions; tuned to the same chest band as adult hoodie.
+         * Kids hoodie shares the "Flat 2" framing convention; print area is
+         * smaller (10×12" vs adult 14×14") so the band is narrower and the
+         * box is more upright.
          */
         photoBand: {
           garmentAspect: 1,
-          printBandTopPct: 30,
-          printBandBottomPct: 36,
-          printMaxWidthPct: 24,
+          printBandTopPct: 36,
+          printBandBottomPct: 32,
+          printMaxWidthPct: 28,
         },
       };
     case "tshirt":
@@ -105,14 +106,16 @@ export function getMerchPreviewLayout(productType: ProductType): MerchPreviewLay
         printBandBottomPct: 30,
         printMaxWidthPct: 50,
         /**
-         * Tee body fills ~50 % of the photo frame; 12 in. print on ~20 in.
-         * chest ≈ 60 % of body = ~30 % of frame.
+         * Bella+Canvas 3001 Flat 2 photo. Tee body ≈ 50 % of frame width;
+         * 12" `front` print area on a ~20" chest = ~60 % of body = ~30 %
+         * of frame. Box is tall (12×16, 0.75 aspect) so it extends from
+         * just below the collar down to roughly the bottom hem.
          */
         photoBand: {
           garmentAspect: 1,
-          printBandTopPct: 26,
-          printBandBottomPct: 35,
-          printMaxWidthPct: 28,
+          printBandTopPct: 24,
+          printBandBottomPct: 28,
+          printMaxWidthPct: 30,
         },
       };
     case "kids-long-sleeve":
@@ -124,9 +127,9 @@ export function getMerchPreviewLayout(productType: ProductType): MerchPreviewLay
         printMaxWidthPct: 48,
         photoBand: {
           garmentAspect: 1,
-          printBandTopPct: 26,
-          printBandBottomPct: 36,
-          printMaxWidthPct: 26,
+          printBandTopPct: 24,
+          printBandBottomPct: 32,
+          printMaxWidthPct: 28,
         },
       };
     case "joggers":

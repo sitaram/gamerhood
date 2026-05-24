@@ -124,6 +124,8 @@ for (const type of targets) {
             mockup_style_id: generated.mockupStyleId,
             technique: cfg.technique,
             placement: cfg.placement,
+            print_area_width_in: generated.printArea?.width ?? null,
+            print_area_height_in: generated.printArea?.height ?? null,
             generated_at: new Date().toISOString(),
           },
           { onConflict: "product_type" },
