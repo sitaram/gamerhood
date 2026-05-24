@@ -76,11 +76,19 @@ export function StripeConnectCard() {
     };
   }, []);
 
-  async function startOnboarding() {
+  async function startOnboarding(mode?: "onboarding" | "update") {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/stripe/connect", { method: "POST" });
+      const res = await fetch("/api/stripe/connect", {
+        method: "POST",
+        ...(mode
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ mode }),
+            }
+          : {}),
+      });
       const data = await res.json();
       if (!res.ok || !data.url) {
         setError({
@@ -91,7 +99,7 @@ export function StripeConnectCard() {
         });
         return;
       }
-      // Redirect the browser to Stripe's hosted Express onboarding.
+      // Redirect the browser to Stripe's hosted Express onboarding / edit flow.
       window.location.href = data.url;
     } catch {
       setError({ message: "Network error — please retry" });
@@ -191,7 +199,7 @@ export function StripeConnectCard() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={startOnboarding}
+            onClick={() => startOnboarding()}
             disabled={loading}
             className="gap-2"
           >
@@ -208,11 +216,14 @@ export function StripeConnectCard() {
   }
 
   // ── Fully onboarded ──
+  // The "Update payout info" button passes `mode: "update"` so the API
+  // returns an `account_update` link (Stripe's "edit your info" flow)
+  // without re-doing the retrieve we already performed on mount.
   if (status.onboarded) {
     return (
-      <Card className="flex items-center justify-between border-neon-green/30 bg-neon-green/5 p-4">
-        <div className="flex items-center gap-3">
-          <CheckCircle2 className="h-5 w-5 text-neon-green" />
+      <Card className="flex flex-col gap-3 border-neon-green/30 bg-neon-green/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-neon-green" />
           <div>
             <p className="text-sm font-medium">Payouts active</p>
             <p className="text-xs text-muted-foreground">
@@ -220,15 +231,25 @@ export function StripeConnectCard() {
             </p>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={startOnboarding}
-          disabled={loading}
-          className="text-xs"
-        >
-          Manage
-        </Button>
+        <div className="flex flex-col items-stretch gap-1 sm:items-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => startOnboarding("update")}
+            disabled={loading}
+            className="gap-2"
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <ExternalLink className="h-4 w-4" />
+            )}
+            Update payout info
+          </Button>
+          <p className="text-[11px] text-muted-foreground sm:text-right">
+            Change your bank account, address, or verification details.
+          </p>
+        </div>
       </Card>
     );
   }
@@ -254,7 +275,7 @@ export function StripeConnectCard() {
         </div>
       </div>
       <Button
-        onClick={startOnboarding}
+        onClick={() => startOnboarding()}
         disabled={loading}
         className="gap-2 bg-primary hover:bg-primary/90 sm:w-auto"
       >

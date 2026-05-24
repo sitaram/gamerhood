@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import Stripe from "stripe";
 import { getStripe } from "@/lib/stripe/client";
 import {
   classifyStripeConnectError,
@@ -8,6 +9,43 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getParentByAuthUserId } from "@/lib/supabase/queries";
 import { isAdminEmail } from "@/lib/auth/admin";
+
+type AccountLinkType = "account_onboarding" | "account_update";
+type ConnectMode = "onboarding" | "update";
+
+/**
+ * Optional POST body lets the dashboard skip a redundant `accounts.retrieve`
+ * when it already knows the account is fully onboarded. Body is optional;
+ * when absent or malformed we fall back to server-side state detection.
+ */
+async function readRequestedMode(
+  request: NextRequest,
+): Promise<ConnectMode | null> {
+  try {
+    const text = await request.text();
+    if (!text) return null;
+    const body = JSON.parse(text) as { mode?: unknown };
+    if (body?.mode === "update" || body?.mode === "onboarding") {
+      return body.mode;
+    }
+  } catch {
+    // Empty / non-JSON body — fall through to server-side detection.
+  }
+  return null;
+}
+
+/**
+ * Stripe rejects `account_update` for accounts where the platform isn't
+ * responsible for collecting requirements (most hosted Express setups).
+ * The hosted onboarding flow handles "edit mode" gracefully when nothing
+ * is missing, so we fall back to it transparently.
+ */
+function isAccountUpdateUnsupported(err: unknown): boolean {
+  if (!(err instanceof Stripe.errors.StripeError)) return false;
+  const raw = err.raw as { message?: unknown } | undefined;
+  const msg = (typeof raw?.message === "string" ? raw.message : err.message) ?? "";
+  return /account_update/i.test(msg) && /not supported|not allowed|invalid/i.test(msg);
+}
 
 /**
  * Shape the classifier's output into the JSON the dashboard card consumes.
@@ -73,8 +111,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const requestedMode = await readRequestedMode(request);
+
     const stripe = getStripe();
     let accountId: string | null = parent.stripe_connect_id;
+    let justCreated = false;
 
     if (!accountId) {
       const country = process.env.STRIPE_CONNECT_CREATOR_COUNTRY?.trim().toUpperCase();
@@ -90,6 +131,7 @@ export async function POST(request: NextRequest) {
         },
       });
       accountId = account.id;
+      justCreated = true;
 
       const saved = await persistParentStripeConnectId(
         supabase,
@@ -104,15 +146,46 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const origin = resolveConnectAppOrigin(request);
-    const accountLink = await stripe.accountLinks.create({
-      account: accountId,
-      refresh_url: `${origin}/dashboard?stripe=refresh`,
-      return_url: `${origin}/dashboard?stripe=complete`,
-      type: "account_onboarding",
-    });
+    // Fully-onboarded accounts get an `account_update` link (edit profile);
+    // anything else (incomplete requirements, brand-new) stays on
+    // `account_onboarding`. We skip the extra retrieve for accounts we
+    // just created in this request and when the caller is explicit.
+    let linkType: AccountLinkType = "account_onboarding";
+    if (!justCreated) {
+      if (requestedMode === "update") {
+        linkType = "account_update";
+      } else if (requestedMode !== "onboarding") {
+        const account = await stripe.accounts.retrieve(accountId);
+        if (account.charges_enabled && account.payouts_enabled) {
+          linkType = "account_update";
+        }
+      }
+    }
 
-    return NextResponse.json({ url: accountLink.url });
+    const origin = resolveConnectAppOrigin(request);
+    const refresh_url = `${origin}/dashboard?stripe=refresh`;
+    const return_url = `${origin}/dashboard?stripe=complete`;
+
+    try {
+      const accountLink = await stripe.accountLinks.create({
+        account: accountId,
+        refresh_url,
+        return_url,
+        type: linkType,
+      });
+      return NextResponse.json({ url: accountLink.url });
+    } catch (err) {
+      if (linkType === "account_update" && isAccountUpdateUnsupported(err)) {
+        const accountLink = await stripe.accountLinks.create({
+          account: accountId,
+          refresh_url,
+          return_url,
+          type: "account_onboarding",
+        });
+        return NextResponse.json({ url: accountLink.url });
+      }
+      throw err;
+    }
   } catch (err) {
     console.error("[Stripe Connect] Error:", err);
     return connectErrorResponse(err, 500, viewerIsAdmin);
