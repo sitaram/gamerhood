@@ -47,6 +47,15 @@ export const DEFAULT_AVATAR_POOL = [
   "/brand/default-avatars/axolotl-ramen.png",
   "/brand/default-avatars/axolotl-scarf.png",
   "/brand/default-avatars/axolotl-surfer.png",
+  "/brand/default-avatars/axolotl-chef.png",
+  "/brand/default-avatars/axolotl-hiker.png",
+  "/brand/default-avatars/axolotl-runner.png",
+  "/brand/default-avatars/axolotl-atv.png",
+  "/brand/default-avatars/axolotl-fairy.png",
+  "/brand/default-avatars/axolotl-phone.png",
+  "/brand/default-avatars/axolotl-cyclist.png",
+  "/brand/default-avatars/axolotl-wizard.png",
+  "/brand/default-avatars/axolotl-zipline.png",
 ] as const;
 
 export type DefaultAvatarUrl = (typeof DEFAULT_AVATAR_POOL)[number];
