@@ -5,7 +5,12 @@ import {
   updateParentDisplayName,
   updateProfileById,
 } from "@/lib/supabase/queries";
-import { uploadProfileAvatar, removeProfileAvatarFromStorage } from "@/lib/storage";
+import {
+  uploadProfileAvatar,
+  removeProfileAvatarFromStorage,
+  uploadStorefrontProfileAvatar,
+  removeStorefrontProfileAvatarFromStorage,
+} from "@/lib/storage";
 import { moderateImageBase64, moderateText } from "@/lib/moderation";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +60,33 @@ function estimateDataUrlBytes(dataUrl: string): number | null {
     return Math.floor((payload.replace(/\s/g, "").length * 3) / 4);
   }
   return payload.length;
+}
+
+/**
+ * Shared mime/size/moderation gate for the personal AND storefront avatar
+ * uploaders — same kid-safety rules apply to both photos.
+ */
+async function validateAndModerateAvatar(
+  dataUrl: string,
+  label: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const mimeMatch = dataUrl.match(/^data:([^;,]+)/i);
+  const mime = mimeMatch?.[1]?.split(";")[0].trim().toLowerCase() ?? "";
+  if (!ALLOWED_AVATAR_MIME.test(mime)) {
+    return { ok: false, error: `${label} must be PNG, JPG, or WebP.` };
+  }
+  const bytes = estimateDataUrlBytes(dataUrl);
+  if (bytes !== null && bytes > MAX_AVATAR_BYTES) {
+    return { ok: false, error: `${label} must be 2 MB or smaller.` };
+  }
+  const moderation = await moderateImageBase64(dataUrl);
+  if (!moderation.safe) {
+    return {
+      ok: false,
+      error: "That photo didn't pass our safety check. Try a different image.",
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -123,36 +155,45 @@ export async function PATCH(request: NextRequest) {
     authPatch.avatar_url = null;
     await removeProfileAvatarFromStorage(profile.id);
   } else if (avatarDataUrl) {
-    const mimeMatch = avatarDataUrl.match(/^data:([^;,]+)/i);
-    const mime = mimeMatch?.[1]?.split(";")[0].trim().toLowerCase() ?? "";
-    if (!ALLOWED_AVATAR_MIME.test(mime)) {
-      return NextResponse.json(
-        { error: "Profile photo must be PNG, JPG, or WebP." },
-        { status: 400 },
-      );
+    const validation = await validateAndModerateAvatar(avatarDataUrl, "Profile photo");
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
     }
-    const bytes = estimateDataUrlBytes(avatarDataUrl);
-    if (bytes !== null && bytes > MAX_AVATAR_BYTES) {
-      return NextResponse.json(
-        { error: "Profile photo must be 2 MB or smaller." },
-        { status: 400 },
-      );
-    }
-
-    const moderation = await moderateImageBase64(avatarDataUrl);
-    if (!moderation.safe) {
-      return NextResponse.json(
-        { error: "That photo didn't pass our safety check. Try a different image." },
-        { status: 400 },
-      );
-    }
-
     try {
       const publicUrl = await uploadProfileAvatar(profile.id, avatarDataUrl);
       profilePatch.avatar_url = publicUrl;
       authPatch.avatar_url = publicUrl;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Avatar upload failed";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+  }
+
+  const storefrontAvatarDataUrl =
+    typeof body.storefrontAvatarImageDataUrl === "string" &&
+    body.storefrontAvatarImageDataUrl.startsWith("data:")
+      ? body.storefrontAvatarImageDataUrl
+      : null;
+
+  if (body.clearStorefrontAvatar === true) {
+    profilePatch.storefront_avatar_url = null;
+    await removeStorefrontProfileAvatarFromStorage(profile.id);
+  } else if (storefrontAvatarDataUrl) {
+    const validation = await validateAndModerateAvatar(
+      storefrontAvatarDataUrl,
+      "Storefront photo",
+    );
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+    try {
+      const publicUrl = await uploadStorefrontProfileAvatar(
+        profile.id,
+        storefrontAvatarDataUrl,
+      );
+      profilePatch.storefront_avatar_url = publicUrl;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Storefront photo upload failed";
       return NextResponse.json({ error: msg }, { status: 400 });
     }
   }
@@ -191,5 +232,7 @@ export async function PATCH(request: NextRequest) {
     displayName: updated?.display_name ?? displayName ?? profile.display_name,
     catchphrase: updated?.catchphrase ?? profile.catchphrase ?? null,
     avatarUrl: updated?.avatar_url ?? profile.avatar_url ?? null,
+    storefrontAvatarUrl:
+      updated?.storefront_avatar_url ?? profile.storefront_avatar_url ?? null,
   });
 }

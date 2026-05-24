@@ -10,7 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
-import { defaultAvatarFor, profileInitials } from "@/lib/profile-avatar";
+import {
+  getDisplayAvatar,
+  getStorefrontAvatar,
+  profileInitials,
+} from "@/lib/profile-avatar";
 
 const MAX_DISPLAY_NAME_LEN = 80;
 const MAX_CATCHPHRASE_LEN = 120;
@@ -21,6 +25,7 @@ type Props = {
   initialDisplayName: string;
   initialCatchphrase: string | null;
   initialAvatarUrl: string | null;
+  initialStorefrontAvatarUrl: string | null;
   /**
    * Used to pick which bundled axolotl to preview when the creator
    * hasn't uploaded a photo yet — matches what the rest of the site
@@ -35,6 +40,7 @@ export function ProfileSettingsForm({
   initialDisplayName,
   initialCatchphrase,
   initialAvatarUrl,
+  initialStorefrontAvatarUrl,
   profileId,
   email,
   hasEmailPassword,
@@ -43,16 +49,23 @@ export function ProfileSettingsForm({
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [catchphrase, setCatchphrase] = useState(initialCatchphrase ?? "");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl);
+  const [storefrontAvatarUrl, setStorefrontAvatarUrl] = useState<string | null>(
+    initialStorefrontAvatarUrl,
+  );
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingCatchphrase, setSavingCatchphrase] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [storefrontAvatarBusy, setStorefrontAvatarBusy] = useState(false);
 
   const initials = useMemo(() => profileInitials(displayName), [displayName]);
-  // Preview the same default-axolotl the rest of the site will pick when
-  // the creator hasn't uploaded a photo, so the settings page matches
-  // the navbar / dashboard / storefront instead of just showing initials.
-  const previewAvatarUrl = avatarUrl ?? defaultAvatarFor(profileId);
-  const usingDefault = !avatarUrl;
+  const personalPreviewUrl = getDisplayAvatar({ id: profileId, avatar_url: avatarUrl });
+  const storefrontPreviewUrl = getStorefrontAvatar({
+    id: profileId,
+    avatar_url: avatarUrl,
+    storefront_avatar_url: storefrontAvatarUrl,
+  });
+  const usingDefaultPersonal = !avatarUrl;
+  const usingPersonalOnStorefront = !storefrontAvatarUrl;
 
   async function patchProfile(body: Record<string, unknown>) {
     const res = await fetch("/api/account/profile", {
@@ -70,6 +83,11 @@ export function ProfileSettingsForm({
     }
     if (data.avatarUrl !== undefined) {
       setAvatarUrl(typeof data.avatarUrl === "string" ? data.avatarUrl : null);
+    }
+    if (data.storefrontAvatarUrl !== undefined) {
+      setStorefrontAvatarUrl(
+        typeof data.storefrontAvatarUrl === "string" ? data.storefrontAvatarUrl : null,
+      );
     }
     router.refresh();
     return data;
@@ -116,17 +134,24 @@ export function ProfileSettingsForm({
     }
   }
 
+  function validateAvatarFile(file: File): string | null {
+    if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+      return "Please upload PNG, JPG, or WebP";
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      return "Photo must be 2 MB or smaller";
+    }
+    return null;
+  }
+
   async function onAvatarFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
 
-    if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
-      toast.error("Please upload PNG, JPG, or WebP");
-      return;
-    }
-    if (file.size > MAX_AVATAR_BYTES) {
-      toast.error("Profile photo must be 2 MB or smaller");
+    const error = validateAvatarFile(file);
+    if (error) {
+      toast.error(error);
       return;
     }
 
@@ -154,6 +179,41 @@ export function ProfileSettingsForm({
     }
   }
 
+  async function onStorefrontAvatarFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    const error = validateAvatarFile(file);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    setStorefrontAvatarBusy(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      await patchProfile({ storefrontAvatarImageDataUrl: dataUrl });
+      toast.success("Storefront photo updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload photo");
+    } finally {
+      setStorefrontAvatarBusy(false);
+    }
+  }
+
+  async function handleClearStorefrontAvatar() {
+    setStorefrontAvatarBusy(true);
+    try {
+      await patchProfile({ clearStorefrontAvatar: true });
+      toast.success("Storefront photo cleared — using your profile photo");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not clear photo");
+    } finally {
+      setStorefrontAvatarBusy(false);
+    }
+  }
+
   const displayNameDirty = displayName.trim() !== initialDisplayName.trim();
   const catchphraseDirty =
     catchphrase.trim() !== (initialCatchphrase?.trim() ?? "");
@@ -168,13 +228,13 @@ export function ProfileSettingsForm({
         </p>
         <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
           <Avatar className="h-40 w-40 shrink-0 ring-2 ring-primary/30 shadow-xl shadow-primary/20">
-            <AvatarImage src={previewAvatarUrl} alt={displayName} />
+            <AvatarImage src={personalPreviewUrl} alt={displayName} />
             <AvatarFallback className="bg-primary/20 text-3xl font-semibold text-primary">
               {initials}
             </AvatarFallback>
           </Avatar>
           <div className="flex flex-col gap-2">
-            {usingDefault && (
+            {usingDefaultPersonal && (
               <p className="text-xs text-muted-foreground">
                 Using one of our default Gamerhood axolotls. Upload your own anytime.
               </p>
@@ -198,6 +258,56 @@ export function ProfileSettingsForm({
                   onClick={() => void handleRemoveAvatar()}
                 >
                   Remove
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-4 border-border/50 bg-card p-6">
+        <h2 className="text-lg font-semibold">Storefront photo (optional)</h2>
+        <p className="text-sm text-muted-foreground">
+          Shown on your public shop page only. Leave blank to use your profile photo
+          everywhere — including the shop. PNG, JPG, or WebP up to 2 MB. Same kid-safe
+          check applies.
+        </p>
+        <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
+          <Avatar className="h-40 w-40 shrink-0 ring-2 ring-accent/40 shadow-xl shadow-accent/20">
+            <AvatarImage src={storefrontPreviewUrl} alt={`${displayName} storefront`} />
+            <AvatarFallback className="bg-accent/20 text-3xl font-semibold text-accent">
+              {initials}
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">
+              {usingPersonalOnStorefront
+                ? "Your shop is currently showing your profile photo. Upload a different one to override it just for the shop."
+                : "Your shop is showing this photo instead of your profile photo."}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={onStorefrontAvatarFile}
+                  disabled={storefrontAvatarBusy}
+                />
+                {storefrontAvatarBusy
+                  ? "Uploading…"
+                  : storefrontAvatarUrl
+                    ? "Replace storefront photo"
+                    : "Upload storefront photo"}
+              </label>
+              {storefrontAvatarUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={storefrontAvatarBusy}
+                  onClick={() => void handleClearStorefrontAvatar()}
+                >
+                  Use my profile photo instead
                 </Button>
               )}
             </div>

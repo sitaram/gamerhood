@@ -617,6 +617,12 @@ export interface ProfileRow {
   store_seo_title?: string | null;
   store_seo_description?: string | null;
   store_tags?: string[] | null;
+  /**
+   * Optional override of `avatar_url` for the public `/shop/[slug]` page
+   * ONLY. Resolved by `getStorefrontAvatar`; everywhere else the personal
+   * `avatar_url` is used.
+   */
+  storefront_avatar_url?: string | null;
 }
 
 export async function getProfileBySlug(supabase: SupabaseClient, slug: string) {
@@ -685,6 +691,7 @@ export type ProfileStorefrontUpdate = Partial<
     | "bio"
     | "catchphrase"
     | "avatar_url"
+    | "storefront_avatar_url"
     | "display_name"
     | "storefront_hero_image_url"
     | "storefront_headline"

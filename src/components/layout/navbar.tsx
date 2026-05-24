@@ -28,7 +28,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import { toast } from "sonner";
 import { getAnonDesigns, clearAnonDesigns } from "@/lib/anon-designs";
 import { cn } from "@/lib/utils";
-import { getDisplayAvatar, profileInitials } from "@/lib/profile-avatar";
+import { profileInitials } from "@/lib/profile-avatar";
 
 const NAV_LINKS = [
   { href: "/shop", label: "Browse", icon: Gamepad2 },
@@ -159,28 +159,6 @@ export function Navbar({
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        // The auth metadata only knows about an OAuth `avatar_url`; the
-        // server-rendered `initialUser` is already authoritative for the
-        // "uploaded photo vs default axolotl" decision. We only refresh
-        // here so a brand-new session sees *something* immediately — fall
-        // back through getDisplayAvatar so users with no oauth photo
-        // still get a stable axolotl rather than blank initials.
-        setUser({
-          email: session.user.email ?? null,
-          displayName:
-            session.user.user_metadata?.full_name ||
-            session.user.user_metadata?.name ||
-            session.user.email?.split("@")[0] ||
-            "Creator",
-          avatarUrl: getDisplayAvatar({
-            id: session.user.id,
-            avatar_url:
-              typeof session.user.user_metadata?.avatar_url === "string"
-                ? session.user.user_metadata.avatar_url
-                : null,
-          }),
-        });
-
         // Migrate any designs the user created while anonymous, and run
         // /api/auth/bootstrap so the parent + child-profile rows exist
         // before the dashboard renders.
@@ -205,14 +183,27 @@ export function Navbar({
           // the indicator off after a real auth state change.
           void refreshStripeOnboarded(setStripeOnboarded);
         }
-      } else {
+        // Don't compute an avatar from `session.user.id` here — that's the
+        // auth user id, not the `profiles.id` UUID we deterministically
+        // hash against everywhere else (dashboard, storefront, settings).
+        // Using the wrong seed would pick a *different* default axolotl
+        // than the rest of the site, which is the exact "inconsistent
+        // profile pic" bug we're avoiding. On a real sign-in transition
+        // we ask the server to re-render the layout so `initialUser`
+        // (and its profile-id-seeded avatar) is fetched fresh; on
+        // INITIAL_SESSION the server already rendered it.
+        if (event === "SIGNED_IN") {
+          router.refresh();
+        }
+      } else if (event === "SIGNED_OUT") {
         setUser(null);
         setStripeOnboarded(null);
+        router.refresh();
       }
     });
 
     return () => sub.subscription.unsubscribe();
-  }, []);
+  }, [router]);
 
   async function handleSignOut() {
     const supabase = createBrowserClient(

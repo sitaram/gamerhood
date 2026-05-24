@@ -1,13 +1,27 @@
 /**
- * Profile avatar helpers — shared across the navbar, dashboard, storefront,
- * and settings so every surface picks the same image for the same user.
+ * Profile avatar helpers — the single source of truth for "what photo to
+ * show for this user" across the navbar, dashboard, storefront, settings,
+ * and creator-spotlight surfaces.
  *
- * Resolution order for "what to show":
- *   1. The creator's uploaded `avatar_url` (from `/dashboard/settings`) —
- *      always wins.
- *   2. A deterministic pick from `DEFAULT_AVATAR_POOL`, keyed by profile
- *      id, so a given creator always sees the same axolotl. (Anonymous
- *      / id-less callers get the first one.)
+ * Two resolvers live here. Pick the one that matches the *context* you're
+ * rendering, not the data you happen to have:
+ *
+ *   getDisplayAvatar(profile)         → personal photo everywhere except
+ *                                       public storefront pages.
+ *     uploaded avatar_url → deterministic default-axolotl pick.
+ *
+ *   getStorefrontAvatar(profile)      → public storefront pages ONLY.
+ *     uploaded storefront_avatar_url
+ *       → uploaded avatar_url
+ *       → deterministic default-axolotl pick.
+ *
+ * Both fall back to the same deterministic axolotl per profile id, so a
+ * brand-new creator looks identical in the navbar, dashboard, and on
+ * their public shop. The deterministic seed is the *profile id* (the
+ * `public.profiles.id` UUID) — NEVER the auth user id, because the two
+ * differ and using the wrong one would pick a different axolotl on
+ * surfaces that only know about the auth user. When neither is known
+ * (anonymous callers), we return the first entry.
  *
  * The pool is a hand-maintained list rather than a directory scan so the
  * production build doesn't have to read `public/`. To add a new avatar:
@@ -33,26 +47,36 @@ export const DEFAULT_AVATAR_POOL = [
 export type DefaultAvatarUrl = (typeof DEFAULT_AVATAR_POOL)[number];
 
 /**
+ * FNV-1a 32-bit hash. Deterministic, dependency-free, and even across the
+ * pool for both UUID and "prefix-<hex>" id strings. Math.imul keeps the
+ * 32-bit multiply correct in JS (regular `*` would lose precision past 2^32).
+ */
+function fnv1a32(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
  * Pick a default avatar for a profile id. Pure / deterministic — the same
  * id always returns the same url, both server-side (for SSR) and in the
  * browser. Falls back to the first entry when called without an id.
  */
 export function defaultAvatarFor(profileId: string | null | undefined): DefaultAvatarUrl {
   if (!profileId) return DEFAULT_AVATAR_POOL[0];
-  // Take the first 8 hex chars of the id. UUIDs always start with hex
-  // and so do our `prefix-<id>` strings, so this hashes evenly across
-  // the pool without pulling in a real hash function.
-  const trimmed = profileId.replace(/[^0-9a-f]/gi, "").slice(0, 8);
-  const parsed = trimmed ? Number.parseInt(trimmed, 16) : 0;
-  const index = (Number.isFinite(parsed) ? parsed : 0) % DEFAULT_AVATAR_POOL.length;
+  const index = fnv1a32(profileId) % DEFAULT_AVATAR_POOL.length;
   return DEFAULT_AVATAR_POOL[index];
 }
 
 /**
- * The url to render for a profile. Uploaded photo wins; otherwise the
- * deterministic axolotl pick. Use this everywhere instead of duplicating
- * fallback logic — keeps "no avatar uploaded" looking the same in the
- * navbar, dashboard, settings, storefront, and landing spotlight.
+ * The url to render for a creator's *personal* avatar (nav, dashboard,
+ * settings, design cards, creator-spotlight, etc.). Uploaded photo wins;
+ * otherwise the deterministic axolotl pick.
+ *
+ * For public storefront pages use `getStorefrontAvatar` instead.
  */
 export function getDisplayAvatar(profile: {
   id?: string | null;
@@ -61,6 +85,24 @@ export function getDisplayAvatar(profile: {
   const uploaded = profile.avatar_url?.trim();
   if (uploaded) return uploaded;
   return defaultAvatarFor(profile.id ?? null);
+}
+
+/**
+ * The url to render on the *public storefront* (`/shop/[slug]` etc).
+ * Storefront-specific photo wins over the personal photo, so creators can
+ * present a different face on their shop without losing the personal one
+ * that's used everywhere else.
+ *
+ * Resolution order: storefront_avatar_url → avatar_url → default axolotl.
+ */
+export function getStorefrontAvatar(profile: {
+  id?: string | null;
+  avatar_url?: string | null;
+  storefront_avatar_url?: string | null;
+}): string {
+  const storefront = profile.storefront_avatar_url?.trim();
+  if (storefront) return storefront;
+  return getDisplayAvatar(profile);
 }
 
 /** Initials for the AvatarFallback while the image loads / fails. */

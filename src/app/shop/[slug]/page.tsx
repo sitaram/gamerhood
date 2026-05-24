@@ -9,7 +9,7 @@ import { CreatorStorefrontHero } from "@/components/storefront/creator-storefron
 import { createClient } from "@/lib/supabase/server";
 import { getProfileBySlug, getPublishedProductsByProfile } from "@/lib/supabase/queries";
 import { siteUrl } from "@/lib/site";
-import { getDisplayAvatar, profileInitials } from "@/lib/profile-avatar";
+import { getStorefrontAvatar, profileInitials } from "@/lib/profile-avatar";
 import type { Product } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +60,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const keywords = Array.isArray(tags) && tags.length ? tags.join(", ") : undefined;
   const canonical = `${siteUrl()}/shop/${slug}`;
   const hero = (profile as { storefront_hero_image_url?: string | null }).storefront_hero_image_url;
+  const ogAvatar =
+    (profile as { storefront_avatar_url?: string | null }).storefront_avatar_url ||
+    profile.avatar_url;
 
   return {
     title,
@@ -73,8 +76,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       type: "website",
       images: hero
         ? [{ url: hero }]
-        : profile.avatar_url
-          ? [{ url: profile.avatar_url }]
+        : ogAvatar
+          ? [{ url: ogAvatar }]
           : undefined,
     },
     twitter: {
@@ -104,9 +107,11 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
   const xpToNext = (level + 1) * 500;
   const xpProgress = Math.min(100, Math.round((xp / xpToNext) * 100));
 
-  const avatarUrl = getDisplayAvatar({
+  const avatarUrl = getStorefrontAvatar({
     id: profile.id,
     avatar_url: profile.avatar_url,
+    storefront_avatar_url: (profile as { storefront_avatar_url?: string | null })
+      .storefront_avatar_url,
   });
   const avatarInitials = profileInitials(profile.display_name);
   const catchphrase = profile.catchphrase?.trim() || null;
