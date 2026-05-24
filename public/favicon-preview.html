@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gamerhood favicon preview</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 2rem;
+      background: #111;
+      color: #eee;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    p { color: #aaa; max-width: 52rem; line-height: 1.5; }
+    .grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+    .panel {
+      text-align: center;
+    }
+    .panel h2 {
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin: 0 0 0.75rem;
+      color: #ccc;
+    }
+    .slot {
+      width: 192px;
+      height: 192px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      margin: 0 auto 0.5rem;
+    }
+    .checker {
+      background:
+        repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%) 50% / 16px 16px;
+    }
+    .white { background: #ffffff; }
+    .dark { background: #2b2b2b; }
+    .tab-dark { background: #202124; border-radius: 4px; }
+    .tab-light { background: #f1f3f4; border-radius: 4px; }
+    .slot img { width: 32px; height: 32px; image-rendering: pixelated; }
+    .slot.large img { width: 192px; height: 192px; image-rendering: auto; }
+    .small-row {
+      display: flex;
+      gap: 1.5rem;
+      justify-content: center;
+      margin-top: 2rem;
+    }
+    .small-row .slot { width: 64px; height: 64px; }
+    code { background: #222; padding: 0.15em 0.4em; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Gamerhood favicon — transparency preview</h1>
+  <p>
+    The axolotl icon uses a <strong>transparent</strong> background (not a filled square).
+    Corners are alpha&nbsp;0. Browsers always render favicons inside a square tab slot,
+    so transparent areas show the tab color — which can look like a “square box”.
+  </p>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>192×192 on checkerboard</h2>
+      <div class="slot large checker">
+        <img src="/icon.png?v=6" alt="192px icon" width="192" height="192" />
+      </div>
+      <code>public/icon.png</code>
+    </div>
+    <div class="panel">
+      <h2>192×192 on white</h2>
+      <div class="slot large white">
+        <img src="/icon.png?v=6" alt="192px icon on white" width="192" height="192" />
+      </div>
+    </div>
+    <div class="panel">
+      <h2>192×192 on dark gray</h2>
+      <div class="slot large dark">
+        <img src="/icon.png?v=6" alt="192px icon on dark" width="192" height="192" />
+      </div>
+    </div>
+  </div>
+
+  <div class="small-row">
+    <div class="panel">
+      <h2>32px tab (dark)</h2>
+      <div class="slot tab-dark">
+        <img src="/icon.png?v=6" alt="32px tab dark" width="32" height="32" />
+      </div>
+    </div>
+    <div class="panel">
+      <h2>32px tab (light)</h2>
+      <div class="slot tab-light">
+        <img src="/icon.png?v=6" alt="32px tab light" width="32" height="32" />
+      </div>
+    </div>
+    <div class="panel">
+      <h2>favicon.ico</h2>
+      <div class="slot tab-dark">
+        <img src="/favicon.ico?v=6" alt="favicon.ico" width="32" height="32" />
+      </div>
+    </div>
+  </div>
+</body>
+</html>
