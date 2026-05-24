@@ -23,6 +23,11 @@ export const DEFAULT_AVATAR_POOL = [
   "/brand/default-avatars/axolotl-painter.png",
   "/brand/default-avatars/axolotl-soccer.png",
   "/brand/default-avatars/axolotl-violinist.png",
+  // Appended (do not reorder above — would shift existing users' deterministic picks).
+  "/brand/default-avatars/axolotl-basketball.png",
+  "/brand/default-avatars/axolotl-cat-cuddle.png",
+  "/brand/default-avatars/axolotl-gamer-rage.png",
+  "/brand/default-avatars/axolotl-tiedye-peace.png",
 ] as const;
 
 export type DefaultAvatarUrl = (typeof DEFAULT_AVATAR_POOL)[number];
