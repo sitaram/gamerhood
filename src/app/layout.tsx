@@ -35,11 +35,11 @@ export const metadata: Metadata = {
   // the asset — bump it when the icon changes.
   icons: {
     icon: [
-      { url: "/favicon.ico?v=9", sizes: "any" },
-      { url: "/icon.png?v=9", type: "image/png", sizes: "192x192" },
+      { url: "/favicon.ico?v=10", sizes: "any" },
+      { url: "/icon.png?v=10", type: "image/png", sizes: "192x192" },
     ],
-    shortcut: [{ url: "/favicon.ico?v=9" }],
-    apple: [{ url: "/apple-icon.png?v=9", sizes: "180x180", type: "image/png" }],
+    shortcut: [{ url: "/favicon.ico?v=10" }],
+    apple: [{ url: "/apple-icon.png?v=10", sizes: "180x180", type: "image/png" }],
   },
   openGraph: {
     title: "Gamerhood — Design it. Wear it. Sell it.",
@@ -100,9 +100,9 @@ export default async function RootLayout({
         {/* Explicit links so embedded preview tabs (e.g. Cursor) still resolve
             the tab icon even when Next.js Metadata isn't parsed. Order matches
             `metadata.icons` above so browsers pick the same favicon both ways. */}
-        <link rel="icon" href="/favicon.ico?v=9" sizes="any" />
-        <link rel="icon" type="image/png" sizes="192x192" href="/icon.png?v=9" />
-        <link rel="apple-touch-icon" href="/apple-icon.png?v=9" />
+        <link rel="icon" href="/favicon.ico?v=10" sizes="any" />
+        <link rel="icon" type="image/png" sizes="192x192" href="/icon.png?v=10" />
+        <link rel="apple-touch-icon" href="/apple-icon.png?v=10" />
       </head>
       <body className="min-h-full flex flex-col bg-grid">
         <TooltipProvider>
