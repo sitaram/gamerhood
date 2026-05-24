@@ -9,6 +9,7 @@ import {
   getDefaultProfileForAuthUser,
   getParentByAuthUserId,
 } from "@/lib/supabase/queries";
+import { getDisplayAvatar } from "@/lib/profile-avatar";
 import "./globals.css";
 
 // One rounded brand family site-wide (matches wordmark). Mono kept for code.
@@ -58,6 +59,7 @@ export default async function RootLayout({
 
   let creatorShopSlug: string | null = null;
   let profileAvatarUrl: string | null = null;
+  let profileId: string | null = null;
   // `null` = unknown (not signed in, no parent row yet, or fetch failed).
   // The navbar treats `false` as "show the amber Connect nudge" and any
   // other value as "no nudge" — so leaving it null on errors keeps the UI
@@ -70,6 +72,7 @@ export default async function RootLayout({
     ]);
     creatorShopSlug = profile?.slug ?? null;
     profileAvatarUrl = profile?.avatar_url ?? null;
+    profileId = profile?.id ?? null;
     if (parent) {
       stripeOnboarded = Boolean(parent.stripe_onboarding_complete);
     }
@@ -83,11 +86,18 @@ export default async function RootLayout({
           user.user_metadata?.name ||
           user.email?.split("@")[0] ||
           "Creator",
-        avatarUrl:
-          profileAvatarUrl ??
-          (typeof user.user_metadata?.avatar_url === "string"
-            ? user.user_metadata.avatar_url
-            : null),
+        // Resolve to an actual url on the server so the nav avatar paints
+        // with the correct image on the very first frame — no flash of
+        // initials → axolotl swap on hydrate. `getDisplayAvatar` handles
+        // both "uploaded" and "fall back to a stable default axolotl".
+        avatarUrl: getDisplayAvatar({
+          id: profileId ?? user.id,
+          avatar_url:
+            profileAvatarUrl ??
+            (typeof user.user_metadata?.avatar_url === "string"
+              ? user.user_metadata.avatar_url
+              : null),
+        }),
       }
     : null;
 

@@ -62,13 +62,21 @@ export async function bootstrapAccount(
     slug = `creator-${user.id.replace(/-/g, "").slice(0, 12)}`;
   }
 
+  // Only seed `avatar_url` from an OAuth provider photo. When the user
+  // signed up with email there's no photo, and we leave the column null
+  // so `getDisplayAvatar()` picks one of the bundled axolotls on render
+  // — that's stable per-id, kid-friendly, and lets the creator replace
+  // it via /dashboard/settings whenever they want.
+  const providerAvatar =
+    typeof user.user_metadata?.avatar_url === "string"
+      ? user.user_metadata.avatar_url.trim()
+      : "";
+
   const { error: profileError } = await upsertProfile(supabase, {
     parent_id: parent.id,
     display_name: displayName,
     slug,
-    avatar_url:
-      user.user_metadata?.avatar_url ||
-      `https://api.dicebear.com/7.x/thumbs/svg?seed=${user.id}`,
+    ...(providerAvatar ? { avatar_url: providerAvatar } : {}),
     is_active: true,
   });
 

@@ -1,6 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import type { Product, Creator, ProductType, PrintfulCatalogMeta } from "@/lib/types";
 import { parseStoredPlacement } from "@/lib/print/placement";
+import { getDisplayAvatar } from "@/lib/profile-avatar";
 
 // ── Mappers (DB row → app types) ──
 
@@ -73,7 +74,10 @@ function mapProfileToCreator(p: NonNullable<ProductRowWithProfile["profiles"]>):
     id: p.id,
     displayName: p.display_name,
     slug: p.slug,
-    avatarUrl: p.avatar_url ?? "",
+    // Always a renderable url — falls back to a stable default-axolotl
+    // pick (per `getDisplayAvatar`) so creator-attribution surfaces never
+    // have to special-case "no photo uploaded yet".
+    avatarUrl: getDisplayAvatar({ id: p.id, avatar_url: p.avatar_url }),
     bio: p.bio ?? "",
     level: p.level ?? 1,
     xp: p.xp ?? 0,

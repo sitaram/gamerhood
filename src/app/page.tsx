@@ -5,6 +5,7 @@ import { CreatorSpotlight, type SpotlightCreator } from "@/components/landing/cr
 import { CTA } from "@/components/landing/cta";
 import { createClient } from "@/lib/supabase/server";
 import { getPublishedProducts, getTrendingProfiles } from "@/lib/supabase/queries";
+import { getDisplayAvatar } from "@/lib/profile-avatar";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +22,7 @@ export default async function Home() {
     id: p.id,
     displayName: p.display_name,
     slug: p.slug,
-    avatarUrl: p.avatar_url || `https://api.dicebear.com/7.x/thumbs/svg?seed=${p.id}`,
+    avatarUrl: getDisplayAvatar({ id: p.id, avatar_url: p.avatar_url }),
     bio: p.bio ?? "",
     level: p.level ?? 1,
   }));

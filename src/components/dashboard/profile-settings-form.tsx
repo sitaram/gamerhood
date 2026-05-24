@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from "sonner";
-import { profileInitials } from "@/lib/profile-avatar";
+import { defaultAvatarFor, profileInitials } from "@/lib/profile-avatar";
 
 const MAX_DISPLAY_NAME_LEN = 80;
 const MAX_CATCHPHRASE_LEN = 120;
@@ -21,6 +21,12 @@ type Props = {
   initialDisplayName: string;
   initialCatchphrase: string | null;
   initialAvatarUrl: string | null;
+  /**
+   * Used to pick which bundled axolotl to preview when the creator
+   * hasn't uploaded a photo yet — matches what the rest of the site
+   * will show for this profile.
+   */
+  profileId: string;
   email: string | null;
   hasEmailPassword: boolean;
 };
@@ -29,6 +35,7 @@ export function ProfileSettingsForm({
   initialDisplayName,
   initialCatchphrase,
   initialAvatarUrl,
+  profileId,
   email,
   hasEmailPassword,
 }: Props) {
@@ -41,6 +48,11 @@ export function ProfileSettingsForm({
   const [avatarBusy, setAvatarBusy] = useState(false);
 
   const initials = useMemo(() => profileInitials(displayName), [displayName]);
+  // Preview the same default-axolotl the rest of the site will pick when
+  // the creator hasn't uploaded a photo, so the settings page matches
+  // the navbar / dashboard / storefront instead of just showing initials.
+  const previewAvatarUrl = avatarUrl ?? defaultAvatarFor(profileId);
+  const usingDefault = !avatarUrl;
 
   async function patchProfile(body: Record<string, unknown>) {
     const res = await fetch("/api/account/profile", {
@@ -154,34 +166,41 @@ export function ProfileSettingsForm({
           A friendly photo or avatar for your shop and dashboard. PNG, JPG, or WebP up to 2 MB.
           Images are checked for kid-safe content.
         </p>
-        <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-          <Avatar className="h-20 w-20">
-            {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
-            <AvatarFallback className="bg-primary/20 text-xl font-semibold text-primary">
+        <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
+          <Avatar className="h-40 w-40 shrink-0 ring-2 ring-primary/30 shadow-xl shadow-primary/20">
+            <AvatarImage src={previewAvatarUrl} alt={displayName} />
+            <AvatarFallback className="bg-primary/20 text-3xl font-semibold text-primary">
               {initials}
             </AvatarFallback>
           </Avatar>
-          <div className="flex flex-wrap gap-2">
-            <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="hidden"
-                onChange={onAvatarFile}
-                disabled={avatarBusy}
-              />
-              {avatarBusy ? "Uploading…" : avatarUrl ? "Replace photo" : "Upload photo"}
-            </label>
-            {avatarUrl && (
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={avatarBusy}
-                onClick={() => void handleRemoveAvatar()}
-              >
-                Remove
-              </Button>
+          <div className="flex flex-col gap-2">
+            {usingDefault && (
+              <p className="text-xs text-muted-foreground">
+                Using one of our default Gamerhood axolotls. Upload your own anytime.
+              </p>
             )}
+            <div className="flex flex-wrap gap-2">
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={onAvatarFile}
+                  disabled={avatarBusy}
+                />
+                {avatarBusy ? "Uploading…" : avatarUrl ? "Replace photo" : "Upload photo"}
+              </label>
+              {avatarUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={avatarBusy}
+                  onClick={() => void handleRemoveAvatar()}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </Card>

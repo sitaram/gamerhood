@@ -10,6 +10,7 @@
     "start": "next start",
     "lint": "eslint",
     "icons:favicon": "node scripts/generate-favicon.mjs",
+    "avatars:defaults": "node scripts/process-default-avatars.mjs",
     "demo:hoodie": "node scripts/print-hoodie-demo-url.js",
     "printful:blanks": "node scripts/printful-refresh-blanks.mjs",
     "printful:listings": "node scripts/printful-refresh-listing-mockups.mjs"

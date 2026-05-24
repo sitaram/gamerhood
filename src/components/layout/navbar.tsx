@@ -28,7 +28,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import { toast } from "sonner";
 import { getAnonDesigns, clearAnonDesigns } from "@/lib/anon-designs";
 import { cn } from "@/lib/utils";
-import { profileInitials } from "@/lib/profile-avatar";
+import { getDisplayAvatar, profileInitials } from "@/lib/profile-avatar";
 
 const NAV_LINKS = [
   { href: "/shop", label: "Browse", icon: Gamepad2 },
@@ -66,7 +66,13 @@ function sellerDashboardNavActive(pathname: string): boolean {
 export type NavUser = {
   email: string | null;
   displayName: string;
-  avatarUrl: string | null;
+  /**
+   * Already resolved to a renderable url by the server (uploaded photo
+   * if any, otherwise a stable default-axolotl pick). The navbar still
+   * keeps an initials `AvatarFallback` for the brief window before the
+   * image decodes.
+   */
+  avatarUrl: string;
 };
 
 export function Navbar({
@@ -153,6 +159,12 @@ export function Navbar({
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
+        // The auth metadata only knows about an OAuth `avatar_url`; the
+        // server-rendered `initialUser` is already authoritative for the
+        // "uploaded photo vs default axolotl" decision. We only refresh
+        // here so a brand-new session sees *something* immediately — fall
+        // back through getDisplayAvatar so users with no oauth photo
+        // still get a stable axolotl rather than blank initials.
         setUser({
           email: session.user.email ?? null,
           displayName:
@@ -160,7 +172,13 @@ export function Navbar({
             session.user.user_metadata?.name ||
             session.user.email?.split("@")[0] ||
             "Creator",
-          avatarUrl: session.user.user_metadata?.avatar_url ?? null,
+          avatarUrl: getDisplayAvatar({
+            id: session.user.id,
+            avatar_url:
+              typeof session.user.user_metadata?.avatar_url === "string"
+                ? session.user.user_metadata.avatar_url
+                : null,
+          }),
         });
 
         // Migrate any designs the user created while anonymous, and run
@@ -340,24 +358,34 @@ export function Navbar({
                 aria-label="Account menu"
                 aria-expanded={menuOpen}
                 onClick={() => setMenuOpen((v) => !v)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full ring-1 ring-border/50 transition hover:ring-primary/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="inline-flex h-12 w-12 items-center justify-center rounded-full ring-2 ring-primary/30 shadow-md shadow-primary/10 transition hover:ring-primary/60 hover:shadow-primary/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                <Avatar className="h-9 w-9">
+                <Avatar className="h-12 w-12">
                   {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.displayName} />}
-                  <AvatarFallback className="bg-primary/20 text-xs font-semibold text-primary">
+                  <AvatarFallback className="bg-primary/20 text-sm font-semibold text-primary">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
               </button>
               {menuOpen && (
-                <div className="absolute right-0 z-50 mt-2 w-60 overflow-hidden rounded-lg border border-border/50 bg-popover text-popover-foreground shadow-lg">
-                  <div className="border-b border-border/50 px-4 py-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium leading-tight">{user.displayName}</p>
-                        {user.email && (
-                          <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
-                        )}
+                <div className="absolute right-0 z-50 mt-2 w-72 overflow-hidden rounded-lg border border-border/50 bg-popover text-popover-foreground shadow-lg">
+                  <div className="border-b border-border/50 px-4 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <Avatar className="h-16 w-16 shrink-0 ring-2 ring-primary/30 shadow-lg shadow-primary/20">
+                          {user.avatarUrl && (
+                            <AvatarImage src={user.avatarUrl} alt={user.displayName} />
+                          )}
+                          <AvatarFallback className="bg-primary/20 text-base font-semibold text-primary">
+                            {initials}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold leading-tight">{user.displayName}</p>
+                          {user.email && (
+                            <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
+                          )}
+                        </div>
                       </div>
                       <Link
                         href="/dashboard/settings"
@@ -451,16 +479,16 @@ export function Navbar({
               </Link>
 
               {user && (
-                <div className="mt-6 rounded-lg border border-border/50 bg-card p-3">
+                <div className="mt-6 rounded-lg border border-border/50 bg-card p-4">
                   <div className="flex items-center gap-3">
-                    <Avatar className="h-10 w-10">
+                    <Avatar className="h-16 w-16 shrink-0 ring-2 ring-primary/30 shadow-lg shadow-primary/20">
                       {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.displayName} />}
-                      <AvatarFallback className="bg-primary/20 text-sm font-semibold text-primary">
+                      <AvatarFallback className="bg-primary/20 text-base font-semibold text-primary">
                         {initials}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{user.displayName}</p>
+                      <p className="truncate text-sm font-semibold">{user.displayName}</p>
                       {user.email && (
                         <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                       )}

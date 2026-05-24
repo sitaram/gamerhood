@@ -9,7 +9,7 @@ import { CreatorStorefrontHero } from "@/components/storefront/creator-storefron
 import { createClient } from "@/lib/supabase/server";
 import { getProfileBySlug, getPublishedProductsByProfile } from "@/lib/supabase/queries";
 import { siteUrl } from "@/lib/site";
-import { profileInitials } from "@/lib/profile-avatar";
+import { getDisplayAvatar, profileInitials } from "@/lib/profile-avatar";
 import type { Product } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -104,7 +104,10 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
   const xpToNext = (level + 1) * 500;
   const xpProgress = Math.min(100, Math.round((xp / xpToNext) * 100));
 
-  const avatarUrl = profile.avatar_url;
+  const avatarUrl = getDisplayAvatar({
+    id: profile.id,
+    avatar_url: profile.avatar_url,
+  });
   const avatarInitials = profileInitials(profile.display_name);
   const catchphrase = profile.catchphrase?.trim() || null;
 
@@ -141,7 +144,7 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
 
       <div className="rounded-2xl border border-border/50 bg-card p-8">
         <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-          <div className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-primary/30 bg-primary/10 text-2xl font-semibold text-primary">
+          <div className="relative flex h-40 w-40 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-primary/30 bg-primary/10 text-4xl font-semibold text-primary shadow-xl shadow-primary/20 ring-2 ring-primary/30 ring-offset-2 ring-offset-card sm:h-44 sm:w-44">
             {avatarUrl ? (
               <Image
                 src={avatarUrl}

@@ -12,7 +12,7 @@ import {
 import { StripeConnectCard } from "@/components/dashboard/stripe-connect-card";
 import { DashboardDesignsGrid } from "@/components/dashboard/dashboard-designs-grid";
 import { toDashboardDesignCard } from "@/lib/design-image-url";
-import { profileInitials } from "@/lib/profile-avatar";
+import { getDisplayAvatar, profileInitials } from "@/lib/profile-avatar";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,10 @@ export default async function DashboardPage() {
     "Creator";
 
   const catchphrase = profile?.catchphrase?.trim() || null;
-  const avatarUrl = profile?.avatar_url ?? null;
+  const avatarUrl = getDisplayAvatar({
+    id: profile?.id ?? user.id,
+    avatar_url: profile?.avatar_url ?? null,
+  });
   const initials = profileInitials(displayName);
 
   const { data: designs } = profile
@@ -43,11 +46,11 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
-      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-        <div className="flex items-start gap-4">
-          <Avatar className="h-14 w-14 shrink-0">
+      <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
+        <div className="flex flex-col items-start gap-5 sm:flex-row sm:items-center">
+          <Avatar className="h-28 w-28 shrink-0 ring-2 ring-primary/30 shadow-xl shadow-primary/20 sm:h-32 sm:w-32">
             {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}
-            <AvatarFallback className="bg-primary/20 text-lg font-semibold text-primary">
+            <AvatarFallback className="bg-primary/20 text-3xl font-semibold text-primary">
               {initials}
             </AvatarFallback>
           </Avatar>
