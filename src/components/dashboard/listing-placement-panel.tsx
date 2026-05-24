@@ -17,7 +17,7 @@ import { PrintPlacementEditor } from "@/components/create/print-placement-editor
 import { DEFAULT_STORED } from "@/lib/print/placement";
 import type { StoredPrintPlacement } from "@/lib/print/placement";
 import type { ProductType } from "@/lib/types";
-import { PRODUCT_TYPE_LABELS, shouldFallbackToPrintfulMockupCard } from "@/components/storefront/product-card";
+import { PRODUCT_TYPE_LABELS, hasRenderableListingMockup } from "@/components/storefront/product-card";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 
@@ -113,20 +113,20 @@ export function ListingPlacementPanel({ listings }: { listings: PlacementListing
             <Card key={row.id} className="border-border/50 bg-card p-4">
               <div className="flex gap-4">
                 <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-secondary">
-                  {!shouldFallbackToPrintfulMockupCard(row.designImageUrl) ? (
-                    <MerchPlacementPreview
-                      imageUrl={row.designImageUrl!}
-                      productType={row.productType}
-                      placement={placement}
-                    />
-                  ) : row.mockupUrl?.trim() ? (
+                  {hasRenderableListingMockup(row.mockupUrl, row.designImageUrl) ? (
                     <Image
-                      src={row.mockupUrl}
+                      src={row.mockupUrl!}
                       alt=""
                       fill
                       className="object-cover"
                       sizes="96px"
                       unoptimized
+                    />
+                  ) : row.designImageUrl ? (
+                    <MerchPlacementPreview
+                      imageUrl={row.designImageUrl}
+                      productType={row.productType}
+                      placement={placement}
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] text-muted-foreground">

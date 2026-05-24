@@ -37,37 +37,54 @@ export const PRODUCT_TYPE_LABELS: Record<string, string> = {
 };
 
 /**
- * Prefer our composited “art + garment silhouette” preview whenever flat artwork exists.
- * Printful-hosted mockups are often photoreal—but some catalog styles come back as flat /
- * blueprint images, which look broken on grids; omit them whenever we can composite instead.
+ * `mockup_url` is "renderable as the listing photo" when the publish flow (or
+ * a creator's custom upload) actually wrote a real image — i.e. it's not
+ * empty, not a `data:` blob, and not the fallback where the publish route
+ * stamped the bare design URL because Printful mockup-tasks failed/was unset.
+ *
+ * When this returns true we render `<Image src={mockup_url}>` directly: that's
+ * either a Printful-CDN photo of the design composited on the actual garment,
+ * or a creator-uploaded custom listing photo from Supabase Storage. Otherwise
+ * we fall back to the in-browser `MerchPlacementPreview` (design composited
+ * on the blank Printful flat photo + dashed print-area markers).
  */
-export function shouldFallbackToPrintfulMockupCard(
+export function hasRenderableListingMockup(
+  mockupUrl: string | null | undefined,
   designImageUrl: string | null | undefined,
 ): boolean {
-  return !designImageUrl?.trim();
+  const m = mockupUrl?.trim();
+  if (!m) return false;
+  if (m.startsWith("data:")) return false;
+  const d = designImageUrl?.trim();
+  if (d && m === d) return false;
+  return true;
 }
 
 export function ProductCard({ product }: ProductCardProps) {
-  const showPrintfulThumb = shouldFallbackToPrintfulMockupCard(product.designImageUrl);
+  const showRealMockup = hasRenderableListingMockup(
+    product.mockupUrl,
+    product.designImageUrl,
+  );
 
   return (
     <Link href={`/product/${product.id}`}>
       <div className="group overflow-hidden rounded-xl border border-border/50 bg-card transition-all hover:border-primary/30 hover:glow-border-purple">
         <div className="relative aspect-square overflow-hidden bg-secondary">
-          {!showPrintfulThumb ? (
-            <MerchPlacementPreview
-              imageUrl={product.designImageUrl!}
-              productType={product.productType}
-              placement={product.printPlacement ?? DEFAULT_STORED}
-              className="transition-transform duration-300 group-hover:scale-[1.02]"
-            />
-          ) : product.mockupUrl?.trim() ? (
+          {showRealMockup ? (
             <Image
               src={product.mockupUrl}
               alt={product.title}
               fill
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
               className="object-cover transition-transform duration-300 group-hover:scale-105"
               unoptimized
+            />
+          ) : product.designImageUrl?.trim() ? (
+            <MerchPlacementPreview
+              imageUrl={product.designImageUrl}
+              productType={product.productType}
+              placement={product.printPlacement ?? DEFAULT_STORED}
+              className="transition-transform duration-300 group-hover:scale-[1.02]"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-muted p-6 text-center text-xs text-muted-foreground">

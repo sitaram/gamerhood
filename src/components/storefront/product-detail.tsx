@@ -15,7 +15,7 @@ import type { Product } from "@/lib/types";
 import { PrintfulCatalogDetails } from "@/components/storefront/printful-catalog-details";
 import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
 import { DEFAULT_STORED } from "@/lib/print/placement";
-import { shouldFallbackToPrintfulMockupCard } from "@/components/storefront/product-card";
+import { hasRenderableListingMockup } from "@/components/storefront/product-card";
 
 export function ProductDetail({ product }: { product: Product }) {
   const [selectedColor, setSelectedColor] = useState(product.colors[0]);
@@ -68,19 +68,20 @@ export function ProductDetail({ product }: { product: Product }) {
       <div className="grid gap-8 lg:grid-cols-2">
         <Card className="overflow-hidden border-border/50 bg-card">
           <div className="relative aspect-square bg-muted">
-            {!shouldFallbackToPrintfulMockupCard(product.designImageUrl) ? (
-              <MerchPlacementPreview
-                imageUrl={product.designImageUrl!}
-                productType={product.productType}
-                placement={product.printPlacement ?? DEFAULT_STORED}
-              />
-            ) : product.mockupUrl?.trim() ? (
+            {hasRenderableListingMockup(product.mockupUrl, product.designImageUrl) ? (
               <Image
                 src={product.mockupUrl}
                 alt={product.title}
                 fill
+                sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-cover"
                 unoptimized
+              />
+            ) : product.designImageUrl?.trim() ? (
+              <MerchPlacementPreview
+                imageUrl={product.designImageUrl}
+                productType={product.productType}
+                placement={product.printPlacement ?? DEFAULT_STORED}
               />
             ) : (
               <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
