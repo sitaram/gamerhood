@@ -10,6 +10,7 @@ import { Mail, Loader2, MailCheck, ArrowLeft } from "lucide-react";
 import { BrandMark } from "@/components/brand/brand-logo";
 import { createBrowserClient } from "@supabase/ssr";
 import { useResendCooldown } from "@/lib/auth/use-resend-cooldown";
+import { siteUrl } from "@/lib/site";
 
 type Step = "form" | "sent";
 
@@ -38,8 +39,13 @@ export default function ForgotPasswordPage() {
     // handler, which exchanges the recovery code for a session and then
     // forwards to /auth/reset-password. That keeps the session lifecycle in
     // one place and reuses the bootstrapAccount logic.
+    //
+    // Use `siteUrl()` (not `window.location.origin`) so a user who happens
+    // to visit a per-deployment Vercel preview hostname doesn't bake that
+    // hostname into the reset link — the link must land on the canonical
+    // domain where the Supabase Auth cookies are scoped.
     return supabase.auth.resetPasswordForEmail(target, {
-      redirectTo: `${window.location.origin}/auth/callback?next=/auth/reset-password`,
+      redirectTo: `${siteUrl()}/auth/callback?next=/auth/reset-password`,
     });
   }
 

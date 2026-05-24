@@ -12,6 +12,7 @@ import { BrandMark } from "@/components/brand/brand-logo";
 import { createBrowserClient } from "@supabase/ssr";
 import { OAuthButtons, OAuthDivider } from "@/components/auth/oauth-buttons";
 import { useResendCooldown } from "@/lib/auth/use-resend-cooldown";
+import { siteUrl } from "@/lib/site";
 
 type Step = "form" | "sent";
 
@@ -110,6 +111,11 @@ export default function SignupPage() {
           data: {
             role: "parent",
           },
+          // Force the confirmation link in the email to point at the
+          // canonical site origin (not Supabase's project `Site URL`
+          // default, which historically pointed at localhost and would
+          // silently leak into every prod confirmation email).
+          emailRedirectTo: `${siteUrl()}/auth/callback?next=/dashboard`,
         },
       });
 
@@ -159,6 +165,9 @@ export default function SignupPage() {
       const { error: resendErr } = await supabase.auth.resend({
         type: "signup",
         email: sentToEmail,
+        options: {
+          emailRedirectTo: `${siteUrl()}/auth/callback?next=/dashboard`,
+        },
       });
 
       if (resendErr) {

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { createBrowserClient } from "@supabase/ssr";
 import type { Provider } from "@supabase/supabase-js";
 import { Loader2 } from "lucide-react";
+import { siteUrl } from "@/lib/site";
 
 type OAuthProvider = {
   id: Provider;
@@ -45,7 +46,10 @@ export function OAuthButtons({ next }: OAuthButtonsProps = {}) {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
     );
 
-    const callbackUrl = new URL("/auth/callback", window.location.origin);
+    // Anchor to `siteUrl()` (canonical) rather than `window.location.origin`
+    // so users who arrive on a Vercel preview hostname still get redirected
+    // back to the domain Supabase Auth cookies are scoped to.
+    const callbackUrl = new URL("/auth/callback", siteUrl());
     if (next) callbackUrl.searchParams.set("next", next);
 
     /**

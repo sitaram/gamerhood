@@ -13,6 +13,7 @@ import { createBrowserClient } from "@supabase/ssr";
 import type { AuthError } from "@supabase/supabase-js";
 import { OAuthButtons, OAuthDivider } from "@/components/auth/oauth-buttons";
 import { useResendCooldown } from "@/lib/auth/use-resend-cooldown";
+import { siteUrl } from "@/lib/site";
 
 /**
  * Supabase returns "Email not confirmed" both as a free-form message and,
@@ -113,6 +114,9 @@ export default function LoginPage() {
       const { error: resendErr } = await supabase.auth.resend({
         type: "signup",
         email: unconfirmedEmail,
+        options: {
+          emailRedirectTo: `${siteUrl()}/auth/callback?next=/dashboard`,
+        },
       });
 
       if (resendErr) {

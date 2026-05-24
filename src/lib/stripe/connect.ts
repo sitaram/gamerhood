@@ -1,24 +1,28 @@
 import type { NextRequest } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { siteUrl } from "@/lib/site";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { updateParentStripe } from "@/lib/supabase/queries";
 
+const LOCAL_FALLBACK = "http://localhost:3000";
+
 /**
- * Public site origin for Stripe Connect return/refresh URLs.
- * Prefer NEXT_PUBLIC_APP_URL, then Vercel preview URL, then request headers.
+ * Public site origin for Stripe Connect return/refresh URLs. Stripe will
+ * redirect the user back to whatever we send here, so it MUST resolve to the
+ * canonical domain Supabase Auth cookies are scoped to — otherwise the user
+ * lands on a per-deployment Vercel hostname (e.g. `…-sitaram1-s-teams.vercel.app`),
+ * appears signed out, and gets bounced to `/auth/login`.
+ *
+ * Defers to `siteUrl()` for the canonical origin in every environment EXCEPT
+ * local dev, where we additionally trust request headers — that covers
+ * `pnpm dev` on non-3000 ports / 127.0.0.1, and `vercel dev` style proxying.
  */
 export function resolveConnectAppOrigin(request: NextRequest): string {
   const trim = (u: string) => u.replace(/\/+$/, "");
 
-  const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (fromEnv) return trim(fromEnv);
-
-  const vercel = process.env.VERCEL_URL?.trim();
-  if (vercel) {
-    const host = vercel.replace(/^https?:\/\//i, "");
-    return trim(`https://${host}`);
-  }
+  const canonical = siteUrl();
+  if (canonical !== LOCAL_FALLBACK) return canonical;
 
   const origin = request.headers.get("origin")?.trim();
   if (origin) return trim(origin);
@@ -34,7 +38,7 @@ export function resolveConnectAppOrigin(request: NextRequest): string {
     return trim(`${proto}://${rawHost}`);
   }
 
-  return "https://gamerhood.gg";
+  return canonical;
 }
 
 export function stripeConnectErrorMessage(err: unknown): string {
