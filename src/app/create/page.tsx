@@ -817,11 +817,6 @@ function CreatePageInner() {
 
               <Card className="border-border/50 bg-card p-6 text-left">
                 <h3 className="text-base font-semibold tracking-tight">Listing details</h3>
-                <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-                  These parts are&nbsp;
-                  <strong className="font-medium text-foreground">instructions only</strong>
-                  — you don&apos;t type here. Scroll to the bordered section for the actual text boxes.
-                </p>
                 <div
                   role="note"
                   className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 dark:text-amber-200"
