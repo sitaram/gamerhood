@@ -19,6 +19,7 @@ import {
   Pencil,
   Download,
   LogIn,
+  Store,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -155,6 +156,16 @@ function CreatePageInner() {
   /** True when `/create?designId=` loaded a design that already has published listings. */
   const [editingPublishedDesign, setEditingPublishedDesign] = useState(false);
 
+  // Storefronts the signed-in user owns. Used to surface the
+  // "Publish to which storefront?" picker only when there's more than
+  // one — single-storefront users never see chrome they don't need.
+  const [ownedStorefronts, setOwnedStorefronts] = useState<
+    { id: string; slug: string; display_name: string; is_default: boolean }[]
+  >([]);
+  const [selectedStorefrontId, setSelectedStorefrontId] = useState<string | null>(
+    null,
+  );
+
   const refreshAnonCount = useCallback(() => {
     setAnonRemaining(Math.max(0, MAX_FREE_GENERATIONS - getAnonDesigns().length));
   }, []);
@@ -194,6 +205,36 @@ function CreatePageInner() {
         if (cancelled || !Array.isArray(j.categories)) return;
         setBrowseCategorySlugs(j.categories.map((c) => c.slug));
       })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [authState]);
+
+  useEffect(() => {
+    if (authState !== "signed-in") return;
+    let cancelled = false;
+    fetch("/api/storefronts")
+      .then((r) => r.json())
+      .then(
+        (j: {
+          storefronts?: {
+            id: string;
+            slug: string;
+            display_name: string;
+            is_default: boolean;
+          }[];
+        }) => {
+          if (cancelled || !Array.isArray(j.storefronts)) return;
+          setOwnedStorefronts(j.storefronts);
+          setSelectedStorefrontId((prev) => {
+            if (prev) return prev;
+            const def =
+              j.storefronts!.find((s) => s.is_default) ?? j.storefronts![0];
+            return def?.id ?? null;
+          });
+        },
+      )
       .catch(() => {});
     return () => {
       cancelled = true;
@@ -413,6 +454,9 @@ function CreatePageInner() {
           printPlacement,
           ...(Object.keys(placementOverrides).length > 0
             ? { printPlacementsByType: placementOverrides }
+            : {}),
+          ...(selectedStorefrontId
+            ? { storefrontId: selectedStorefrontId }
             : {}),
         }),
       });
@@ -938,6 +982,52 @@ function CreatePageInner() {
                   </div>
                 </div>
               </Card>
+
+              {!isAnon && ownedStorefronts.length > 1 && (
+                <Card className="border-border/50 bg-card p-6 text-left">
+                  <h3 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+                    <Store className="h-4 w-4 text-primary" />
+                    Publish to which storefront?
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Each storefront has its own URL and audience. Your default is
+                    pre-selected — change it here if this batch belongs somewhere else.
+                  </p>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {ownedStorefronts.map((s) => {
+                      const active = s.id === selectedStorefrontId;
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setSelectedStorefrontId(s.id)}
+                          aria-pressed={active}
+                          className={`rounded-lg border p-3 text-left transition ${
+                            active
+                              ? "border-primary bg-primary/10"
+                              : "border-border/60 hover:border-border"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate font-medium">{s.display_name}</span>
+                            {s.is_default && (
+                              <Badge
+                                variant="outline"
+                                className="border-primary/40 text-primary"
+                              >
+                                Default
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            /shop/{s.slug}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Card>
+              )}
 
               {isAnon ? (
                 <>

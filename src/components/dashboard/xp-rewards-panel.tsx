@@ -37,6 +37,11 @@ export function XpRewardsPanel({ xp, earnedKeys }: XpRewardsPanelProps) {
             <p className="text-xs text-muted-foreground">
               Knock these out to climb tiers and unlock bigger flexes.
             </p>
+            <p className="mt-1 text-[11px] text-muted-foreground/80">
+              XP is shared across{" "}
+              <span className="font-medium text-foreground">all your storefronts</span>{" "}
+              — they all show the same tier badge.
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">

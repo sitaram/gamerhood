@@ -4,6 +4,8 @@ import {
   insertDesign,
   insertProduct,
   getDefaultProfileForAuthUser,
+  getStorefrontById,
+  listStorefrontsByOwner,
 } from "@/lib/supabase/queries";
 import { getCatalogConfig, printfulCatalogVariantEnvName } from "@/lib/printful/catalog";
 import { isPrintfulConfigured } from "@/lib/printful/client";
@@ -103,6 +105,12 @@ export async function POST(request: NextRequest) {
     printPlacement?: unknown;
     /** Per–product-type overrides; merged with `printPlacement` when inserting rows. */
     printPlacementsByType?: Record<string, unknown>;
+    /**
+     * Which storefront to publish to. Optional — when omitted (or null)
+     * we resolve to the user's default storefront. Single-storefront
+     * users never see the picker, so this comes through unset for them.
+     */
+    storefrontId?: string | null;
   };
 
   try {
@@ -139,6 +147,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No creator profile found" }, { status: 400 });
     }
     const profileId = profile.id;
+
+    // ── Resolve which storefront these listings attach to ──────────────
+    // The picker on `/create` only renders when there's more than one
+    // storefront; otherwise the client omits `storefrontId` and we fall
+    // back to the user's default. We re-verify ownership here so a
+    // hand-crafted POST can't publish into someone else's shop.
+    let storefrontId: string | null = null;
+    if (typeof body.storefrontId === "string" && body.storefrontId.length > 0) {
+      const requested = await getStorefrontById(supabase, body.storefrontId);
+      if (!requested || requested.owner_profile_id !== profileId) {
+        return NextResponse.json(
+          { error: "That storefront isn't yours to publish to." },
+          { status: 403 },
+        );
+      }
+      storefrontId = requested.id;
+    } else {
+      const owned = await listStorefrontsByOwner(supabase, profileId);
+      const def = owned.find((s) => s.is_default) ?? owned[0] ?? null;
+      storefrontId = def?.id ?? null;
+    }
 
     // ── Canonical image bytes for uploads: decode ALL data URLs (including
     // UTF-8 SVG from `FileReader`), rasterize SVG → high‑res PNG so Printful's
@@ -370,6 +399,7 @@ export async function POST(request: NextRequest) {
       const { data: product, error: productErr } = await insertProduct(supabase, {
         design_id: designId,
         profile_id: profileId,
+        storefront_id: storefrontId,
         title: `${designTitle} ${publishTypeTitle(productType)}`,
         description: shortDescription,
         product_type: productType,

@@ -236,6 +236,11 @@ export function StripeConnectCard() {
             <p className="text-xs text-muted-foreground">
               Earnings from sales will land in your bank account.
             </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Payouts for{" "}
+              <span className="font-medium text-foreground">all your storefronts</span>{" "}
+              route to this Stripe account.
+            </p>
           </div>
         </div>
         <div className="flex flex-col items-stretch gap-1 sm:items-end">
@@ -278,6 +283,11 @@ export function StripeConnectCard() {
             {isResuming
               ? "You started onboarding but haven't finished. Continue to start receiving earnings."
               : "Connect a bank account via Stripe so we can pay you when your designs sell."}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            One Stripe account covers{" "}
+            <span className="font-medium text-foreground">every storefront</span> you
+            run on Gamerhood.
           </p>
           {error && (
             <p className="mt-1 text-xs text-destructive">{error.message}</p>

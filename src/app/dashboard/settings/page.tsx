@@ -1,8 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getDefaultProfileForAuthUser } from "@/lib/supabase/queries";
+import {
+  getDefaultProfileForAuthUser,
+  listStorefrontsByOwner,
+} from "@/lib/supabase/queries";
 import { ProfileSettingsForm } from "@/components/dashboard/profile-settings-form";
+import {
+  StorefrontsManager,
+  type StorefrontSummary,
+} from "@/components/dashboard/storefronts-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +44,19 @@ export default async function AccountSettingsPage() {
 
   const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
 
+  const storefronts: StorefrontSummary[] = profile
+    ? (await listStorefrontsByOwner(supabase, profile.id)).map((s) => ({
+        id: s.id,
+        slug: s.slug,
+        display_name: s.display_name,
+        catchphrase: s.catchphrase,
+        avatar_url: s.avatar_url,
+        banner_url: s.banner_url,
+        hero_image_url: s.hero_image_url,
+        is_default: s.is_default,
+      }))
+    : [];
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
       <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
@@ -44,10 +64,11 @@ export default async function AccountSettingsPage() {
       </Link>
       <h1 className="mt-4 text-3xl font-bold tracking-tight">Account settings</h1>
       <p className="mt-2 text-muted-foreground">
-        Personalize how you show up across Gamerhood — photo, name, and catchphrase.
+        Personalize how you show up across Gamerhood — photo, name, catchphrase, and the
+        storefronts you run from this account.
       </p>
 
-      <div className="mt-10">
+      <div className="mt-10 space-y-10">
         <ProfileSettingsForm
           initialDisplayName={profile?.display_name ?? deriveDisplayName(user)}
           initialCatchphrase={profile?.catchphrase ?? null}
@@ -58,6 +79,10 @@ export default async function AccountSettingsPage() {
           email={user.email ?? null}
           hasEmailPassword={hasEmailPasswordProvider(user)}
         />
+
+        {profile && (
+          <StorefrontsManager initialStorefronts={storefronts} />
+        )}
       </div>
     </div>
   );

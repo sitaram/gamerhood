@@ -364,6 +364,84 @@ const FAQ_SECTIONS: FAQSection[] = [
       },
     ],
   },
+  {
+    id: "multiple-storefronts",
+    title: "Can I have more than one storefront?",
+    tag: "Storefronts",
+    tagColor: "border-neon-pink/30 text-neon-pink",
+    intro:
+      "Yes! You can run as many storefronts as you want from a single Gamerhood account. Each one has its own URL, name, banner, and look — perfect for keeping different audiences separate.",
+    items: [
+      {
+        question: "Ideas to spark the imagination",
+        answer: (
+          <>
+            <ul className="list-disc space-y-2 pl-5">
+              <li>
+                <strong>A family storefront</strong> — picture your grandparents,
+                aunts, and uncles finally having a place to buy a hoodie with the
+                family last name on it, or a mug printed with everyone&apos;s
+                birthday. Make it your own family&apos;s little brand.
+              </li>
+              <li>
+                <strong>A fandom or team storefront</strong> — designs for your
+                gaming clan, sports team, school club, or favorite show.
+              </li>
+              <li>
+                <strong>A &quot;just for friends&quot; storefront</strong> — inside
+                jokes only your group gets, on T-shirts only your group will buy.
+              </li>
+              <li>
+                <strong>Your personal art storefront</strong> — your real designs,
+                separate from the silly ones.
+              </li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        question: "How it works",
+        answer: (
+          <>
+            <ul className="list-disc space-y-2 pl-5">
+              <li>
+                You can create new storefronts any time from{" "}
+                <Link href="/dashboard/settings" className="underline">
+                  Dashboard → Settings → Your storefronts
+                </Link>
+                .
+              </li>
+              <li>
+                Each storefront has its own page (like{" "}
+                <code className="rounded bg-background/80 px-1 py-0.5 font-mono text-xs">
+                  gamerhood.gg/shop/the-ohye-family
+                </code>
+                ), its own QR code, and its own banner.
+              </li>
+              <li>
+                All storefronts share <strong>one</strong> payout account (your
+                Stripe Connect account), so money from all of them lands in the
+                same bank.
+              </li>
+              <li>
+                All storefronts share your creator level and XP — so the work you
+                do on one helps level them all up.
+              </li>
+              <li>
+                When you publish a new design, you&apos;ll pick which storefront
+                it goes on.
+              </li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        question: "Are there any rules I should know about?",
+        answer:
+          "Every storefront still has to follow the same content rules. You can't use a storefront to sneak around our guidelines — same kid-safe screening, same copyright check, same Acceptable Use Policy. If one storefront gets flagged for misuse, it affects all of them.",
+      },
+    ],
+  },
 ];
 
 function FAQAccordion({

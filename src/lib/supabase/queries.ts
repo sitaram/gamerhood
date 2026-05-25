@@ -208,6 +208,13 @@ export async function insertProduct(
   data: {
     design_id: string;
     profile_id: string;
+    /**
+     * Storefront the product belongs to. Nullable in schema for safe
+     * rollout, but the publish endpoint always sets it now. Readers
+     * should treat null as "owner's default storefront" via
+     * `storefronts.is_default = true`.
+     */
+    storefront_id?: string | null;
     title: string;
     description: string;
     product_type: string;
@@ -738,6 +745,147 @@ export async function isProfileSlugTaken(
 
   if (error) return true;
   return Boolean(data);
+}
+
+// ── Storefronts ─────────────────────────────────────────────────────────
+//
+// A profile (the creator user) can own multiple `storefronts`. Each
+// storefront has its own slug, banner, avatar, and product list, but
+// shares XP / Stripe Connect with the owner profile.
+
+export interface StorefrontRow {
+  id: string;
+  owner_profile_id: string;
+  slug: string;
+  display_name: string;
+  catchphrase: string | null;
+  avatar_url: string | null;
+  banner_url: string | null;
+  hero_image_url: string | null;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listStorefrontsByOwner(
+  supabase: SupabaseClient,
+  ownerProfileId: string,
+): Promise<StorefrontRow[]> {
+  const { data, error } = await supabase
+    .from("storefronts")
+    .select("*")
+    .eq("owner_profile_id", ownerProfileId)
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true });
+
+  if (error || !data) return [];
+  return data as StorefrontRow[];
+}
+
+/**
+ * Look up a storefront by its public slug. Storefronts are world-readable
+ * (RLS policy `storefronts_public_read`) so any caller — signed-in or not
+ * — gets a row when one exists.
+ */
+export async function getStorefrontBySlug(
+  supabase: SupabaseClient,
+  slug: string,
+): Promise<StorefrontRow | null> {
+  const { data, error } = await supabase
+    .from("storefronts")
+    .select("*")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as StorefrontRow;
+}
+
+export async function getStorefrontById(
+  supabase: SupabaseClient,
+  storefrontId: string,
+): Promise<StorefrontRow | null> {
+  const { data, error } = await supabase
+    .from("storefronts")
+    .select("*")
+    .eq("id", storefrontId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as StorefrontRow;
+}
+
+/** Returns true when another storefront row already owns this slug. */
+export async function isStorefrontSlugTaken(
+  supabase: SupabaseClient,
+  slug: string,
+  excludeId?: string,
+): Promise<boolean> {
+  let q = supabase.from("storefronts").select("id").eq("slug", slug);
+  if (excludeId) q = q.neq("id", excludeId);
+  const { data, error } = await q.maybeSingle();
+  if (error) return true;
+  return Boolean(data);
+}
+
+export async function countProductsByStorefront(
+  supabase: SupabaseClient,
+  storefrontId: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("products")
+    .select("id", { count: "exact", head: true })
+    .eq("storefront_id", storefrontId);
+  if (error) return 0;
+  return count ?? 0;
+}
+
+/**
+ * Published products for a storefront — what `/shop/[slug]` renders.
+ * Includes any legacy rows still attached only via `profile_id` (no
+ * `storefront_id`) when this is the owner's default storefront, so we
+ * don't lose old listings while the backfill catches up.
+ */
+export async function getPublishedProductsByStorefront(
+  supabase: SupabaseClient,
+  storefrontId: string,
+  ownerProfileId: string,
+  isDefault: boolean,
+): Promise<Product[]> {
+  const { data: linked, error: linkedErr } = await supabase
+    .from("products")
+    .select(PRODUCT_LISTING_SELECT)
+    .eq("storefront_id", storefrontId)
+    .eq("is_published", true)
+    .order("created_at", { ascending: false });
+
+  if (linkedErr) {
+    console.error("[getPublishedProductsByStorefront]", storefrontId, linkedErr);
+  }
+
+  const rows: ProductRowWithProfile[] =
+    (linked ?? []) as unknown as ProductRowWithProfile[];
+
+  if (isDefault) {
+    const { data: legacy } = await supabase
+      .from("products")
+      .select(PRODUCT_LISTING_SELECT)
+      .eq("profile_id", ownerProfileId)
+      .is("storefront_id", null)
+      .eq("is_published", true)
+      .order("created_at", { ascending: false });
+
+    if (legacy) {
+      const seen = new Set(rows.map((r) => r.id));
+      for (const row of legacy as unknown as ProductRowWithProfile[]) {
+        if (!seen.has(row.id)) rows.push(row);
+      }
+    }
+  }
+
+  rows.sort(
+    (a, b) =>
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+  );
+  return rows.map(mapProductRow);
 }
 
 // ── DMCA ──

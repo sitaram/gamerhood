@@ -10,7 +10,14 @@ import { TierBadge } from "@/components/xp/tier-badge";
 import { TierProgress } from "@/components/xp/tier-progress";
 import { StorefrontQrButton } from "@/components/qr/storefront-qr-button";
 import { createClient } from "@/lib/supabase/server";
-import { getProfileBySlug, getPublishedProductsByProfile } from "@/lib/supabase/queries";
+import {
+  getStorefrontBySlug,
+  getProfileBySlug,
+  getPublishedProductsByProfile,
+  getPublishedProductsByStorefront,
+  type ProfileRow,
+  type StorefrontRow,
+} from "@/lib/supabase/queries";
 import { siteUrl } from "@/lib/site";
 import { getStorefrontAvatar, profileInitials } from "@/lib/profile-avatar";
 import type { Product } from "@/lib/types";
@@ -43,29 +50,89 @@ interface Props {
   searchParams: Promise<{ category?: string }>;
 }
 
+interface ResolvedShop {
+  /** The storefront row (where slug + display + banner + avatar live now). */
+  storefront: StorefrontRow;
+  /** The OWNER's profile — XP/level/tier badge/Stripe all key off the owner. */
+  profile: ProfileRow;
+  products: Product[];
+}
+
+/**
+ * Resolve a /shop/<slug> request to its storefront + owning profile. We
+ * look up the new `storefronts` table first; if that misses (e.g. a
+ * profile that existed before backfill, or a manually inserted profile
+ * with no storefront row) we fall back to the legacy profile-as-
+ * storefront read so old links never break. The legacy fallback
+ * synthesizes a StorefrontRow from the profile so downstream code is
+ * uniform.
+ */
+async function resolveShop(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  slug: string,
+): Promise<ResolvedShop | null> {
+  const storefront = await getStorefrontBySlug(supabase, slug);
+  if (storefront) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", storefront.owner_profile_id)
+      .single();
+    if (!profile) return null;
+    const products = await getPublishedProductsByStorefront(
+      supabase,
+      storefront.id,
+      storefront.owner_profile_id,
+      storefront.is_default,
+    );
+    return { storefront, profile: profile as ProfileRow, products };
+  }
+
+  // Legacy path: no storefront row, but a profile with this slug. Build
+  // a synthetic storefront from the profile fields so the page renders
+  // exactly as it did pre-migration.
+  const { data: profile } = await getProfileBySlug(supabase, slug);
+  if (!profile) return null;
+  const p = profile as ProfileRow;
+  const synthetic: StorefrontRow = {
+    id: p.id,
+    owner_profile_id: p.id,
+    slug: p.slug,
+    display_name: p.display_name,
+    catchphrase: p.catchphrase ?? null,
+    avatar_url: p.storefront_avatar_url ?? p.avatar_url ?? null,
+    banner_url: p.storefront_banner_url ?? null,
+    hero_image_url: p.storefront_hero_image_url ?? null,
+    is_default: true,
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+  };
+  const products = await getPublishedProductsByProfile(supabase, p.id);
+  return { storefront: synthetic, profile: p, products };
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const supabase = await createClient();
-  const { data: profile } = await getProfileBySlug(supabase, slug);
-  if (!profile) {
+  const resolved = await resolveShop(supabase, slug);
+  if (!resolved) {
     return { title: "Shop not found" };
   }
+  const { storefront, profile } = resolved;
 
   const title =
-    (profile as { store_seo_title?: string | null }).store_seo_title?.trim() ||
-    `${profile.display_name}'s shop — Gamerhood`;
+    profile.store_seo_title?.trim() ||
+    `${storefront.display_name}'s shop — Gamerhood`;
   const description =
-    (profile as { store_seo_description?: string | null }).store_seo_description?.trim() ||
+    profile.store_seo_description?.trim() ||
     profile.bio?.trim() ||
-    `Custom merch and designs by ${profile.display_name} on Gamerhood.`;
+    `Custom merch and designs by ${storefront.display_name} on Gamerhood.`;
 
-  const tags = (profile as { store_tags?: string[] | null }).store_tags;
+  const tags = profile.store_tags;
   const keywords = Array.isArray(tags) && tags.length ? tags.join(", ") : undefined;
   const canonical = `${siteUrl()}/shop/${slug}`;
-  const hero = (profile as { storefront_hero_image_url?: string | null }).storefront_hero_image_url;
-  const ogAvatar =
-    (profile as { storefront_avatar_url?: string | null }).storefront_avatar_url ||
-    profile.avatar_url;
+  const hero = storefront.hero_image_url;
+  const ogAvatar = storefront.avatar_url || profile.avatar_url;
 
   return {
     title,
@@ -96,10 +163,10 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
   const { category: categoryFilter } = await searchParams;
   const supabase = await createClient();
 
-  const { data: profile } = await getProfileBySlug(supabase, slug);
-  if (!profile) notFound();
+  const resolved = await resolveShop(supabase, slug);
+  if (!resolved) notFound();
+  const { storefront, profile, products: allProducts } = resolved;
 
-  const allProducts = await getPublishedProductsByProfile(supabase, profile.id);
   const categoryNorm = categoryFilter?.trim().toLowerCase() ?? "";
   const products = categoryNorm
     ? allProducts.filter((p) => productMatchesStorefrontBrowse(p, categoryNorm))
@@ -108,36 +175,45 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
   // `profile.level` (the legacy numeric column) is still kept in sync by
   // the `award_xp_event` RPC for back-compat, but the storefront renders
   // the tier purely from `xp` via `<TierBadge>` / `<TierProgress>`.
-  // No "Level N" / star count anywhere — feedback was that numeric ranks
-  // feel demoralizing to kids; named tiers feel like a journey instead.
+  // XP/tier is per-OWNER — shared across all the owner's storefronts.
   const xp: number = profile.xp ?? 0;
 
   const avatarUrl = getStorefrontAvatar({
-    id: profile.id,
+    id: storefront.id,
     avatar_url: profile.avatar_url,
-    storefront_avatar_url: (profile as { storefront_avatar_url?: string | null })
-      .storefront_avatar_url,
+    storefront_avatar_url: storefront.avatar_url,
   });
-  const avatarInitials = profileInitials(profile.display_name);
-  const catchphrase = profile.catchphrase?.trim() || null;
+  const avatarInitials = profileInitials(storefront.display_name);
+  const catchphrase = storefront.catchphrase?.trim() || null;
 
-  const hasHero = Boolean(
-    (profile as { storefront_hero_image_url?: string | null }).storefront_hero_image_url,
-  );
-  const bannerUrl =
-    (profile as { storefront_banner_url?: string | null }).storefront_banner_url || null;
+  const hasHero = Boolean(storefront.hero_image_url);
+  const bannerUrl = storefront.banner_url;
 
   const categories = Array.from(new Set(allProducts.flatMap((p) => storefrontBrowseTokens(p)))).sort();
 
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Store",
-    name: profile.display_name,
+    name: storefront.display_name,
     url: `${siteUrl()}/shop/${slug}`,
     description:
-      (profile as { store_seo_description?: string | null }).store_seo_description?.trim() ||
+      profile.store_seo_description?.trim() ||
       profile.bio?.trim() ||
       undefined,
+  };
+
+  // The hero component still reads from a profile-shaped object. We pass
+  // the storefront values that override profile fields, while letting
+  // the rest (subhead, overlay) come from the owner profile.
+  const heroProfile = {
+    display_name: storefront.display_name,
+    avatar_url: storefront.avatar_url ?? profile.avatar_url,
+    catchphrase: storefront.catchphrase,
+    bio: profile.bio,
+    storefront_hero_image_url: storefront.hero_image_url,
+    storefront_headline: profile.storefront_headline ?? null,
+    storefront_subhead: profile.storefront_subhead ?? null,
+    storefront_hero_overlay: profile.storefront_hero_overlay ?? null,
   };
 
   return (
@@ -150,7 +226,7 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
 
       <CreatorStorefrontHero
         profile={
-          profile as Parameters<typeof CreatorStorefrontHero>[0]["profile"]
+          heroProfile as Parameters<typeof CreatorStorefrontHero>[0]["profile"]
         }
       />
 
@@ -191,7 +267,7 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
             {avatarUrl ? (
               <Image
                 src={avatarUrl}
-                alt={profile.display_name}
+                alt={storefront.display_name}
                 fill
                 className="object-cover"
                 unoptimized
@@ -208,7 +284,7 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
                   bannerUrl ? "text-white drop-shadow-md" : ""
                 }`}
               >
-                {profile.display_name}
+                {storefront.display_name}
               </h1>
             )}
             {hasHero && (
@@ -217,7 +293,7 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
                   bannerUrl ? "text-white/90 drop-shadow" : "text-muted-foreground"
                 }`}
               >
-                {profile.display_name}
+                {storefront.display_name}
               </p>
             )}
             {catchphrase && (
@@ -270,7 +346,7 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
             <div className="mt-5 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <StorefrontQrButton
                 url={`${siteUrl()}/shop/${slug}`}
-                displayName={profile.display_name}
+                displayName={storefront.display_name}
                 slug={slug}
               />
             </div>
