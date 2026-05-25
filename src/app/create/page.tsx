@@ -822,12 +822,17 @@ function CreatePageInner() {
                   <strong className="font-medium text-foreground">instructions only</strong>
                   — you don&apos;t type here. Scroll to the bordered section for the actual text boxes.
                 </p>
-                <p className="mt-3 text-xs text-muted-foreground leading-relaxed">
-                  Whatever you enter applies to{' '}
-                  <strong className="font-medium text-foreground">every product</strong> in this publish
-                  batch. You can refine each listing later under{' '}
-                  <span className="font-medium text-foreground">Dashboard → Storefront</span>.
-                </p>
+                <div
+                  role="note"
+                  className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 dark:text-amber-200"
+                >
+                  <span aria-hidden className="mt-0.5 text-base leading-none">⚠️</span>
+                  <p className="leading-relaxed">
+                    <strong className="font-semibold">Heads up:</strong> whatever you enter below applies to{' '}
+                    <strong className="font-semibold underline underline-offset-2">every product</strong> in this publish batch. You can refine each listing individually later under{' '}
+                    <strong className="font-semibold">Dashboard → Storefront</strong>.
+                  </p>
+                </div>
 
                 <div
                   role="group"
