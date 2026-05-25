@@ -13,8 +13,10 @@ import { StripeConnectCard } from "@/components/dashboard/stripe-connect-card";
 import { DashboardDesignsGrid } from "@/components/dashboard/dashboard-designs-grid";
 import { XpRewardsPanel } from "@/components/dashboard/xp-rewards-panel";
 import { TierBadge } from "@/components/xp/tier-badge";
+import { DashboardQrCard } from "@/components/qr/dashboard-qr-card";
 import { toDashboardDesignCard } from "@/lib/design-image-url";
 import { getDisplayAvatar, profileInitials } from "@/lib/profile-avatar";
+import { siteUrl } from "@/lib/site";
 import { getEarnedOneShotRuleKeys } from "@/lib/xp/award";
 
 export const dynamic = "force-dynamic";
@@ -111,6 +113,30 @@ export default async function DashboardPage() {
 
       <div className="mt-8">
         <StripeConnectCard />
+      </div>
+
+      <div className="mt-8">
+        {profile?.slug ? (
+          <DashboardQrCard
+            url={`${siteUrl()}/shop/${profile.slug}`}
+            slug={profile.slug}
+          />
+        ) : (
+          <Card className="border-dashed border-border/50 bg-card/50 p-6">
+            <h3 className="text-base font-semibold">Your shop QR code</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Set up your storefront to get your QR code. Once your shop URL
+              is live you can download a printable PNG for stickers and
+              posters.
+            </p>
+            <Link
+              href="/dashboard/storefront"
+              className="mt-3 inline-block text-sm font-medium text-primary hover:underline"
+            >
+              Set up storefront →
+            </Link>
+          </Card>
+        )}
       </div>
 
       {profile && (

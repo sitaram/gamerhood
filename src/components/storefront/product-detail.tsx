@@ -27,6 +27,15 @@ import { getMerchPreviewLayout } from "@/lib/create/merch-preview-layout";
 import { getPrintAreaInches } from "@/lib/printful/catalog";
 import { normalizedPlacementToPrintful } from "@/lib/print/placement";
 
+/** Lowercase + hyphenate + strip non-url-safe chars for QR PNG filenames. */
+function slugifyForFilename(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
 export function ProductDetail({ product, shareUrl }: { product: Product; shareUrl: string }) {
   const [selectedColor, setSelectedColor] = useState(product.colors[0]);
   const [selectedSize, setSelectedSize] = useState(product.sizes?.[0] ?? "");
@@ -207,7 +216,12 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
             >
               <Heart className={`h-5 w-5 ${liked ? "fill-current" : ""}`} />
             </Button>
-            <ShareMenu url={shareUrl} title={product.title} description={product.description} />
+            <ShareMenu
+              url={shareUrl}
+              title={product.title}
+              description={product.description}
+              qrFilenameSlug={slugifyForFilename(product.title) || product.id}
+            />
           </div>
 
           <Card className="border-border/50 bg-card/50 p-4">

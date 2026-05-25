@@ -8,6 +8,7 @@ import { ProductCard } from "@/components/storefront/product-card";
 import { CreatorStorefrontHero } from "@/components/storefront/creator-storefront-hero";
 import { TierBadge } from "@/components/xp/tier-badge";
 import { TierProgress } from "@/components/xp/tier-progress";
+import { StorefrontQrButton } from "@/components/qr/storefront-qr-button";
 import { createClient } from "@/lib/supabase/server";
 import { getProfileBySlug, getPublishedProductsByProfile } from "@/lib/supabase/queries";
 import { siteUrl } from "@/lib/site";
@@ -264,6 +265,14 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
 
             <div className="mt-4 max-w-xs">
               <TierProgress xp={xp} />
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2 sm:justify-start">
+              <StorefrontQrButton
+                url={`${siteUrl()}/shop/${slug}`}
+                displayName={profile.display_name}
+                slug={slug}
+              />
             </div>
           </div>
         </div>

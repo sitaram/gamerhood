@@ -8,6 +8,7 @@ import {
   MessageCircle,
   MessageSquare,
   MoreHorizontal,
+  QrCode as QrCodeIcon,
   Share2,
   ThumbsUp,
   X as XIcon,
@@ -21,12 +22,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { QrModal } from "@/components/qr/qr-modal";
 import { toast } from "sonner";
 
 interface ShareMenuProps {
   url: string;
   title: string;
   description?: string;
+  /**
+   * Optional slug used in the QR-download filename. Defaults to "share" if
+   * not supplied (so the QR modal always has a sensible filename).
+   */
+  qrFilenameSlug?: string;
 }
 
 const subscribeNoop = () => () => {};
@@ -41,8 +48,14 @@ function getCanNativeShareSnapshot(): boolean {
   return hasShare && isTouch;
 }
 
-export function ShareMenu({ url, title, description }: ShareMenuProps) {
+export function ShareMenu({
+  url,
+  title,
+  description,
+  qrFilenameSlug,
+}: ShareMenuProps) {
   const [copied, setCopied] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
   const canNativeShare = useSyncExternalStore(
     subscribeNoop,
     getCanNativeShareSnapshot,
@@ -108,6 +121,11 @@ export function ShareMenu({ url, title, description }: ShareMenuProps) {
         <span aria-live="polite" className="sr-only">
           {copied ? "Link copied to clipboard" : ""}
         </span>
+
+        <DropdownMenuItem onClick={() => setQrOpen(true)}>
+          <QrCodeIcon aria-hidden="true" />
+          <span>Show QR code</span>
+        </DropdownMenuItem>
 
         <DropdownMenuItem
           render={
@@ -178,6 +196,15 @@ export function ShareMenu({ url, title, description }: ShareMenuProps) {
           </>
         )}
       </DropdownMenuContent>
+
+      <QrModal
+        open={qrOpen}
+        onOpenChange={setQrOpen}
+        url={url}
+        title={`Scan to view ${title}`}
+        subtitle="Point your phone camera at the code"
+        filenameSlug={qrFilenameSlug ?? "share"}
+      />
     </DropdownMenu>
   );
 }
