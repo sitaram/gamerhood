@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { sanitizeSlugInput, MAX_PRODUCT_CATEGORY_SLUG_LEN } from "@/lib/slug-utils";
 import { ImageIcon, Upload, RefreshCw, Trash2 } from "lucide-react";
+import { showXpToasts } from "@/components/xp/show-xp-toasts";
 
 export interface ListingRow {
   id: string;
@@ -108,11 +109,16 @@ export function ListingSeoEditor({ listings }: { listings: ListingRow[] }) {
         seoDescription: row.description.trim() || null,
       }),
     });
+    const j = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
       throw new Error(j.error || "Save failed");
     }
     toast.success("Listing saved");
+    if (Array.isArray((j as { xpAwards?: unknown }).xpAwards)) {
+      showXpToasts(
+        (j as { xpAwards: Parameters<typeof showXpToasts>[0] }).xpAwards,
+      );
+    }
   }
 
   async function refreshPrintful(row: ListingRow) {

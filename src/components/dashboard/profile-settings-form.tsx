@@ -17,6 +17,9 @@ import {
   profileInitials,
 } from "@/lib/profile-avatar";
 import { cn } from "@/lib/utils";
+import { XpBadge } from "@/components/xp/xp-badge";
+import { showXpToasts } from "@/components/xp/show-xp-toasts";
+import { XP_RULES } from "@/lib/xp/rules";
 
 const DEFAULT_AVATAR_SET: ReadonlySet<string> = new Set(DEFAULT_AVATAR_POOL);
 
@@ -126,6 +129,9 @@ export function ProfileSettingsForm({
       setStorefrontBannerUrl(
         typeof data.storefrontBannerUrl === "string" ? data.storefrontBannerUrl : null,
       );
+    }
+    if (Array.isArray(data.xpAwards)) {
+      showXpToasts(data.xpAwards);
     }
     router.refresh();
     return data;
@@ -349,7 +355,10 @@ export function ProfileSettingsForm({
   return (
     <div className="space-y-8">
       <Card className="space-y-4 border-border/50 bg-card p-6">
-        <h2 className="text-lg font-semibold">Profile photo</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold">Profile photo</h2>
+          <XpBadge points={XP_RULES.AVATAR_CUSTOM.points} variant="prominent" />
+        </div>
         <p className="text-sm text-muted-foreground">
           A friendly photo or avatar for your shop and dashboard. PNG, JPG, or WebP up to 2 MB.
           Images are checked for kid-safe content.
@@ -430,7 +439,10 @@ export function ProfileSettingsForm({
       </Card>
 
       <Card className="space-y-4 border-border/50 bg-card p-6">
-        <h2 className="text-lg font-semibold">Storefront photo (optional)</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold">Storefront photo (optional)</h2>
+          <XpBadge points={XP_RULES.STOREFRONT_AVATAR.points} variant="prominent" />
+        </div>
         <p className="text-sm text-muted-foreground">
           Shown on your public shop page only. Leave blank to use your profile photo
           everywhere — including the shop. PNG, JPG, or WebP up to 2 MB. Same kid-safe
@@ -516,7 +528,13 @@ export function ProfileSettingsForm({
       </Card>
 
       <Card className="space-y-4 border-border/50 bg-card p-6">
-        <h2 className="text-lg font-semibold">Storefront banner (optional)</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold">Storefront banner (optional)</h2>
+          <XpBadge
+            points={XP_RULES.STOREFRONT_BANNER_UPLOAD.points}
+            variant="prominent"
+          />
+        </div>
         <p className="text-sm text-muted-foreground">
           Shown at the top of your public shop page. Leave blank to use the default gradient.
           PNG, JPG, or WebP up to 4 MB. Same kid-safe check applies.

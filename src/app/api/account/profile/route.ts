@@ -15,6 +15,7 @@ import {
 } from "@/lib/storage";
 import { moderateImageBase64, moderateText } from "@/lib/moderation";
 import { DEFAULT_AVATAR_POOL } from "@/lib/profile-avatar";
+import { awardXp, pickXpToastPayload, type XpAwardResult } from "@/lib/xp/award";
 
 const DEFAULT_AVATAR_ALLOWLIST: ReadonlySet<string> = new Set(DEFAULT_AVATAR_POOL);
 
@@ -143,6 +144,11 @@ export async function PATCH(request: NextRequest) {
   const profilePatch: Parameters<typeof updateProfileById>[2] = {};
   const authPatch: Record<string, string | null> = {};
   let displayName: string | undefined;
+  // Track which XP rules to fire AFTER the row is saved successfully —
+  // saves us from awarding XP for a save that ultimately 500s.
+  let awardAvatarCustom = false;
+  let awardStorefrontAvatar = false;
+  let awardStorefrontBanner = false;
 
   if (body.displayName !== undefined) {
     const parsed = validateDisplayName(body.displayName);
@@ -190,6 +196,7 @@ export async function PATCH(request: NextRequest) {
     profilePatch.avatar_url = body.pickDefaultAvatar;
     authPatch.avatar_url = body.pickDefaultAvatar;
     await removeProfileAvatarFromStorage(profile.id);
+    awardAvatarCustom = true;
   } else if (avatarDataUrl) {
     const validation = await validateAndModerateAvatar(avatarDataUrl, "Profile photo");
     if (!validation.ok) {
@@ -199,6 +206,7 @@ export async function PATCH(request: NextRequest) {
       const publicUrl = await uploadProfileAvatar(profile.id, avatarDataUrl);
       profilePatch.avatar_url = publicUrl;
       authPatch.avatar_url = publicUrl;
+      awardAvatarCustom = true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Avatar upload failed";
       return NextResponse.json({ error: msg }, { status: 400 });
@@ -225,6 +233,7 @@ export async function PATCH(request: NextRequest) {
     }
     profilePatch.storefront_avatar_url = body.pickDefaultStorefrontAvatar;
     await removeStorefrontProfileAvatarFromStorage(profile.id);
+    awardStorefrontAvatar = true;
   } else if (storefrontAvatarDataUrl) {
     const validation = await validateAndModerateAvatar(
       storefrontAvatarDataUrl,
@@ -239,6 +248,7 @@ export async function PATCH(request: NextRequest) {
         storefrontAvatarDataUrl,
       );
       profilePatch.storefront_avatar_url = publicUrl;
+      awardStorefrontAvatar = true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Storefront photo upload failed";
       return NextResponse.json({ error: msg }, { status: 400 });
@@ -265,6 +275,7 @@ export async function PATCH(request: NextRequest) {
         storefrontBannerDataUrl,
       );
       profilePatch.storefront_banner_url = publicUrl;
+      awardStorefrontBanner = true;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Storefront banner upload failed";
       return NextResponse.json({ error: msg }, { status: 400 });
@@ -304,13 +315,51 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Could not update profile" }, { status: 500 });
   }
 
+  // ── XP awards, post-save ─────────────────────────────────────────
+  // PROFILE_COMPLETE requires the *current* row state (display name +
+  // catchphrase + an avatar). Pull from the freshly-updated row so a
+  // single save that adds the last missing field still trips the rule.
+  const finalName = updated?.display_name ?? displayName ?? profile.display_name;
+  const finalCatchphrase = updated?.catchphrase ?? profile.catchphrase ?? null;
+  const finalAvatar = updated?.avatar_url ?? profile.avatar_url ?? null;
+  const profileComplete =
+    Boolean(finalName?.trim()) &&
+    Boolean(finalCatchphrase?.trim()) &&
+    Boolean(finalAvatar?.trim());
+
+  const xpResults: XpAwardResult[] = [];
+  if (awardAvatarCustom) {
+    xpResults.push(
+      await awardXp({ profileId: profile.id, ruleKey: "AVATAR_CUSTOM" }),
+    );
+  }
+  if (awardStorefrontAvatar) {
+    xpResults.push(
+      await awardXp({ profileId: profile.id, ruleKey: "STOREFRONT_AVATAR" }),
+    );
+  }
+  if (awardStorefrontBanner) {
+    xpResults.push(
+      await awardXp({
+        profileId: profile.id,
+        ruleKey: "STOREFRONT_BANNER_UPLOAD",
+      }),
+    );
+  }
+  if (profileComplete) {
+    xpResults.push(
+      await awardXp({ profileId: profile.id, ruleKey: "PROFILE_COMPLETE" }),
+    );
+  }
+
   return NextResponse.json({
-    displayName: updated?.display_name ?? displayName ?? profile.display_name,
-    catchphrase: updated?.catchphrase ?? profile.catchphrase ?? null,
-    avatarUrl: updated?.avatar_url ?? profile.avatar_url ?? null,
+    displayName: finalName,
+    catchphrase: finalCatchphrase,
+    avatarUrl: finalAvatar,
     storefrontAvatarUrl:
       updated?.storefront_avatar_url ?? profile.storefront_avatar_url ?? null,
     storefrontBannerUrl:
       updated?.storefront_banner_url ?? profile.storefront_banner_url ?? null,
+    xpAwards: pickXpToastPayload(xpResults),
   });
 }

@@ -7,6 +7,7 @@ import {
 } from "@/lib/supabase/queries";
 import { uploadStorefrontHeroImage } from "@/lib/storage";
 import { validateStoreSlug } from "@/lib/slug-utils";
+import { awardXp, pickXpToastPayload } from "@/lib/xp/award";
 
 export const dynamic = "force-dynamic";
 
@@ -136,5 +137,17 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Could not save settings" }, { status: 500 });
   }
 
-  return NextResponse.json({ profile: updated });
+  // STOREFRONT_CREATED — first successful save to /api/storefront/settings
+  // is our heuristic for "they configured their shop". One-shot via the
+  // unique index on (profile_id, rule_key), so re-saves are no-ops.
+  const created = await awardXp({
+    profileId: profile.id,
+    ruleKey: "STOREFRONT_CREATED",
+    metadata: { fields: Object.keys(patch) },
+  });
+
+  return NextResponse.json({
+    profile: updated,
+    xpAwards: pickXpToastPayload([created]),
+  });
 }

@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { siteUrl } from "@/lib/site";
 import type { ProfileRow } from "@/lib/supabase/queries";
 import { sanitizeSlugInput, MAX_STORE_SLUG_LEN } from "@/lib/slug-utils";
+import { showXpToasts } from "@/components/xp/show-xp-toasts";
 
 type Props = {
   initial: ProfileRow;
@@ -56,6 +57,7 @@ export function StorefrontSettingsForm({ initial, shopPath }: Props) {
       if (j.profile?.storefront_hero_image_url !== undefined) {
         setHeroPreview((j.profile.storefront_hero_image_url as string | null) ?? null);
       }
+      if (Array.isArray(j.xpAwards)) showXpToasts(j.xpAwards);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {

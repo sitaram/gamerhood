@@ -2,10 +2,12 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import { Star, Award } from "lucide-react";
+import { Award } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { ProductCard } from "@/components/storefront/product-card";
 import { CreatorStorefrontHero } from "@/components/storefront/creator-storefront-hero";
+import { TierBadge } from "@/components/xp/tier-badge";
+import { TierProgress } from "@/components/xp/tier-progress";
 import { createClient } from "@/lib/supabase/server";
 import { getProfileBySlug, getPublishedProductsByProfile } from "@/lib/supabase/queries";
 import { siteUrl } from "@/lib/site";
@@ -102,10 +104,12 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
     ? allProducts.filter((p) => productMatchesStorefrontBrowse(p, categoryNorm))
     : allProducts;
 
-  const level: number = profile.level ?? 1;
+  // `profile.level` (the legacy numeric column) is still kept in sync by
+  // the `award_xp_event` RPC for back-compat, but the storefront renders
+  // the tier purely from `xp` via `<TierBadge>` / `<TierProgress>`.
+  // No "Level N" / star count anywhere — feedback was that numeric ranks
+  // feel demoralizing to kids; named tiers feel like a journey instead.
   const xp: number = profile.xp ?? 0;
-  const xpToNext = (level + 1) * 500;
-  const xpProgress = Math.min(100, Math.round((xp / xpToNext) * 100));
 
   const avatarUrl = getStorefrontAvatar({
     id: profile.id,
@@ -243,18 +247,8 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
               </p>
             )}
 
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-4 sm:justify-start">
-              <div
-                className={`flex items-center gap-1.5 text-sm ${
-                  bannerUrl ? "text-white drop-shadow" : ""
-                }`}
-              >
-                <Star className="h-4 w-4 text-neon-orange fill-neon-orange" />
-                <span className="font-semibold">Level {level}</span>
-                <span className={bannerUrl ? "text-white/80" : "text-muted-foreground"}>
-                  ({xp} XP)
-                </span>
-              </div>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3 sm:justify-start">
+              <TierBadge xp={xp} size="md" showXp />
               <Separator
                 orientation="vertical"
                 className={`h-4 ${bannerUrl ? "bg-white/40" : ""}`}
@@ -269,24 +263,7 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
             </div>
 
             <div className="mt-4 max-w-xs">
-              <div
-                className={`mb-1 flex items-center justify-between text-xs ${
-                  bannerUrl ? "text-white/80 drop-shadow" : "text-muted-foreground"
-                }`}
-              >
-                <span>Level {level}</span>
-                <span>Level {level + 1}</span>
-              </div>
-              <div
-                className={`h-2 overflow-hidden rounded-full ${
-                  bannerUrl ? "bg-white/20" : "bg-secondary"
-                }`}
-              >
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all"
-                  style={{ width: `${xpProgress}%` }}
-                />
-              </div>
+              <TierProgress xp={xp} />
             </div>
           </div>
         </div>

@@ -43,6 +43,9 @@ import {
 } from "@/components/ui/dialog";
 import { DEFAULT_STORED } from "@/lib/print/placement";
 import type { StoredPrintPlacement } from "@/lib/print/placement";
+import { XpBadge } from "@/components/xp/xp-badge";
+import { showXpToasts } from "@/components/xp/show-xp-toasts";
+import { XP_RULES } from "@/lib/xp/rules";
 
 const STYLES: { value: DesignStyle; label: string; emoji: string }[] = [
   { value: "anime", label: "Anime", emoji: "⚔️" },
@@ -441,6 +444,11 @@ function CreatePageInner() {
               : "Head to your dashboard to manage them.",
         },
       );
+      if (Array.isArray((data as { xpAwards?: unknown }).xpAwards)) {
+        showXpToasts(
+          (data as { xpAwards: Parameters<typeof showXpToasts>[0] }).xpAwards,
+        );
+      }
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to publish");
@@ -847,9 +855,15 @@ function CreatePageInner() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="create-listing-description" className="text-sm font-medium text-foreground">
-                      Description{' '}
-                      <span className="font-normal text-muted-foreground">(multi-line)</span>
+                    <Label
+                      htmlFor="create-listing-description"
+                      className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground"
+                    >
+                      <span>
+                        Add a description{' '}
+                        <span className="font-normal text-muted-foreground">(multi-line, 20+ chars)</span>
+                      </span>
+                      <XpBadge points={XP_RULES.PRODUCT_DESCRIPTION.points} variant="inline" />
                     </Label>
                     <Textarea
                       id="create-listing-description"
@@ -867,9 +881,15 @@ function CreatePageInner() {
 
                   <div className="grid gap-5 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="create-product-tags" className="text-sm font-medium text-foreground">
-                        Tags{' '}
-                        <span className="font-normal text-muted-foreground">(single line)</span>
+                      <Label
+                        htmlFor="create-product-tags"
+                        className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground"
+                      >
+                        <span>
+                          Add at least 3 tags{' '}
+                          <span className="font-normal text-muted-foreground">(single line)</span>
+                        </span>
+                        <XpBadge points={XP_RULES.PRODUCT_TAGS.points} variant="inline" />
                       </Label>
                       <Input
                         id="create-product-tags"
@@ -932,27 +952,33 @@ function CreatePageInner() {
                   </div>
                 </>
               ) : (
-                <div className="flex justify-center gap-4">
+                <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
                   <Button variant="outline" onClick={() => setStep("placement")} className="gap-2">
                     Back to print layout
                   </Button>
-                  <Button
-                    disabled={selectedProducts.size === 0 || publishing}
-                    onClick={handlePublish}
-                    className="gap-2 bg-primary px-8 hover:bg-primary/90"
-                  >
-                    {publishing ? (
-                      <>
-                        <Wand2 className="h-4 w-4 animate-spin" />
-                        Publishing...
-                      </>
-                    ) : (
-                      <>
-                        <Upload className="h-4 w-4" />
-                        Publish to My Shop ({selectedProducts.size} items)
-                      </>
-                    )}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      disabled={selectedProducts.size === 0 || publishing}
+                      onClick={handlePublish}
+                      className="gap-2 bg-primary px-8 hover:bg-primary/90"
+                    >
+                      {publishing ? (
+                        <>
+                          <Wand2 className="h-4 w-4 animate-spin" />
+                          Publishing...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="h-4 w-4" />
+                          Publish to My Shop ({selectedProducts.size} items)
+                        </>
+                      )}
+                    </Button>
+                    <XpBadge
+                      points={XP_RULES.PRODUCT_PUBLISHED.points}
+                      variant="prominent"
+                    />
+                  </div>
                 </div>
               )}
             </motion.div>

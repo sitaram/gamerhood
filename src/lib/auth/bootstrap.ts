@@ -7,6 +7,7 @@ import {
 } from "@/lib/supabase/queries";
 import { blockedSlugLanguageReason } from "@/lib/slug-content-policy";
 import { sanitizeSlugInput, MAX_STORE_SLUG_LEN } from "@/lib/slug-utils";
+import { awardXp } from "@/lib/xp/award";
 
 export interface BootstrapOptions {
   /** Optional consent metadata captured at signup time. */
@@ -72,7 +73,7 @@ export async function bootstrapAccount(
       ? user.user_metadata.avatar_url.trim()
       : "";
 
-  const { error: profileError } = await upsertProfile(supabase, {
+  const { data: profile, error: profileError } = await upsertProfile(supabase, {
     parent_id: parent.id,
     display_name: displayName,
     slug,
@@ -88,6 +89,18 @@ export async function bootstrapAccount(
   if (isNew && user.email) {
     await sendWelcomeEmail(user.email, displayName).catch((err) =>
       console.error("[Bootstrap] welcome email error:", err),
+    );
+  }
+
+  // SIGNUP_WELCOME — idempotent on (profile_id, "SIGNUP_WELCOME") via the
+  // unique index in 027, so safe to call on every bootstrap re-run.
+  if (profile?.id) {
+    await awardXp({
+      profileId: profile.id,
+      ruleKey: "SIGNUP_WELCOME",
+      metadata: { auth_user_id: user.id, email: user.email ?? null },
+    }).catch((err) =>
+      console.error("[Bootstrap] SIGNUP_WELCOME award failed:", err),
     );
   }
 

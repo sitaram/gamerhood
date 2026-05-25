@@ -15,6 +15,11 @@ import { parseTagsInput, normalizeProductCategoryInput } from "@/lib/slug-utils"
 import { parseStoredPlacement } from "@/lib/print/placement";
 import { refreshPrintfulListingMockupForProduct } from "@/lib/printful/mockups";
 import { productHasOrderHistory } from "@/lib/delete-guards";
+import { awardXp, pickXpToastPayload, type XpAwardResult } from "@/lib/xp/award";
+import {
+  PRODUCT_DESCRIPTION_MIN_CHARS,
+  PRODUCT_TAGS_MIN_COUNT,
+} from "@/lib/xp/rules";
 
 export const dynamic = "force-dynamic";
 

@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
-import { Star } from "lucide-react";
+import { TierBadge } from "@/components/xp/tier-badge";
 
 export interface SpotlightCreator {
   id: string;
@@ -12,7 +12,8 @@ export interface SpotlightCreator {
   slug: string;
   avatarUrl: string;
   bio: string;
-  level: number;
+  /** Total XP — drives the named tier rendered next to the creator. */
+  xp: number;
 }
 
 export function CreatorSpotlight({ creators }: { creators: SpotlightCreator[] }) {
@@ -56,9 +57,8 @@ export function CreatorSpotlight({ creators }: { creators: SpotlightCreator[] })
                   <h3 className="mt-4 text-lg font-semibold group-hover:text-primary transition-colors">
                     {creator.displayName}
                   </h3>
-                  <div className="mt-1 flex items-center justify-center gap-1 text-sm text-muted-foreground">
-                    <Star className="h-3.5 w-3.5 text-neon-orange fill-neon-orange" />
-                    Level {creator.level}
+                  <div className="mt-1 flex items-center justify-center">
+                    <TierBadge xp={creator.xp} size="sm" />
                   </div>
                   {creator.bio && (
                     <p className="mt-3 text-sm text-muted-foreground line-clamp-2">{creator.bio}</p>

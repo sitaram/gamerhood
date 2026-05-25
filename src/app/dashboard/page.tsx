@@ -11,8 +11,11 @@ import {
 } from "@/lib/supabase/queries";
 import { StripeConnectCard } from "@/components/dashboard/stripe-connect-card";
 import { DashboardDesignsGrid } from "@/components/dashboard/dashboard-designs-grid";
+import { XpRewardsPanel } from "@/components/dashboard/xp-rewards-panel";
+import { TierBadge } from "@/components/xp/tier-badge";
 import { toDashboardDesignCard } from "@/lib/design-image-url";
 import { getDisplayAvatar, profileInitials } from "@/lib/profile-avatar";
+import { getEarnedOneShotRuleKeys } from "@/lib/xp/award";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +47,11 @@ export default async function DashboardPage() {
 
   const designList = (designs ?? []).map(toDashboardDesignCard);
 
+  const xp = profile?.xp ?? 0;
+  const earnedXpRuleKeys = profile?.id
+    ? await getEarnedOneShotRuleKeys(profile.id)
+    : new Set<never>();
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
       <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
@@ -61,6 +69,11 @@ export default async function DashboardPage() {
             </h1>
             {catchphrase && (
               <p className="mt-1 text-sm font-medium text-primary">{catchphrase}</p>
+            )}
+            {profile && (
+              <div className="mt-2">
+                <TierBadge xp={xp} size="md" showXp />
+              </div>
             )}
           </div>
         </div>
@@ -99,6 +112,12 @@ export default async function DashboardPage() {
       <div className="mt-8">
         <StripeConnectCard />
       </div>
+
+      {profile && (
+        <div className="mt-8">
+          <XpRewardsPanel xp={xp} earnedKeys={earnedXpRuleKeys} />
+        </div>
+      )}
 
       <div className="mt-12">
         <div className="mb-6 flex items-center justify-between">

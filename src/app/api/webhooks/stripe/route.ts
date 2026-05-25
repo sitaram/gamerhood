@@ -18,6 +18,7 @@ import {
   updateOrderPrintfulId,
 } from "@/lib/supabase/queries";
 import type { ProductType } from "@/lib/types";
+import { awardXp } from "@/lib/xp/award";
 
 export async function POST(request: NextRequest) {
   const body = await request.text();
@@ -116,8 +117,28 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           selected_size: string | null;
           products: { title: string; mockup_url: string | null } | null;
           product_id: string;
+          profile_id: string;
         }>
       | undefined;
+
+  // FIRST_SALE — one-shot per creator profile. The unique
+  // (profile_id, "FIRST_SALE") index makes repeat sales a no-op,
+  // so we can safely call this for every line item on every order.
+  // Use a try/catch since XP must never block fulfillment.
+  if (dbItems && dbItems.length > 0) {
+    const profileIds = new Set(dbItems.map((i) => i.profile_id).filter(Boolean));
+    for (const profileId of profileIds) {
+      try {
+        await awardXp({
+          profileId,
+          ruleKey: "FIRST_SALE",
+          metadata: { stripe_session_id: session.id },
+        });
+      } catch (xpErr) {
+        console.warn("[Stripe Webhook] FIRST_SALE award failed:", xpErr);
+      }
+    }
+  }
 
   // ── Submit to Printful.
   //

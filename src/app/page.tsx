@@ -24,7 +24,7 @@ export default async function Home() {
     slug: p.slug,
     avatarUrl: getDisplayAvatar({ id: p.id, avatar_url: p.avatar_url }),
     bio: p.bio ?? "",
-    level: p.level ?? 1,
+    xp: p.xp ?? 0,
   }));
 
   return (

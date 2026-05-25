@@ -12,6 +12,9 @@ import {
   Loader2,
   RotateCw,
 } from "lucide-react";
+import { XpBadge } from "@/components/xp/xp-badge";
+import { showXpToasts } from "@/components/xp/show-xp-toasts";
+import { XP_RULES } from "@/lib/xp/rules";
 
 interface ConnectStatus {
   connected: boolean;
@@ -67,6 +70,10 @@ export function StripeConnectCard() {
           accountId:
             typeof data?.accountId === "string" ? data.accountId : undefined,
         });
+        // The GET also flips `xpAwards` the first time we see the account
+        // become onboarded — surface the +200 XP toast on the very next
+        // dashboard load after the user finishes Stripe onboarding.
+        if (Array.isArray(data?.xpAwards)) showXpToasts(data.xpAwards);
       })
       .catch(() => {
         if (!cancelled) setStatus({ connected: false, onboarded: false });
@@ -261,10 +268,13 @@ export function StripeConnectCard() {
       <div className="flex items-start gap-3">
         <CreditCard className="mt-0.5 h-5 w-5 text-primary shrink-0" />
         <div>
-          <p className="text-sm font-medium">
-            {isResuming ? "Finish setting up payouts" : "Set up payouts"}
-          </p>
-          <p className="text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium">
+              {isResuming ? "Finish setting up payouts" : "Set up payouts"}
+            </p>
+            <XpBadge points={XP_RULES.STRIPE_CONNECTED.points} variant="inline" />
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
             {isResuming
               ? "You started onboarding but haven't finished. Continue to start receiving earnings."
               : "Connect a bank account via Stripe so we can pay you when your designs sell."}

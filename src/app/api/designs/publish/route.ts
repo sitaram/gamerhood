@@ -24,6 +24,11 @@ import {
 import { uploadDesignImage, decodeDesignDataUrl } from "@/lib/storage";
 import { moderateImageBase64 } from "@/lib/moderation";
 import { parseTagsInput, normalizeProductCategoryInput } from "@/lib/slug-utils";
+import { awardXp, pickXpToastPayload, type XpAwardResult } from "@/lib/xp/award";
+import {
+  PRODUCT_DESCRIPTION_MIN_CHARS,
+  PRODUCT_TAGS_MIN_COUNT,
+} from "@/lib/xp/rules";
 import {
   DEFAULT_STORED,
   parseStoredPlacement,
@@ -398,11 +403,81 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // ── XP awards ────────────────────────────────────────────────
+    // Done after the publish loop so we only award for rows that
+    // actually landed. Repeatable rules dedupe per product id, so
+    // re-running publish on the same product is a no-op.
+    // FIRST_PRODUCT_PUBLISHED also fires here when this is the very
+    // first product on the profile — gated by counting existing
+    // published rows BEFORE this batch.
+    const xpResults: XpAwardResult[] = [];
+    if (products.length > 0) {
+      let preBatchPublishedCount: number | null = null;
+      try {
+        const { count } = await supabase
+          .from("products")
+          .select("id", { count: "exact", head: true })
+          .eq("profile_id", profileId)
+          .eq("is_published", true);
+        // The newly-inserted rows are already in the table, so subtract
+        // this batch to know the count BEFORE we published.
+        preBatchPublishedCount = Math.max(0, (count ?? 0) - products.length);
+      } catch (e) {
+        console.warn("[Publish] product count for FIRST_PRODUCT_PUBLISHED failed:", e);
+      }
+
+      if (preBatchPublishedCount === 0) {
+        xpResults.push(
+          await awardXp({
+            profileId,
+            ruleKey: "FIRST_PRODUCT_PUBLISHED",
+            metadata: { product_ids: products.map((p) => p.id) },
+          }),
+        );
+      }
+
+      const descLongEnough =
+        (listingDesc?.length ?? 0) >= PRODUCT_DESCRIPTION_MIN_CHARS;
+      const hasEnoughTags = productTags.length >= PRODUCT_TAGS_MIN_COUNT;
+
+      for (const p of products) {
+        xpResults.push(
+          await awardXp({
+            profileId,
+            ruleKey: "PRODUCT_PUBLISHED",
+            dedupeSuffix: `product:${p.id}`,
+            metadata: { product_id: p.id, product_type: p.type },
+          }),
+        );
+        if (descLongEnough) {
+          xpResults.push(
+            await awardXp({
+              profileId,
+              ruleKey: "PRODUCT_DESCRIPTION",
+              dedupeSuffix: `product_desc:${p.id}`,
+              metadata: { product_id: p.id },
+            }),
+          );
+        }
+        if (hasEnoughTags) {
+          xpResults.push(
+            await awardXp({
+              profileId,
+              ruleKey: "PRODUCT_TAGS",
+              dedupeSuffix: `product_tags:${p.id}`,
+              metadata: { product_id: p.id, tag_count: productTags.length },
+            }),
+          );
+        }
+      }
+    }
+
     return NextResponse.json({
       designId,
       products,
       count: products.length,
       ...(publishFailures.length ? { failures: publishFailures } : {}),
+      xpAwards: pickXpToastPayload(xpResults),
     });
   } catch (err) {
     console.error("[Publish] Error:", err);

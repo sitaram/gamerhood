@@ -13,6 +13,7 @@ import {
 } from "@/lib/supabase/queries";
 import { isAdminEmail } from "@/lib/auth/admin";
 import { siteUrl } from "@/lib/site";
+import { awardXp, pickXpToastPayload } from "@/lib/xp/award";
 
 type AccountLinkType = "account_onboarding" | "account_update";
 type ConnectMode = "onboarding" | "update";
@@ -249,7 +250,8 @@ export async function GET() {
     const account = await stripe.accounts.retrieve(parent.stripe_connect_id);
     const onboarded = Boolean(account.charges_enabled && account.payouts_enabled);
 
-    if (onboarded && !parent.stripe_onboarding_complete) {
+    const wasAlreadyOnboarded = Boolean(parent.stripe_onboarding_complete);
+    if (onboarded && !wasAlreadyOnboarded) {
       const persisted = await persistParentStripeConnectId(
         supabase,
         user.id,
@@ -262,10 +264,33 @@ export async function GET() {
       }
     }
 
+    // STRIPE_CONNECTED — fire the moment the Connect account flips
+    // `charges_enabled && payouts_enabled`. Awarded against the
+    // creator's profile (not the parent), one-shot via the unique
+    // index. Wrapped in try/catch so a XP hiccup never breaks the
+    // dashboard's "are payouts on yet?" poll.
+    const xpAwards: ReturnType<typeof pickXpToastPayload> = [];
+    if (onboarded) {
+      try {
+        const { data: profile } = await getProfileByParentId(supabase, parent.id);
+        if (profile?.id) {
+          const result = await awardXp({
+            profileId: profile.id,
+            ruleKey: "STRIPE_CONNECTED",
+            metadata: { stripe_connect_id: parent.stripe_connect_id },
+          });
+          xpAwards.push(...pickXpToastPayload([result]));
+        }
+      } catch (xpErr) {
+        console.warn("[Stripe Connect] STRIPE_CONNECTED award failed:", xpErr);
+      }
+    }
+
     return NextResponse.json({
       connected: true,
       onboarded,
       accountId: parent.stripe_connect_id,
+      ...(xpAwards.length ? { xpAwards } : {}),
     });
   } catch (err) {
     console.error("[Stripe Connect] Status check error:", err);
