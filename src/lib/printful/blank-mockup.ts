@@ -197,18 +197,39 @@ function buildCenteredDummyLayer(dummyUrl: string, productType: ProductType): Pr
 }
 
 /**
- * Per-product overrides for the `options` array on the mockup-tasks
- * `products[]` payload. Some catalog SKUs reject the request without these
- * (e.g. All-Over-Print backpack requires `stitch_color`).
+ * Per-product overrides for the `product_options` array on the
+ * mockup-tasks `products[]` payload. Some catalog SKUs reject the request
+ * without these:
+ *   - All-Over-Print backpack: `stitch_color` is required (capitalized
+ *     values per Printful catalog — "Black" / "White").
+ *   - Knitwear (pet sweater): "Design data contains placements without
+ *     base color" unless `base_color` is supplied alongside knit-specific
+ *     `trim_color` / `color_reduction_mode`.
  *
  * Values here are neutral defaults intended only for rendering a blank
- * mockup — real orders re-derive them from the buyer-facing options.
+ * mockup. Real orders re-derive them from buyer-facing options.
  */
 function requiredCatalogOptionsFor(
   productType: ProductType,
-): Array<{ id: string; value: string }> | null {
+): Array<{ name: string; value: string }> | null {
   if (productType === "backpack") {
-    return [{ id: "stitch_color", value: "black" }];
+    /** Allowed values are lowercase: [white, clear, black]. */
+    return [{ name: "stitch_color", value: "black" }];
+  }
+  if (productType === "pet-sweater") {
+    /**
+     * Knitted Pet Sweater (catalog_product_id 964) only accepts
+     * `base_color` and `color_reduction_mode` per the Printful catalog —
+     * `trim_color` is documented for knitwear in general but rejected on
+     * this specific product. The `base_color` value must be one of
+     * Printful's allowed yarn hexes (e.g. `#c6b5a7` cream, `#090909`
+     * black). The variant SKU's "Custom" color (`#dedede`) is NOT in the
+     * allowed list — buyers choose a real yarn at order time.
+     */
+    return [
+      { name: "base_color", value: "#c6b5a7" },
+      { name: "color_reduction_mode", value: "pixelated" },
+    ];
   }
   return null;
 }
@@ -282,14 +303,19 @@ export async function generateFlatBlankMockup(
 
   /**
    * Some catalog SKUs require additional product options before Printful
-   * will render — e.g. All-Over-Print backpack returns
-   * "The required product option: `stitch_color` is missing." We supply
-   * neutral defaults so the blank mockup can render; per-listing orders set
-   * real values via the editor / order payload.
+   * will render. The shape mandated by the v2 mockup-tasks endpoint is
+   * `product_options: [{ name, value }]` at the product level (NOT
+   * `options: [{ id, value }]` — that shape is silently ignored).
+   *
+   *   - All-Over-Print backpack: `stitch_color` ("Black" / "White")
+   *   - Knitwear (pet sweater): `base_color`, `trim_color`,
+   *     `color_reduction_mode`
+   *
+   * Per-listing orders re-derive these from the buyer-facing options.
    */
-  const extraOptions = requiredCatalogOptionsFor(productType);
-  const products = extraOptions
-    ? [{ ...productPayload, options: extraOptions }]
+  const productOptions = requiredCatalogOptionsFor(productType);
+  const products = productOptions
+    ? [{ ...productPayload, product_options: productOptions }]
     : [productPayload];
 
   const payload = {
