@@ -7,8 +7,12 @@ import {
   resolveConnectAppOrigin,
 } from "@/lib/stripe/connect";
 import { createClient } from "@/lib/supabase/server";
-import { getParentByAuthUserId } from "@/lib/supabase/queries";
+import {
+  getParentByAuthUserId,
+  getProfileByParentId,
+} from "@/lib/supabase/queries";
 import { isAdminEmail } from "@/lib/auth/admin";
+import { siteUrl } from "@/lib/site";
 
 type AccountLinkType = "account_onboarding" | "account_update";
 type ConnectMode = "onboarding" | "update";
@@ -120,8 +124,39 @@ export async function POST(request: NextRequest) {
     if (!accountId) {
       const country = process.env.STRIPE_CONNECT_CREATOR_COUNTRY?.trim().toUpperCase();
       const connectEmail = (user.email ?? parent.email)?.trim();
+
+      // Pre-fill business profile so Stripe Express onboarding only asks the
+      // creator for identity (DOB/SSN/address) + bank + ToS, instead of 8
+      // screens of business-side data we already know.
+      const { data: profile } = await getProfileByParentId(supabase, parent.id);
+      const slug =
+        typeof profile?.slug === "string" && profile.slug.trim().length > 0
+          ? profile.slug.trim()
+          : null;
+      const siteOrigin = siteUrl();
+      const storefrontUrl = slug ? `${siteOrigin}/shop/${slug}` : siteOrigin;
+
+      const rawDisplayName =
+        (typeof profile?.display_name === "string" ? profile.display_name : "") ||
+        (typeof user.user_metadata?.full_name === "string"
+          ? user.user_metadata.full_name
+          : "");
+      const storefrontName = rawDisplayName.trim() || undefined;
+
+      const businessProfile: Stripe.AccountCreateParams.BusinessProfile = {
+        mcc: "5945",
+        product_description:
+          "Custom merchandise (apparel, prints, accessories) sold via the Gamerhood creator marketplace at gamerhood.gg",
+        support_email: "support@gamerhood.gg",
+        support_url: `${siteOrigin}/faq`,
+        url: storefrontUrl,
+        ...(storefrontName ? { name: storefrontName } : {}),
+      };
+
       const account = await stripe.accounts.create({
         type: "express",
+        business_type: "individual",
+        business_profile: businessProfile,
         ...(connectEmail ? { email: connectEmail } : {}),
         ...(country?.length === 2 ? { country } : {}),
         metadata: { gamerhood_user_id: user.id, gamerhood_parent_id: parent.id },
