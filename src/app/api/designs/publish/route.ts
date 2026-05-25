@@ -15,6 +15,7 @@ import {
   publishTypeTitle,
   MERCH_SIZED_TYPES,
 } from "@/lib/merch/product-options";
+import { getDefaultProductCostBasis } from "@/lib/pricing/product-costs";
 import {
   bytesToBase64DataUrl,
   capRasterIfHuge,
@@ -360,6 +361,12 @@ export async function POST(request: NextRequest) {
         await mockupThrottle();
       }
 
+      // Snapshot a cost basis so the post-publish price editor can show a stable
+      // floor + take-home math without an extra Printful round-trip per edit.
+      // Defaults come from product-costs.ts (per-product-type US-domestic
+      // conservative estimates); creators can re-sync from Printful later.
+      const costBasis = getDefaultProductCostBasis(productType);
+
       const { data: product, error: productErr } = await insertProduct(supabase, {
         design_id: designId,
         profile_id: profileId,
@@ -379,6 +386,8 @@ export async function POST(request: NextRequest) {
         category: productCategory,
         seo_description: listingDesc,
         print_placement: storedPlacementForRow,
+        wholesale_price_cents: costBasis.wholesaleCents,
+        shipping_estimate_cents: costBasis.shippingCents,
       });
 
       if (productErr || !product) {

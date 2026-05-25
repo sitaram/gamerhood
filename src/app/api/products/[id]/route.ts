@@ -20,6 +20,9 @@ import {
   PRODUCT_DESCRIPTION_MIN_CHARS,
   PRODUCT_TAGS_MIN_COUNT,
 } from "@/lib/xp/rules";
+import { computeBaseCost } from "@/lib/pricing/take-home";
+import { resolveCostBasis } from "@/lib/pricing/cost-basis";
+import { formatUsd } from "@/lib/pricing/format";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +52,9 @@ export async function PATCH(
 
   const { data: product, error: prodErr } = await supabase
     .from("products")
-    .select("id, profile_id")
+    .select(
+      "id, profile_id, product_type, wholesale_price_cents, shipping_estimate_cents",
+    )
     .eq("id", productId)
     .single();
 
@@ -69,6 +74,47 @@ export async function PATCH(
   }
 
   const row: Record<string, unknown> = {};
+
+  // ── Price update (post-publish editor) ──
+  // Server-side floor enforcement: the listing price must cover wholesale +
+  // shipping + the platform fee + Stripe processing — never trust the client.
+  // The floor comes from `computeBaseCost` using either the persisted cost
+  // basis or the per-product-type defaults. Runs before any XP-award call
+  // sites so a rejected price never bumps level/XP for the same request.
+  if (body.priceCents !== undefined) {
+    const price = Number(body.priceCents);
+    if (!Number.isFinite(price) || price <= 0 || !Number.isInteger(price)) {
+      return NextResponse.json(
+        { error: "priceCents must be a positive integer (cents)." },
+        { status: 400 },
+      );
+    }
+    const basis = resolveCostBasis({
+      productType: product.product_type,
+      wholesalePriceCents: product.wholesale_price_cents,
+      shippingEstimateCents: product.shipping_estimate_cents,
+    });
+    const { baseCostCents } = computeBaseCost({
+      itemWholesaleCents: basis.wholesaleCents,
+      shippingCents: basis.shippingCents,
+    });
+    if (price < baseCostCents) {
+      return NextResponse.json(
+        {
+          error: `Price must be at least ${formatUsd(baseCostCents)} to cover item, shipping, platform, and processing fees.`,
+          code: "PRICE_BELOW_FLOOR",
+          minPriceCents: baseCostCents,
+        },
+        { status: 400 },
+      );
+    }
+    // Collapse the legacy split (base + markup) into one new price. Readers
+    // throughout the codebase sum the two columns, so storing the full
+    // price on `base_price_cents` and zeroing `markup_cents` keeps every
+    // existing query correct without a column rename.
+    row.base_price_cents = price;
+    row.markup_cents = 0;
+  }
 
   if (typeof body.description === "string") {
     row.description = body.description.slice(0, 4000);

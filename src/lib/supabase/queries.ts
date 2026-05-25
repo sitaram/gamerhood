@@ -196,6 +196,10 @@ export interface ProductRow {
   print_placement?: unknown | null;
   printful_catalog_product_id?: number | null;
   printful_catalog_meta?: unknown | null;
+  /** Snapshot of the Printful wholesale cost at publish time (cents). */
+  wholesale_price_cents?: number | null;
+  /** US-domestic shipping estimate snapshot at publish time (cents). */
+  shipping_estimate_cents?: number | null;
   designs?: { image_url: string } | null;
 }
 
@@ -220,6 +224,8 @@ export async function insertProduct(
     print_placement?: import("@/lib/print/placement").StoredPrintPlacement | null;
     printful_catalog_product_id?: number | null;
     printful_catalog_meta?: PrintfulCatalogMeta | null;
+    wholesale_price_cents?: number | null;
+    shipping_estimate_cents?: number | null;
   },
 ) {
   return supabase.from("products").insert(data).select().single();

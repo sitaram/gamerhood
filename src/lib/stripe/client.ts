@@ -1,5 +1,11 @@
 import Stripe from "stripe";
 
+import {
+  PLATFORM_FEE_PERCENT,
+  STRIPE_FEE_PERCENT,
+  STRIPE_FEE_FIXED_CENTS,
+} from "@/lib/pricing/rates";
+
 let _stripe: Stripe | null = null;
 
 function readStripeSecretKey(): string {
@@ -18,9 +24,11 @@ export function getStripe(): Stripe {
   return _stripe;
 }
 
-export const PLATFORM_FEE_PERCENT = Number(
-  process.env.STRIPE_PLATFORM_FEE_PERCENT || "8",
-);
+// Re-export the rate constants so existing call sites that import from
+// `@/lib/stripe/client` keep working. New client-side code should import
+// directly from `@/lib/pricing/rates` to avoid pulling the Stripe SDK into
+// the browser bundle.
+export { PLATFORM_FEE_PERCENT, STRIPE_FEE_PERCENT, STRIPE_FEE_FIXED_CENTS };
 
 export function calculatePlatformFee(amountCents: number): number {
   return Math.round(amountCents * (PLATFORM_FEE_PERCENT / 100));

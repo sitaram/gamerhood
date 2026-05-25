@@ -1,20 +1,38 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ChevronDown, HelpCircle, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  PLATFORM_FEE_PERCENT,
+  STRIPE_FEE_PERCENT,
+  STRIPE_FEE_FIXED_CENTS,
+} from "@/lib/pricing/rates";
+import { computeTakeHome } from "@/lib/pricing/take-home";
+import { formatUsd } from "@/lib/pricing/format";
 
 interface FAQItem {
   question: string;
-  answer: string;
+  /** Plain string OR a React node when we want a worked example, list, etc. */
+  answer: ReactNode;
 }
 
-const FAQ_SECTIONS: { title: string; tag: string; tagColor: string; items: FAQItem[] }[] = [
+interface FAQSection {
+  /** Optional anchor id so we can deep-link from the price editor, etc. */
+  id?: string;
+  title: string;
+  tag: string;
+  tagColor: string;
+  /** Optional lead paragraph rendered above the accordion stack. */
+  intro?: ReactNode;
+  items: FAQItem[];
+}
+
+const FAQ_SECTIONS: FAQSection[] = [
   {
     title: "Getting Started",
     tag: "Basics",
@@ -118,8 +136,19 @@ const FAQ_SECTIONS: { title: string; tag: string; tagColor: string; items: FAQIt
       },
       {
         question: "How do I set my prices?",
-        answer:
-          "Each product has a base cost (what Printful charges to produce it). You set a markup on top of that — this is your profit. For example, if a hoodie costs $28 to produce and you add a $14 markup, it sells for $42, and you earn $14 minus the platform fee.",
+        answer: (
+          <>
+            Each product has a base cost (item + shipping + the platform and
+            credit-card fees). You set a listing price above that — whatever&apos;s
+            left is your take-home. Tune prices any time from{" "}
+            <Link href="/dashboard/storefront" className="underline">
+              your storefront dashboard
+            </Link>
+            ; the editor shows the exact take-home as you type. For a deeper
+            breakdown see <a href="#pricing" className="underline">How pricing works</a>{" "}
+            and <a href="#pricing-tips" className="underline">How do I pick a good price?</a>
+          </>
+        ),
       },
       {
         question: "What about copyright? Can I make fan art?",
@@ -133,16 +162,221 @@ const FAQ_SECTIONS: { title: string; tag: string; tagColor: string; items: FAQIt
       },
     ],
   },
+  {
+    id: "returns",
+    title: "Returns",
+    tag: "Orders",
+    tagColor: "border-neon-green/30 text-neon-green",
+    intro:
+      "Every Gamerhood item is printed on demand the moment you order, so we generally can't accept returns for buyer's-remorse reasons. But we always stand behind quality.",
+    items: [
+      {
+        question: "Can I return an item just because I changed my mind?",
+        answer:
+          "Because each item is made-to-order specifically for you, we generally can't accept buyer's-remorse returns — there's no shelf to restock it to. If you're not sure about size or fit, check the size guide on the product page before ordering.",
+      },
+      {
+        question: "What if my item arrives damaged or misprinted?",
+        answer: (
+          <>
+            We&apos;ll make it right. Email{" "}
+            <a
+              className="underline"
+              href="mailto:support@gamerhood.gg?subject=Damaged%20order"
+            >
+              support@gamerhood.gg
+            </a>{" "}
+            within 30 days of delivery with your order number and clear photos of the
+            issue. Damage in transit or a manufacturer (Printful) misprint gets a
+            free reprint or full refund — your call. This is our 30-day satisfaction
+            guarantee.
+          </>
+        ),
+      },
+      {
+        question: "What if I never received my order?",
+        answer:
+          "Reach out to support with your order number. We'll check tracking, file a claim with the carrier if needed, and reprint or refund. Don't wait — let us know as soon as the delivery date passes without the package showing up.",
+      },
+    ],
+  },
+  {
+    id: "exchanges",
+    title: "Exchanges",
+    tag: "Orders",
+    tagColor: "border-neon-green/30 text-neon-green",
+    intro:
+      "Same made-to-order constraint as returns — we don't keep inventory to swap from. But we're flexible and want you in a piece you love.",
+    items: [
+      {
+        question: "Can I exchange for a different size or color?",
+        answer: (
+          <>
+            We generally can&apos;t do straight size or color swaps, because the
+            original item was printed just for you. That said — email{" "}
+            <a
+              className="underline"
+              href="mailto:support@gamerhood.gg?subject=Exchange%20request"
+            >
+              support@gamerhood.gg
+            </a>{" "}
+            with your order number and we&apos;ll work it out case-by-case, especially
+            if the size chart was misleading or our description was off.
+          </>
+        ),
+      },
+      {
+        question: "How do I avoid needing an exchange?",
+        answer:
+          "Check the size chart on the product page — every garment has Printful's exact measurements per size. If you're between sizes on a hoodie, size up; on a tee, your usual size is usually right.",
+      },
+    ],
+  },
+  {
+    id: "pricing",
+    title: "How pricing works",
+    tag: "Money",
+    tagColor: "border-neon-cyan/30 text-neon-cyan",
+    intro:
+      "Every sale on Gamerhood is split between four buckets. Here's exactly what comes out of each listing price — and what's left for the creator.",
+    items: [
+      {
+        question: "Who sets the price on a listing?",
+        answer:
+          "The creator does. From the storefront dashboard you can edit the listing price any time. We show the take-home live as you type and refuse to let you save a price below the floor (the price where you'd lose money on the sale).",
+      },
+      {
+        question: "What gets subtracted from each sale?",
+        answer: (
+          <>
+            <p>From each sale we subtract, in order:</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              <li>
+                <strong>Item base cost</strong> — what the manufacturer (Printful)
+                charges us to print + ship the item to the buyer.
+              </li>
+              <li>
+                <strong>Credit-card processing</strong> — Stripe&apos;s standard rate
+                of {STRIPE_FEE_PERCENT}% + {formatUsd(STRIPE_FEE_FIXED_CENTS)} per
+                charge.
+              </li>
+              <li>
+                <strong>Gamerhood platform fee</strong> — {PLATFORM_FEE_PERCENT}% of
+                the listing price. That&apos;s about half of what Etsy charges once
+                you add up their transaction, payment-processing, and listing fees.
+              </li>
+            </ul>
+            <p className="mt-2">Whatever&apos;s left is the creator&apos;s take-home.</p>
+          </>
+        ),
+      },
+      {
+        question: "Can you show me an example?",
+        answer: <PricingWorkedExample />,
+      },
+      {
+        question: "Is shipping calculated for everyone?",
+        answer:
+          "The shipping number in your base cost is an estimate for US domestic standard shipping. International orders cost a bit more to ship and may slightly reduce your take-home on those specific sales.",
+      },
+      {
+        question: "How and when do I get paid?",
+        answer:
+          "Payouts go to your parent-managed Stripe Connect account on Stripe's standard schedule (typically every 2–7 days). Connect your account from the dashboard — until then, sales still happen but the payout queues up.",
+      },
+    ],
+  },
+  {
+    id: "pricing-tips",
+    title: "How do I pick a good price?",
+    tag: "Money",
+    tagColor: "border-neon-cyan/30 text-neon-cyan",
+    intro:
+      "This is the real-world entrepreneurship part. Pricing isn't math you do once — it's an experiment you keep running.",
+    items: [
+      {
+        question: "Why do some people pay more for the same thing?",
+        answer: (
+          <>
+            <p>
+              Two T-shirts can cost the same to make, but one might sell for $20 and
+              another for $60. What&apos;s the difference? <em>Value</em> — and
+              value isn&apos;t just about cost. It&apos;s about how much someone
+              wants the thing you made.
+            </p>
+            <p className="mt-2">Things that make people willing to pay more:</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              <li>
+                <strong>A design they can&apos;t get anywhere else.</strong> Limited
+                editions, your own art style, jokes only your community gets.
+              </li>
+              <li>
+                <strong>Quality and care.</strong> A clean, well-thought-out design
+                beats a rushed one every time.
+              </li>
+              <li>
+                <strong>Belonging.</strong> Wearing your merch makes someone feel
+                part of a group — your fans, your team, your inside joke.
+              </li>
+              <li>
+                <strong>Scarcity.</strong> &quot;Only 50 made&quot; is a real reason
+                people will pay more — but only if it&apos;s true.
+              </li>
+              <li>
+                <strong>Story.</strong> Why did you make this? What does it mean?
+                People buy designs that mean something to them.
+              </li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        question: "Can a price be too high?",
+        answer:
+          "Yes. If you list your T-shirt for $1,000 because you love it, you probably won't find a buyer — even if it's amazing. Pricing is a deal between you and the buyer. You both have to feel like it's fair.",
+      },
+      {
+        question: "Where should I start?",
+        answer: (
+          <>
+            <p>A good starting place:</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
+              <li>
+                Look at what other creators selling similar things charge (Etsy,
+                Redbubble, even big brands — you can browse them in seconds).
+              </li>
+              <li>
+                Aim for a take-home you&apos;d be excited to earn per sale, but stay
+                close to what real buyers expect to pay.
+              </li>
+              <li>
+                Start a little higher than the minimum. You can always lower the
+                price if it isn&apos;t selling.
+              </li>
+            </ul>
+          </>
+        ),
+      },
+      {
+        question: "What if nobody buys at my price?",
+        answer:
+          "That's information, not a verdict. Real entrepreneurs don't guess once and stop. Try a price for a week. If no one buys, lower it $2. If lots of people buy, try raising it $2. That's how every store on Earth figures out pricing — including the big ones.",
+      },
+    ],
+  },
 ];
 
-function FAQAccordion({ item }: { item: FAQItem }) {
-  const [open, setOpen] = useState(false);
+function FAQAccordion({
+  item,
+  defaultOpen = false,
+}: {
+  item: FAQItem;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <button
-      onClick={() => setOpen(!open)}
-      className="w-full text-left"
-    >
+    <button onClick={() => setOpen(!open)} className="w-full text-left">
       <div
         className={cn(
           "rounded-xl border bg-card p-5 transition-all",
@@ -159,16 +393,66 @@ function FAQAccordion({ item }: { item: FAQItem }) {
           />
         </div>
         {open && (
-          <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
-            {item.answer}
-          </p>
+          <div className="mt-3 text-sm text-muted-foreground leading-relaxed [&_strong]:text-foreground">
+            {typeof item.answer === "string" ? <p>{item.answer}</p> : item.answer}
+          </div>
         )}
       </div>
     </button>
   );
 }
 
+/**
+ * Worked pricing example used in the `#pricing` section. Numbers run through
+ * `computeTakeHome` so the example never drifts from the live math — change
+ * the platform fee in one place and this paragraph updates with it.
+ */
+function PricingWorkedExample() {
+  const priceCents = 2500;
+  const itemCents = 900;
+  const shippingCents = 400;
+  const { takeHomeCents, breakdown } = computeTakeHome({
+    priceCents,
+    itemWholesaleCents: itemCents,
+    shippingCents,
+  });
+  return (
+    <p>
+      Say you list a hoodie for <strong>{formatUsd(priceCents)}</strong>. We subtract{" "}
+      {formatUsd(breakdown.itemCents)} item cost,{" "}
+      {formatUsd(breakdown.shippingCents)} shipping,{" "}
+      {formatUsd(breakdown.platformCents)} platform fee, and{" "}
+      {formatUsd(breakdown.processingCents)} credit-card processing. You take home{" "}
+      <strong className="text-emerald-500">{formatUsd(takeHomeCents)}</strong>.
+    </p>
+  );
+}
+
+/**
+ * Track the URL hash so the targeted FAQ section can be auto-expanded and
+ * highlighted. Reads happen client-side only to avoid hydration mismatches.
+ */
+function useHashTarget(): string {
+  const [hash, setHash] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const apply = () => setHash(window.location.hash.slice(1));
+    apply();
+    window.addEventListener("hashchange", apply);
+    return () => window.removeEventListener("hashchange", apply);
+  }, []);
+  useEffect(() => {
+    if (!hash) return;
+    requestAnimationFrame(() => {
+      const el = document.getElementById(hash);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [hash]);
+  return hash;
+}
+
 export default function FAQPage() {
+  const hashId = useHashTarget();
   return (
     <div className="mx-auto max-w-3xl px-4 py-16 sm:px-6 lg:px-8">
       <div className="text-center">
@@ -184,21 +468,40 @@ export default function FAQPage() {
       </div>
 
       <div className="mt-12 space-y-12">
-        {FAQ_SECTIONS.map((section) => (
-          <section key={section.title}>
-            <div className="flex items-center gap-3 mb-4">
-              <h2 className="text-xl font-bold">{section.title}</h2>
-              <Badge variant="outline" className={section.tagColor}>
-                {section.tag}
-              </Badge>
-            </div>
-            <div className="space-y-3">
-              {section.items.map((item) => (
-                <FAQAccordion key={item.question} item={item} />
-              ))}
-            </div>
-          </section>
-        ))}
+        {FAQ_SECTIONS.map((section) => {
+          const targetMatches = Boolean(section.id && section.id === hashId);
+          return (
+            <section
+              key={section.title}
+              id={section.id}
+              className={cn(
+                "scroll-mt-24",
+                targetMatches && "rounded-2xl ring-1 ring-primary/20",
+              )}
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-xl font-bold">{section.title}</h2>
+                <Badge variant="outline" className={section.tagColor}>
+                  {section.tag}
+                </Badge>
+              </div>
+              {section.intro && (
+                <p className="mb-4 text-sm text-muted-foreground leading-relaxed">
+                  {section.intro}
+                </p>
+              )}
+              <div className="space-y-3">
+                {section.items.map((item, i) => (
+                  <FAQAccordion
+                    key={item.question}
+                    item={item}
+                    defaultOpen={targetMatches && i === 0}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
 
       <Separator className="my-12 bg-border/50" />
