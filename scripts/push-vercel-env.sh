@@ -11,13 +11,13 @@ if [[ ! -f .env.local ]]; then
 fi
 
 if ! command -v vercel >/dev/null 2>&1; then
-  echo "Installing Vercel CLI via pnpm dlx…" >&2
+  echo "Using Vercel CLI via pnpm dlx…" >&2
   VERCEL_BIN="pnpm dlx vercel"
 else
   VERCEL_BIN="vercel"
 fi
 
-if [[ ! -f .vercel/project.json ]]; then
+if [[ ! -f .vercel/project.json && ! -f .vercel/repo.json ]]; then
   echo "Link this repo first: $VERCEL_BIN link" >&2
   exit 1
 fi
@@ -28,16 +28,48 @@ source .env.local
 set +a
 
 VARS=(
+  # Stripe
   STRIPE_SECRET_KEY
   STRIPE_WEBHOOK_SECRET
+  STRIPE_PLATFORM_FEE_PERCENT
+  # Supabase (public + service role)
   NEXT_PUBLIC_SUPABASE_URL
   NEXT_PUBLIC_SUPABASE_ANON_KEY
   SUPABASE_SERVICE_ROLE_KEY
+  # Admin allow-list
   ADMIN_EMAILS
-  STRIPE_PLATFORM_FEE_PERCENT
+  # Resend (transactional email)
+  RESEND_API_KEY
+  RESEND_FROM_EMAIL
+  # Printful (merch)
+  PRINTFUL_API_TOKEN
+  PRINTFUL_TSHIRT_VARIANT_ID
+  PRINTFUL_HOODIE_VARIANT_ID
+  PRINTFUL_JOGGERS_VARIANT_ID
+  PRINTFUL_MUG_VARIANT_ID
+  PRINTFUL_POSTER_VARIANT_ID
+  PRINTFUL_STICKER_VARIANT_ID
+  PRINTFUL_BACKPACK_VARIANT_ID
+  PRINTFUL_PHONE_CASE_VARIANT_ID
+  # Discovered 2026-05-24 — Black/M (or sensible default) for each blank.
+  PRINTFUL_KIDS_HOODIE_VARIANT_ID
+  PRINTFUL_KIDS_TSHIRT_VARIANT_ID
+  PRINTFUL_KIDS_LONG_SLEEVE_VARIANT_ID
+  PRINTFUL_KIDS_HEAVYWEIGHT_TEE_VARIANT_ID
+  PRINTFUL_KIDS_SPORTS_TEE_VARIANT_ID
+  PRINTFUL_PILLOW_VARIANT_ID
+  PRINTFUL_BLANKET_VARIANT_ID
+  PRINTFUL_PET_SWEATER_VARIANT_ID
+  PRINTFUL_TOTE_BAG_VARIANT_ID
+  PRINTFUL_ORNAMENT_VARIANT_ID
+  PRINTFUL_PUZZLE_VARIANT_ID
+  PRINTFUL_EMBROIDERED_PATCH_VARIANT_ID
+  PRINTFUL_HARDCOVER_JOURNAL_VARIANT_ID
 )
 
-ENVS=(production preview development)
+# By default only push to production. Override with TARGET_ENVS env var,
+# e.g. TARGET_ENVS="production preview development" ./scripts/push-vercel-env.sh
+ENVS=(${TARGET_ENVS:-production})
 
 for name in "${VARS[@]}"; do
   val="${!name-}"
@@ -47,10 +79,12 @@ for name in "${VARS[@]}"; do
   fi
   for env in "${ENVS[@]}"; do
     echo "Setting $name for $env…"
-    printf '%s' "$val" | $VERCEL_BIN env add "$name" "$env" --force 2>/dev/null ||       printf '%s' "$val" | $VERCEL_BIN env add "$name" "$env"
+    # --force overwrites if it already exists. Fall back to plain add if
+    # this CLI version doesn't support --force on env add.
+    printf '%s' "$val" | $VERCEL_BIN env add "$name" "$env" --force >/dev/null 2>&1 \
+      || { $VERCEL_BIN env rm "$name" "$env" --yes >/dev/null 2>&1 || true; \
+           printf '%s' "$val" | $VERCEL_BIN env add "$name" "$env" >/dev/null; }
   done
 done
 
-echo "Redeploying production…"
-$VERCEL_BIN deploy --prod --yes
-echo "Done."
+echo "Env push complete."

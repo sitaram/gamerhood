@@ -175,11 +175,15 @@ function categoryBackdropScore(cat: string): number {
  * the given variant. Used to render the placement-editor backdrop and to
  * pre-warm `printful_blank_mockups`.
  *
- * Heuristic: score every eligible style by `(category preference) +
- * (view orientation match) - (slight tie-break for restricted styles)`,
- * then take the highest. See `categoryBackdropScore` and
- * `viewOrientationScore` for the rules. Returns null only if Printful
- * returned no styles for the placement.
+ * Heuristic: flatten every group whose placement matches (Printful returns
+ * one group per shape-variant on multi-shape SKUs like Metal Ornament; each
+ * group's styles are `restricted_to_variants` to a single variant), filter
+ * to styles eligible for THIS variant, then score by `(category preference)
+ * + (view orientation match)`. Falling back to a single group caused
+ * Printful 400s like "style_ids: X are not available for catalog variant Y"
+ * because the first group's styles were restricted to a sibling variant.
+ *
+ * Returns null only if no eligible style exists across any matching group.
  */
 export function pickFlatMockupStyleForVariant(
   groups: CatalogMockupStyleGroup[],
@@ -187,67 +191,86 @@ export function pickFlatMockupStyleForVariant(
   technique: string,
   variantId: number,
 ): { styleId: number; printAreaType: string } | null {
-  const matchPlacementTech = groups.find(
-    (g) => g.placement === placement && g.technique === technique,
-  );
-  const matchPlacement = groups.find((g) => g.placement === placement);
-  const group = matchPlacementTech ?? matchPlacement ?? groups[0];
+  const candidateGroups = collectGroupsForPlacement(groups, placement, technique);
+  if (!candidateGroups.length) return null;
 
-  const styles = group?.mockup_styles;
-  if (!group || !styles?.length) return null;
-
-  const printAreaType =
-    typeof group.print_area_type === "string" && group.print_area_type.trim()
-      ? group.print_area_type
-      : "simple";
-
-  const eligible = styles.filter(
-    (s) => !s.restricted_to_variants?.length || s.restricted_to_variants.includes(variantId),
-  );
-  const pool = eligible.length ? eligible : styles;
-
-  const scored = pool.map((s) => {
-    const cat = styleCategory(s);
-    const view = styleView(s);
-    const catScore = categoryBackdropScore(cat);
-    const viewScore = viewOrientationScore(placement, view);
-    // Mild tie-break: prefer unrestricted styles (work for every variant size/color).
-    const restrictionPenalty = s.restricted_to_variants?.length ? -1 : 0;
-    return { style: s, score: catScore + viewScore + restrictionPenalty };
-  });
+  type Scored = {
+    style: CatalogMockupStyle;
+    printAreaType: string;
+    score: number;
+  };
+  const scored: Scored[] = [];
+  for (const g of candidateGroups) {
+    const printAreaType = pickPrintAreaType(g);
+    for (const s of g.mockup_styles ?? []) {
+      if (!isStyleEligibleForVariant(s, variantId)) continue;
+      const cat = styleCategory(s);
+      const view = styleView(s);
+      const catScore = categoryBackdropScore(cat);
+      const viewScore = viewOrientationScore(placement, view);
+      scored.push({ style: s, printAreaType, score: catScore + viewScore });
+    }
+  }
+  if (!scored.length) return null;
   scored.sort((a, b) => b.score - a.score);
-  const pick = scored[0]?.style;
-  return pick ? { styleId: pick.id, printAreaType } : null;
+  const top = scored[0];
+  return { styleId: top.style.id, printAreaType: top.printAreaType };
 }
 
-/** Pick a mockup style id + print_area_type for this variant (respects Printful restrictions). */
+/**
+ * Return every group whose placement matches; prefer matching technique but
+ * fall back to placement-only when none match (some apparel SKUs list a
+ * shared placement under multiple techniques and only one group has real
+ * mockup styles).
+ */
+function collectGroupsForPlacement(
+  groups: CatalogMockupStyleGroup[],
+  placement: string,
+  technique: string,
+): CatalogMockupStyleGroup[] {
+  const placementMatches = groups.filter((g) => g.placement === placement);
+  if (!placementMatches.length) return [];
+  const techMatches = placementMatches.filter((g) => g.technique === technique);
+  return techMatches.length ? techMatches : placementMatches;
+}
+
+function pickPrintAreaType(group: CatalogMockupStyleGroup): string {
+  return typeof group.print_area_type === "string" && group.print_area_type.trim()
+    ? group.print_area_type
+    : "simple";
+}
+
+function isStyleEligibleForVariant(style: CatalogMockupStyle, variantId: number): boolean {
+  const r = style.restricted_to_variants;
+  return !r?.length || r.includes(variantId);
+}
+
+/**
+ * Pick a mockup style id + print_area_type for this variant (respects
+ * Printful restrictions across all matching groups, not just the first).
+ * See `pickFlatMockupStyleForVariant` for why we flatten groups.
+ */
 export function pickMockupStyleForVariant(
   groups: CatalogMockupStyleGroup[],
   placement: string,
   technique: string,
   variantId: number,
 ): { styleId: number; printAreaType: string } | null {
-  const matchPlacementTech = groups.find(
-    (g) => g.placement === placement && g.technique === technique,
-  );
-  const matchPlacement = groups.find((g) => g.placement === placement);
-  const group = matchPlacementTech ?? matchPlacement ?? groups[0];
+  const candidateGroups = collectGroupsForPlacement(groups, placement, technique);
+  if (!candidateGroups.length) return null;
 
-  const styles = group?.mockup_styles;
-  if (!group || !styles?.length) return null;
-
-  const printAreaType =
-    typeof group.print_area_type === "string" && group.print_area_type.trim()
-      ? group.print_area_type
-      : "simple";
-
-  const unrestricted = styles.filter((s) => !s.restricted_to_variants?.length);
-  const restrictedOk = styles.filter(
-    (s) => s.restricted_to_variants?.includes(variantId),
-  );
-  const ordered = unrestricted.length ? unrestricted : restrictedOk;
-  const pick = ordered[0] ?? styles[0];
-  return pick ? { styleId: pick.id, printAreaType } : null;
+  for (const g of candidateGroups) {
+    const printAreaType = pickPrintAreaType(g);
+    const styles = g.mockup_styles ?? [];
+    // Prefer variant-restricted styles (those are Printful's "official"
+    // mockup for this exact SKU). Unrestricted styles work everywhere but
+    // are usually generic.
+    const restrictedOk = styles.find((s) => s.restricted_to_variants?.includes(variantId));
+    if (restrictedOk) return { styleId: restrictedOk.id, printAreaType };
+    const unrestricted = styles.find((s) => !s.restricted_to_variants?.length);
+    if (unrestricted) return { styleId: unrestricted.id, printAreaType };
+  }
+  return null;
 }
 
 function extractMockupUrl(task: MockupTaskRow): string | null {

@@ -14,12 +14,19 @@
  *   2. Pick a Flat (or Ghost mannequin) style from `/v2/catalog-products/{id}/mockup-styles`.
  *   3. Submit a `/v2/mockup-tasks` job with that style + the dummy layer
  *      sized to the full print area (so the layer is "centered" but invisible).
- *   4. Poll until the task completes and persist the URL in
+ *   4. Poll until the task completes, then re-host the rendered JPEG into our
+ *      own `design-images` bucket and persist that durable URL in
  *      `printful_blank_mockups` keyed by ProductType.
  *
- * Subsequent calls hit the DB cache (process-warm cache wraps that). Mockup
- * URLs Printful returns live on their CDN and don't expire; we just refresh
- * if the user runs the `scripts/printful-refresh-blanks.mjs` helper.
+ * Why we re-host: Printful's mockup-tasks API returns URLs under
+ * `printful-upload.s3-accelerate.amazonaws.com/tmp/…`. Despite earlier
+ * assumptions to the contrary, those `/tmp/` objects expire (S3 returns 403
+ * within ~days), which silently bricks the placement editor backdrop. By
+ * copying the bytes into our own public bucket we get a permanent URL and
+ * decouple the editor from Printful's CDN garbage-collection schedule.
+ *
+ * Subsequent calls hit the DB cache (process-warm cache wraps that). To
+ * regenerate, run `scripts/printful-refresh-blanks.mjs --force`.
  */
 
 import { getServiceClient } from "@/lib/supabase/admin";
@@ -40,6 +47,8 @@ import type { ProductType } from "@/lib/types";
 
 const BUCKET = "design-images";
 const DUMMY_PATH = "_system/blank-print-layer.png";
+/** Re-hosted flat blank mockups live alongside the dummy layer. */
+const REHOST_PREFIX = "_system/blank-mockups";
 
 /** Smallest possible transparent PNG (1×1, 67 bytes). */
 const TRANSPARENT_PNG_BASE64 =
@@ -154,6 +163,56 @@ function pickPrintAreaForPlacement(
   return { width: w, height: h };
 }
 
+/**
+ * Printful techniques that derive layer placement from the catalog template
+ * (not from a client-supplied `position`). Sending a `position` for these
+ * yields 400s like "Invalid position" or "Providing custom layer positions
+ * with Knitwear products is not possible".
+ */
+const POSITIONLESS_TECHNIQUES = new Set<string>(["embroidery", "knitting", "cut-sew"]);
+
+function positionAllowedForTechnique(technique: string): boolean {
+  return !POSITIONLESS_TECHNIQUES.has(technique.toLowerCase());
+}
+
+function buildCenteredDummyLayer(dummyUrl: string, productType: ProductType): PrintfulFileLayer {
+  const area = getPrintAreaInches(productType);
+  const Aw = area?.width ?? 12;
+  const Ah = area?.height ?? 15;
+  /** Smallest realistic 1x1 block in the centre; transparent, so position is rendered-irrelevant. */
+  const w = Math.min(1, Aw);
+  const h = Math.min(1, Ah);
+  return {
+    type: "file",
+    url: dummyUrl,
+    position: {
+      area_width: Aw,
+      area_height: Ah,
+      width: w,
+      height: h,
+      left: Math.max(0, (Aw - w) / 2),
+      top: Math.max(0, (Ah - h) / 2),
+    },
+  };
+}
+
+/**
+ * Per-product overrides for the `options` array on the mockup-tasks
+ * `products[]` payload. Some catalog SKUs reject the request without these
+ * (e.g. All-Over-Print backpack requires `stitch_color`).
+ *
+ * Values here are neutral defaults intended only for rendering a blank
+ * mockup — real orders re-derive them from the buyer-facing options.
+ */
+function requiredCatalogOptionsFor(
+  productType: ProductType,
+): Array<{ id: string; value: string }> | null {
+  if (productType === "backpack") {
+    return [{ id: "stitch_color", value: "black" }];
+  }
+  return null;
+}
+
 export interface BlankMockupResult {
   url: string;
   catalogProductId: number;
@@ -200,57 +259,116 @@ export async function generateFlatBlankMockup(
   const dummyUrl = await ensureDummyDesignUrl();
 
   /**
-   * Position the (transparent) layer as a tiny 1×1 in. block in the center of
-   * the print area. We intentionally pick the smallest realistic position so
-   * we never trip Printful's "Printfile X exceeds print area Y" validation
-   * — our hardcoded `getPrintAreaInches` defaults are *approximations* and
-   * the real per-SKU box reported by Printful is sometimes a bit smaller.
+   * Build the layer. For DTG / DTF / sublimation / digital we pass a tiny
+   * centered position so we never trip Printful's "Printfile exceeds print
+   * area" validation. For embroidery / knitwear / cut-sew Printful rejects
+   * custom positions outright ("Invalid position" / "Providing custom layer
+   * positions with Knitwear products is not possible") — those techniques
+   * derive position from the placement template, so we omit `position`.
    */
-  const area = getPrintAreaInches(productType);
-  const Aw = area?.width ?? 12;
-  const Ah = area?.height ?? 15;
-  /** Clamp the position to a safe interior box; the layer itself is transparent so position is irrelevant for the rendered photo. */
-  const dummyW = Math.min(1, Aw);
-  const dummyH = Math.min(1, Ah);
-  const layer: PrintfulFileLayer = {
-    type: "file",
-    url: dummyUrl,
-    position: {
-      area_width: Aw,
-      area_height: Ah,
-      width: dummyW,
-      height: dummyH,
-      left: Math.max(0, (Aw - dummyW) / 2),
-      top: Math.max(0, (Ah - dummyH) / 2),
-    },
-  };
+  const layer: PrintfulFileLayer = positionAllowedForTechnique(cfg.technique)
+    ? buildCenteredDummyLayer(dummyUrl, productType)
+    : { type: "file", url: dummyUrl };
+
+  const productPayload = buildCatalogMockupProductPayload({
+    catalogProductId,
+    catalogVariantIds: [cfg.catalogVariantId],
+    mockupStyleIds: [picked.styleId],
+    placement: cfg.placement,
+    technique: cfg.technique,
+    printAreaType: picked.printAreaType,
+    layer,
+  });
+
+  /**
+   * Some catalog SKUs require additional product options before Printful
+   * will render — e.g. All-Over-Print backpack returns
+   * "The required product option: `stitch_color` is missing." We supply
+   * neutral defaults so the blank mockup can render; per-listing orders set
+   * real values via the editor / order payload.
+   */
+  const extraOptions = requiredCatalogOptionsFor(productType);
+  const products = extraOptions
+    ? [{ ...productPayload, options: extraOptions }]
+    : [productPayload];
 
   const payload = {
     format: "jpg",
     mockup_width_px: 1200,
-    products: [
-      buildCatalogMockupProductPayload({
-        catalogProductId,
-        catalogVariantIds: [cfg.catalogVariantId],
-        mockupStyleIds: [picked.styleId],
-        placement: cfg.placement,
-        technique: cfg.technique,
-        printAreaType: picked.printAreaType,
-        layer,
-      }),
-    ],
+    products,
   };
 
   const taskId = await createMockupGeneratorTask(payload);
-  const url = await waitForMockupTaskMockupUrl(taskId, { timeoutMs: 60_000 });
+  const printfulUrl = await waitForMockupTaskMockupUrl(taskId, { timeoutMs: 60_000 });
+
+  /**
+   * Re-host into our own storage so the URL doesn't expire. If the rehost
+   * itself fails (e.g. transient Supabase storage issue), fall back to the
+   * raw Printful URL — the editor will still work for a while, and the next
+   * cache refresh will retry the upload.
+   */
+  const rehosted = await rehostMockupToStorage(productType, printfulUrl).catch((err) => {
+    console.warn(
+      `[Printful blank-mockup] re-host failed for ${productType}; falling back to tmp URL:`,
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  });
 
   return {
-    url,
+    url: rehosted ?? printfulUrl,
     catalogProductId,
     catalogVariantId: cfg.catalogVariantId,
     mockupStyleId: picked.styleId,
     printArea,
   };
+}
+
+/**
+ * Download `sourceUrl` from Printful's temporary S3 bucket and re-upload the
+ * JPEG into our own public `design-images` bucket at a stable path. Returns
+ * the durable Supabase public URL.
+ *
+ * Critical: Printful's mockup-tasks API returns URLs under
+ * `printful-upload.s3-accelerate.amazonaws.com/tmp/<uuid>/<filename>` and
+ * those `/tmp/` objects expire (S3 starts returning 403 within days). Storing
+ * that ephemeral URL in `printful_blank_mockups` silently bricked the
+ * placement editor backdrop in production. By copying the bytes into our own
+ * bucket the URL is stable for the lifetime of the row.
+ */
+async function rehostMockupToStorage(
+  productType: ProductType,
+  sourceUrl: string,
+): Promise<string> {
+  const res = await fetch(sourceUrl);
+  if (!res.ok) {
+    throw new Error(`download ${sourceUrl} returned ${res.status}`);
+  }
+  const arrayBuffer = await res.arrayBuffer();
+  const bytes = Buffer.from(arrayBuffer);
+  const contentType = res.headers.get("content-type") ?? "image/jpeg";
+  const ext = contentType.includes("png") ? "png" : "jpg";
+
+  const supabase = getServiceClient();
+  const path = `${REHOST_PREFIX}/${productType}.${ext}`;
+  const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, bytes, {
+    contentType,
+    upsert: true,
+  });
+  if (uploadErr) {
+    throw new Error(`upload ${path} failed: ${uploadErr.message}`);
+  }
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  if (!data?.publicUrl) {
+    throw new Error(`no public URL for ${path}`);
+  }
+  /**
+   * Cache-bust query param so CDN / next/image revalidate when a refresh
+   * replaces the same path. The bytes are content-addressed by ProductType,
+   * so a timestamp is fine here (no risk of cache pollution across types).
+   */
+  return `${data.publicUrl}?v=${Date.now()}`;
 }
 
 /**

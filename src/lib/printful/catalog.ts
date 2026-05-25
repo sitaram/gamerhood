@@ -136,7 +136,9 @@ const DEFAULTS: Record<ProductType, DefaultsRow> = {
   hoodie: { technique: "dtg", placement: "front" },
   // Youth pullover fleece — DTG on front chest (confirmed on catalog_products/533 placements).
   "kids-hoodie": { technique: "dtg", placement: "front" },
-  "kids-heavyweight-tee": { technique: "dtg", placement: "front" },
+  // Comfort Colors 9018 (catalog_product_id 1485) ships DTF + embroidery
+  // only on the Printful catalog (no DTG). Use DTF on the front panel.
+  "kids-heavyweight-tee": { technique: "dtfilm", placement: "front_dtf" },
   "kids-long-sleeve": { technique: "dtg", placement: "front" },
   "kids-tshirt": { technique: "dtg", placement: "front" },
   // Gildan 8000B youth — catalog offers DTF placements only on this SKU (front_dtf / dtfilm).
@@ -149,26 +151,32 @@ const DEFAULTS: Record<ProductType, DefaultsRow> = {
   poster: { technique: "digital", placement: "default" },
   // Kiss-cut stickers (~358) — digital; confirm `placement` / technique if you switch to die-cut or another SKU.
   sticker: { technique: "digital", placement: "default" },
-  // Custom-shaped pillow (~743) — sublimation on polyester; confirm via catalog if Printful changes blueprint.
-  pillow: { technique: "sublimation", placement: "default" },
-  // BP40 sherpa (~536) — embroidery; placement key must match catalog `embroidery_*` file id (often `embroidery_front`).
-  blanket: { technique: "embroidery", placement: "embroidery_front" },
-  // Knitted pet sweater (~964) — typically embroidered motif; confirm placement key on catalog product.
-  "pet-sweater": { technique: "embroidery", placement: "embroidery_front" },
+  // Custom-shaped pillow (~743) — Printful catalog lists `cut-sew` as the
+  // only technique (no sublimation key); placement is `default`.
+  pillow: { technique: "cut-sew", placement: "default" },
+  // BP40 sherpa (~536) — embroidery on the lower-right corner; Printful
+  // catalog exposes only `embroidery_corner_right` as the file placement.
+  blanket: { technique: "embroidery", placement: "embroidery_corner_right" },
+  // Knitted pet sweater (~964) — Printful catalog ships as `knitwear` /
+  // `knitting` with `front`/`back` placements (not embroidery).
+  "pet-sweater": { technique: "knitting", placement: "front" },
   // All-Over Print backpack: cut-sew technique, front panel is the main print
   backpack: { technique: "cut-sew", placement: "front" },
   // Snap case: sublimation onto the entire back
   "phone-case": { technique: "sublimation", placement: "default" },
   // EC8000 tote (~367) — DTG front panel is typical; confirm on catalog if you use embroidery-only variants.
   "tote-bag": { technique: "dtg", placement: "front" },
-  // Metal ornament (~901) — UV/digital-style rigid print; confirm technique key on catalog if Printful differs.
-  ornament: { technique: "digital", placement: "default" },
-  // Jigsaw (~534) — printed puzzle face; confirm via catalog if technique differs from `digital`.
+  // Metal Christmas Ornament (~901) — Printful catalog lists `sublimation`
+  // on `front` / `back` (no `default` placement).
+  ornament: { technique: "sublimation", placement: "front" },
+  // Jigsaw (~534) — `digital` on `default` placement matches the catalog.
   puzzle: { technique: "digital", placement: "default" },
-  // Gunold patches (~516) — embroidery from uploaded art; confirm placement key on catalog.
-  "embroidered-patch": { technique: "embroidery", placement: "embroidery_front" },
-  // Matte hardcover journal (~867) — wraparound cover; confirm technique on catalog (sublimation vs digital UV).
-  "hardcover-journal": { technique: "sublimation", placement: "default" },
+  // Gunold patches (~516) — Printful catalog placement key is
+  // `embroidery_patch_front` (not the generic `embroidery_front`).
+  "embroidered-patch": { technique: "embroidery", placement: "embroidery_patch_front" },
+  // Hardcover Journal Matte (~867) — Printful catalog lists `digital` on
+  // `front` (not sublimation/default).
+  "hardcover-journal": { technique: "digital", placement: "front" },
 };
 
 const ENV_KEY_BY_TYPE: Record<ProductType, string> = {
