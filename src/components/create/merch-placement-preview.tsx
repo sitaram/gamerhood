@@ -40,14 +40,22 @@ export function MerchPlacementPreview({
     placement,
   });
 
-  const artworkInner = (
+  /**
+   * Artwork box — no inline background, so transparent design pixels
+   * reveal the garment beneath (the Printful flat mockup or silhouette).
+   * Rendered twice when wrapped in a cyan-frame: dimmed for any overhang
+   * past the print area, full opacity clipped to the frame. The dimmed
+   * "ghost" matches the editor's overhang affordance.
+   */
+  const renderArtwork = (opacity: number) => (
     <div
-      className="pointer-events-none absolute overflow-hidden bg-[#26262b]"
+      className="pointer-events-none absolute"
       style={{
         width: `${(pf.width / pf.area_width) * 100}%`,
         height: `${(pf.height / pf.area_height) * 100}%`,
         left: `${(pf.left / pf.area_width) * 100}%`,
         top: `${(pf.top / pf.area_height) * 100}%`,
+        opacity,
       }}
     >
       <Image
@@ -55,7 +63,7 @@ export function MerchPlacementPreview({
         alt=""
         fill
         sizes="256px"
-        className="object-cover object-center"
+        className="object-contain object-center"
         unoptimized
         draggable={false}
       />
@@ -70,7 +78,7 @@ export function MerchPlacementPreview({
             className="relative w-[88%] overflow-hidden rounded-md border border-dashed border-primary/50 bg-muted/40 shadow-inner"
             style={{ aspectRatio: `${Aw} / ${Ah}` }}
           >
-            <div className="relative h-full w-full">{artworkInner}</div>
+            <div className="relative h-full w-full">{renderArtwork(1)}</div>
           </div>
         </div>
       ) : (
@@ -124,13 +132,18 @@ export function MerchPlacementPreview({
               }}
             >
               <div
-                className="relative max-h-full overflow-hidden rounded-sm border border-dashed border-primary/70 bg-black/20 ring-1 ring-background/60"
+                className="relative max-h-full overflow-visible rounded-sm border border-dashed border-primary/70 ring-1 ring-background/60"
                 style={{
                   aspectRatio: `${Aw} / ${Ah}`,
                   width: `${layout.printMaxWidthPct}%`,
                 }}
               >
-                <div className="relative h-full w-full">{artworkInner}</div>
+                <div className="pointer-events-none absolute inset-0">
+                  {renderArtwork(0.3)}
+                </div>
+                <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-sm">
+                  {renderArtwork(1)}
+                </div>
               </div>
             </div>
           </div>

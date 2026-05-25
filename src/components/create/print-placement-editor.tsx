@@ -12,6 +12,7 @@ import { getPrintAreaInches } from "@/lib/printful/catalog";
 import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
 import {
   normalizedPlacementToPrintful,
+  PLACEMENT_PAN_MAX,
   PLACEMENT_ZOOM_MAX,
   PLACEMENT_ZOOM_MIN,
   PLACEMENT_ZOOM_DEFAULT,
@@ -52,8 +53,15 @@ function previewGuideLine(previewType: ProductType): string {
   return "inside a silhouette that matches this product category (poster, mug, tote, pillow, puzzle, ornament, sticker, patch, journal, phone case, etc.).";
 }
 
+/**
+ * Pan is allowed to range past ±1 so creators can intentionally crop the
+ * design off the printable area (Printful clips the overhang on render).
+ * The hard limit (`PLACEMENT_PAN_MAX`) is sized so at least half of the
+ * smaller of `box` / `design` always overlaps with the print box, i.e.
+ * the design can never be dragged entirely off-frame.
+ */
 function clampPan(n: number): number {
-  return Math.min(1, Math.max(-1, n));
+  return Math.min(PLACEMENT_PAN_MAX, Math.max(-PLACEMENT_PAN_MAX, n));
 }
 
 interface Props {
@@ -169,9 +177,9 @@ export function PrintPlacementEditor({
   };
 
   /**
-   * Keyboard nudge: arrow keys move panX/panY in [-1, 1] space.
-   * Shift = ~4× larger step (coarse positioning). preventDefault so the page
-   * doesn't scroll while the editor has focus.
+   * Keyboard nudge: arrow keys move panX/panY across the full overhang range
+   * (±PLACEMENT_PAN_MAX). Shift = ~4× larger step (coarse positioning).
+   * preventDefault so the page doesn't scroll while the editor has focus.
    */
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const step = e.shiftKey ? 0.15 : 0.04;
@@ -197,18 +205,23 @@ export function PrintPlacementEditor({
   const zoomPercent = Math.round(value.zoom * 100);
 
   /**
-   * Artwork itself — no inner background tint, so transparent PNGs reveal
-   * the checkered "print area" pattern behind them (matching how Printful's
-   * editor previews a transparent design).
+   * Artwork box — positioned in the cyan-frame's coord system (left/top/
+   * width/height are pct of the print-area inches, so the design's bounding
+   * box always matches the printed result). The wrapper itself has no
+   * background, so the design's transparent pixels reveal whatever sits
+   * beneath: inside the cyan frame that's the Printful flat-mockup garment
+   * (true printed appearance); outside the frame it's the surrounding
+   * preview, dimmed to 30 % so creators can see what gets clipped off.
    */
-  const artworkInner = (
+  const renderArtwork = (opacity: number) => (
     <div
-      className="pointer-events-none absolute overflow-hidden"
+      className="pointer-events-none absolute"
       style={{
         width: `${(pf.width / pf.area_width) * 100}%`,
         height: `${(pf.height / pf.area_height) * 100}%`,
         left: `${(pf.left / pf.area_width) * 100}%`,
         top: `${(pf.top / pf.area_height) * 100}%`,
+        opacity,
       }}
     >
       <Image
@@ -222,18 +235,6 @@ export function PrintPlacementEditor({
       />
     </div>
   );
-
-  /**
-   * CSS checkerboard pattern (8 px squares) — drawn behind the artwork so
-   * the print box looks transparent the way Printful's does. Matches the
-   * "this is the printable area; design lives inside it" mental model.
-   */
-  const checkerStyle = {
-    backgroundImage:
-      "linear-gradient(45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(-45deg, rgba(255,255,255,0.08) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.08) 75%), linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.08) 75%)",
-    backgroundSize: "16px 16px",
-    backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
-  } as const;
 
   if (!imageUrl) return null;
 
@@ -308,7 +309,7 @@ export function PrintPlacementEditor({
             role="application"
             aria-label="Adjust design position on printable area — drag, or focus and use arrow keys (hold Shift for bigger steps)"
           >
-            <div className="relative h-full w-full">{artworkInner}</div>
+            <div className="relative h-full w-full">{renderArtwork(1)}</div>
           </div>
         ) : (
           <div
@@ -386,11 +387,17 @@ export function PrintPlacementEditor({
               }}
             >
               {/**
-                * Print boundary: a single dashed outline with a translucent
-                * checker behind the artwork — closely mirrors Printful's
-                * "this is the printable area" affordance. Cyan corner dots
-                * + center mid-handles render on top so the box reads as a
-                * selectable object (matches Printful's selection state).
+                * Print boundary: a dashed cyan outline marks the printable
+                * area. The artwork is rendered twice in the same position
+                * relative to the box — once dimmed (30 %) without
+                * clipping, so any overhang past the cyan frame is visible
+                * but clearly "this will be cropped"; and again at full
+                * opacity clipped to the box, showing exactly what gets
+                * printed. The frame itself has no fill so the design's
+                * transparent pixels reveal the real garment color from
+                * the Printful flat mockup underneath. Cyan corner dots +
+                * mid-edge handles render on top, matching Printful's
+                * selection-state affordance.
                 */}
               <div
                 className="relative max-h-full overflow-visible rounded-sm border border-dashed border-cyan-400/80 ring-1 ring-cyan-300/20"
@@ -399,11 +406,11 @@ export function PrintPlacementEditor({
                   width: `${layout.printMaxWidthPct}%`,
                 }}
               >
-                <div
-                  className="absolute inset-0 overflow-hidden rounded-sm"
-                  style={checkerStyle}
-                >
-                  {artworkInner}
+                <div className="pointer-events-none absolute inset-0">
+                  {renderArtwork(0.3)}
+                </div>
+                <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-sm">
+                  {renderArtwork(1)}
                 </div>
 
                 {/** Four cyan corner handles + 4 mid-edge dots, Printful-style. */}
@@ -435,7 +442,7 @@ export function PrintPlacementEditor({
             </div>
 
             <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-2 text-center text-[10px] leading-snug text-muted-foreground/90">
-              Drag or use arrow keys (Shift = bigger step) to move • Zoom out for whitespace, in to crop • Cyan frame = printable area
+              Drag or use arrow keys (Shift = bigger step) • Zoom out for whitespace, in to crop • Cyan frame = printable area • Drag partially outside the frame to intentionally crop the print
             </p>
           </div>
         )}

@@ -13,6 +13,17 @@ export interface StoredPrintPlacement {
 /** 1 = "contain" the print rectangle (artwork fits fully inside the print box). */
 export const PLACEMENT_ZOOM_MIN = 0.3;
 export const PLACEMENT_ZOOM_MAX = 2.5;
+
+/**
+ * Pan range allows intentional overhang past the print frame for "bleed"
+ * crops. `|pan| <= 1` stays inside the natural slack (artwork edge touches
+ * print-box edge at ±1, matching pre-overhang behavior so stored
+ * placements roundtrip unchanged). `|pan|` in (1, 2] pushes the artwork
+ * outside the print box by up to half the smaller of `box` or `design`
+ * dimension per axis — Printful clips anything past the print area, which
+ * is exactly the intentional crop effect creators want.
+ */
+export const PLACEMENT_PAN_MAX = 2;
 /**
  * Default uses `contain` semantics: at zoom = 1 the full artwork would touch
  * whichever axis matches the box aspect and leave slack on the other. We
@@ -50,8 +61,8 @@ export function parseStoredPlacement(raw: unknown): StoredPrintPlacement | null 
       : 1;
   return {
     zoom: Math.min(PLACEMENT_ZOOM_MAX, Math.max(PLACEMENT_ZOOM_MIN, zoom)),
-    panX: Math.min(1, Math.max(-1, panX)),
-    panY: Math.min(1, Math.max(-1, panY)),
+    panX: Math.min(PLACEMENT_PAN_MAX, Math.max(-PLACEMENT_PAN_MAX, panX)),
+    panY: Math.min(PLACEMENT_PAN_MAX, Math.max(-PLACEMENT_PAN_MAX, panY)),
     imageAspect,
   };
 }
@@ -64,6 +75,16 @@ export interface PrintfulLayerPosition {
   height: number;
   left: number;
   top: number;
+}
+
+function panToOffset(pan: number, slack: number, boxDim: number, designDim: number): number {
+  const sign = Math.sign(pan);
+  const absP = Math.min(PLACEMENT_PAN_MAX, Math.abs(pan));
+  const inner = Math.min(1, absP);
+  const outer = Math.max(0, absP - 1);
+  const baseStep = Math.abs(slack) / 2;
+  const overhangStep = Math.min(boxDim, designDim) / 2;
+  return sign * (inner * baseStep + outer * overhangStep);
 }
 
 export function normalizedPlacementToPrintful(opts: {
@@ -99,27 +120,38 @@ export function normalizedPlacementToPrintful(opts: {
   h *= placement.zoom;
 
   /**
-   * `panX`/`panY` ∈ [-1, 1] should always be able to push the artwork to
-   * the corresponding edge of the print box. We size each pan step to half
-   * the available slack so pan=±1 lands exactly on the edge — whether the
-   * artwork is bigger than the box (cropping/repositioning a cover) or
-   * smaller (free-floating inside the box).
+   * Pan-to-offset mapping is piecewise linear so existing placements
+   * (created when pan was clamped to ±1) keep roundtripping at the same
+   * pixel position:
+   *   - `|pan| ≤ 1`: travel half the natural slack per unit, so pan=±1
+   *     still parks the artwork exactly at the corresponding box edge
+   *     (or, for `w > zw`, at the natural cover-crop limit).
+   *   - `|pan|` in `(1, 2]`: add an overhang step equal to half of
+   *     `min(boxDim, designDim)` per unit. That lets the user push the
+   *     artwork outside the print box for an intentional bleed/crop —
+   *     Printful clips anything past `[0, zw]` × `[0, zh]` when rendering.
+   * The overhang step caps at `min(box, design) / 2` so at the maximum
+   * pan the design always retains ≥ half of `min(box, design)` of overlap
+   * with the print box — i.e. the user can never lose the design entirely
+   * off-frame.
    */
   const slackX = zw - w;
   const slackY = zh - h;
-  let left = slackX / 2 + placement.panX * (Math.abs(slackX) / 2);
-  let top = slackY / 2 + placement.panY * (Math.abs(slackY) / 2);
+  let left = slackX / 2 + panToOffset(placement.panX, slackX, zw, w);
+  let top = slackY / 2 + panToOffset(placement.panY, slackY, zh, h);
 
   /**
-   * When w > zw the artwork overflows: left ∈ [zw-w, 0].
-   * When w < zw the artwork floats: left ∈ [0, zw-w].
-   * Compute the inclusive range either way so smaller zooms aren't pinned
-   * to one edge.
+   * Allowed range expanded to include the overhang region. For each axis,
+   * the natural slack range (`[min(0,slack), max(0,slack)]`) is grown by
+   * the overhang step on both sides, so any pan in [-2, 2] lands inside
+   * the clamp.
    */
-  const loL = Math.min(0, slackX);
-  const hiL = Math.max(0, slackX);
-  const loT = Math.min(0, slackY);
-  const hiT = Math.max(0, slackY);
+  const overhangX = Math.min(zw, w) / 2;
+  const overhangY = Math.min(zh, h) / 2;
+  const loL = Math.min(0, slackX) - overhangX;
+  const hiL = Math.max(0, slackX) + overhangX;
+  const loT = Math.min(0, slackY) - overhangY;
+  const hiT = Math.max(0, slackY) + overhangY;
   left = Math.max(loL, Math.min(hiL, left));
   top = Math.max(loT, Math.min(hiT, top));
 
