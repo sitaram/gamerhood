@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { ShoppingCart, Heart, Share2, ArrowLeft, Truck, Shield, RotateCcw, Check } from "lucide-react";
+import { ShoppingCart, Heart, ArrowLeft, Truck, Shield, RotateCcw, Check } from "lucide-react";
 import { useCartStore } from "@/lib/store";
 import { toast } from "sonner";
 import type { Product } from "@/lib/types";
@@ -16,8 +16,9 @@ import { PrintfulCatalogDetails } from "@/components/storefront/printful-catalog
 import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
 import { DEFAULT_STORED } from "@/lib/print/placement";
 import { hasRenderableListingMockup } from "@/components/storefront/product-card";
+import { ShareMenu } from "@/components/storefront/share-menu";
 
-export function ProductDetail({ product }: { product: Product }) {
+export function ProductDetail({ product, shareUrl }: { product: Product; shareUrl: string }) {
   const [selectedColor, setSelectedColor] = useState(product.colors[0]);
   const [selectedSize, setSelectedSize] = useState(product.sizes?.[0] ?? "");
   const [quantity, setQuantity] = useState(1);
@@ -40,28 +41,17 @@ export function ProductDetail({ product }: { product: Product }) {
     toast(liked ? "Removed from favorites" : "Added to favorites");
   }
 
-  async function handleShare() {
-    const url = window.location.href;
-    const shareData = { title: product.title, text: product.description, url };
-
-    if (navigator.share) {
-      try {
-        await navigator.share(shareData);
-      } catch {
-        /* user cancelled */
-      }
-    } else {
-      await navigator.clipboard.writeText(url);
-      toast("Link copied to clipboard!");
-    }
-  }
+  const creatorSlug = product.creator?.slug;
+  const creatorName = product.creator?.displayName;
+  const backHref = creatorSlug ? `/shop/${creatorSlug}` : "/shop";
+  const backLabel = creatorName ? `Back to ${creatorName}'s shop` : "Back to shop";
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <Link href="/shop">
+      <Link href={backHref}>
         <Button variant="ghost" size="sm" className="mb-6 gap-2 text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />
-          Back to Shop
+          {backLabel}
         </Button>
       </Link>
 
@@ -197,9 +187,7 @@ export function ProductDetail({ product }: { product: Product }) {
             >
               <Heart className={`h-5 w-5 ${liked ? "fill-current" : ""}`} />
             </Button>
-            <Button size="lg" variant="outline" onClick={handleShare} className="border-border/50">
-              <Share2 className="h-5 w-5" />
-            </Button>
+            <ShareMenu url={shareUrl} title={product.title} description={product.description} />
           </div>
 
           <Card className="border-border/50 bg-card/50 p-4">
