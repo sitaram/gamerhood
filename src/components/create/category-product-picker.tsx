@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, ChevronDown, ChevronUp, SlidersHorizontal } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Plus, SlidersHorizontal } from "lucide-react";
+import { toast } from "sonner";
 import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
 import { MERCH_CATEGORIES, isSingleVariantCategory } from "@/lib/merch/categories";
 import type { MerchCategory } from "@/lib/merch/categories";
@@ -47,6 +48,11 @@ export function CategoryProductPicker({
   onTune,
 }: Props) {
   const [openCategoryId, setOpenCategoryId] = useState<string | null>(() => "hoodies");
+  const [pulseCategoryId, setPulseCategoryId] = useState<string | null>(null);
+  /** Map of category id → expansion panel ref so we can scroll the just-opened
+   *  panel into view. Without this, tapping `Accessories` quietly expands
+   *  below the fold on phones and looks like nothing happened. */
+  const expansionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const selectedCountByCategory = useMemo(() => {
     const result: Record<string, number> = {};
@@ -55,6 +61,22 @@ export function CategoryProductPicker({
     }
     return result;
   }, [selected]);
+
+  useEffect(() => {
+    if (!openCategoryId) return;
+    const node = expansionRefs.current[openCategoryId];
+    if (!node) return;
+    const id = window.setTimeout(() => {
+      node.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 60);
+    return () => window.clearTimeout(id);
+  }, [openCategoryId]);
+
+  useEffect(() => {
+    if (!pulseCategoryId) return;
+    const id = window.setTimeout(() => setPulseCategoryId(null), 600);
+    return () => window.clearTimeout(id);
+  }, [pulseCategoryId]);
 
   return (
     <div className="space-y-3">
@@ -66,21 +88,29 @@ export function CategoryProductPicker({
         const open = openCategoryId === cat.id;
         const selectedCount = selectedCountByCategory[cat.id] ?? 0;
         const totalCount = cat.variants.length;
+        const pulse = pulseCategoryId === cat.id;
 
         return (
           <div
             key={cat.id}
-            className={`rounded-2xl border transition-colors ${
+            className={`rounded-2xl border transition-all duration-200 ${
               (isSingle ? singleSelected : selectedCount > 0)
-                ? "border-primary/70 bg-primary/5"
+                ? "border-primary bg-primary/10 shadow-sm shadow-primary/10"
                 : "border-border/60 bg-card"
-            }`}
+            } ${pulse ? "ring-2 ring-primary/40" : ""}`}
           >
             <button
               type="button"
               onClick={() => {
                 if (isSingle && onlyVariant) {
+                  const wasSelected = selected.has(onlyVariant);
                   onToggle(onlyVariant);
+                  setPulseCategoryId(cat.id);
+                  toast.success(
+                    wasSelected
+                      ? `Removed ${cat.label.toLowerCase()} from your batch`
+                      : `Added ${cat.label.toLowerCase()} to your batch`,
+                  );
                 } else {
                   setOpenCategoryId((cur) => (cur === cat.id ? null : cat.id));
                 }
@@ -116,7 +146,12 @@ export function CategoryProductPicker({
             </button>
 
             {!isSingle && open && (
-              <div className="border-t border-border/60 p-3">
+              <div
+                ref={(el) => {
+                  expansionRefs.current[cat.id] = el;
+                }}
+                className="border-t border-border/60 p-3"
+              >
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {cat.variants.map((type) => (
                     <VariantTile
@@ -143,12 +178,13 @@ export function CategoryProductPicker({
 
 function SingleVariantBadge({ selected }: { selected: boolean }) {
   return selected ? (
-    <span className="inline-flex h-6 items-center gap-1 rounded-full bg-primary px-2 text-[11px] font-semibold text-primary-foreground">
-      <Check className="h-3 w-3" />
-      Selected
+    <span className="inline-flex h-7 items-center gap-1 rounded-full bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground shadow-sm">
+      <Check className="h-3.5 w-3.5" />
+      Added
     </span>
   ) : (
-    <span className="inline-flex h-6 items-center rounded-full border border-border/60 px-2 text-[11px] text-muted-foreground">
+    <span className="inline-flex h-7 items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-2.5 text-[11px] font-medium text-primary">
+      <Plus className="h-3 w-3" />
       Tap to add
     </span>
   );
