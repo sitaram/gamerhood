@@ -54,21 +54,47 @@ export function clearBlankPhotoCache(): void {
 async function readCachedBlank(productType: ProductType): Promise<BlankPhotoResult | null> {
   try {
     const supabase = getServiceClient();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("printful_blank_mockups")
       .select("mockup_url, print_area_width_in, print_area_height_in")
       .eq("product_type", productType)
       .maybeSingle();
+    if (error) {
+      console.warn("[blank-mockup] DB cache read error", {
+        productType,
+        error: error.message,
+      });
+      return null;
+    }
+    if (!data) {
+      console.warn("[blank-mockup] DB cache miss (no row)", { productType });
+      return null;
+    }
     const url = data?.mockup_url;
-    if (typeof url !== "string" || !url) return null;
+    if (typeof url !== "string" || !url) {
+      console.warn("[blank-mockup] DB cache row exists but mockup_url is empty", {
+        productType,
+        rawUrl: data?.mockup_url,
+      });
+      return null;
+    }
     const w = data?.print_area_width_in;
     const h = data?.print_area_height_in;
     const printArea =
       typeof w === "number" && typeof h === "number" && w > 0 && h > 0
         ? { width: w, height: h }
         : null;
+    console.log("[blank-mockup] DB cache hit", {
+      productType,
+      url,
+      printArea,
+    });
     return { url, status: "ready", printArea };
-  } catch {
+  } catch (err) {
+    console.warn("[blank-mockup] DB cache read threw", {
+      productType,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
@@ -79,30 +105,58 @@ async function readCachedBlank(productType: ProductType): Promise<BlankPhotoResu
  */
 function startBackgroundGeneration(productType: ProductType): Promise<BlankPhotoResult> {
   const existing = memo.get(productType);
-  if (existing?.pending) return existing.pending;
+  if (existing?.pending) {
+    console.log("[blank-mockup] joining existing in-flight generation", { productType });
+    return existing.pending;
+  }
+  console.warn("[blank-mockup] starting background generation", { productType });
 
   const p = (async (): Promise<BlankPhotoResult> => {
     const generated = await generateFlatBlankMockup(productType).catch((err) => {
-      console.warn(
-        "[Printful blank-photo] background generation failed:",
-        err instanceof Error ? err.message : err,
-      );
+      console.warn("[blank-mockup] background generation threw", {
+        productType,
+        error: err instanceof Error ? err.message : String(err),
+      });
       return null;
     });
 
     if (!generated) {
+      console.warn("[blank-mockup] generation returned null — marking unavailable", {
+        productType,
+      });
       const result: BlankPhotoResult = { url: null, status: "unavailable", printArea: null };
       memo.set(productType, { result });
       return result;
     }
 
+    console.log("[blank-mockup] generation succeeded", {
+      productType,
+      url: generated.url,
+      catalogProductId: generated.catalogProductId,
+      catalogVariantId: generated.catalogVariantId,
+      mockupStyleId: generated.mockupStyleId,
+      printArea: generated.printArea,
+    });
+
     /** Persist via the cached-or-generate helper so future server restarts hit the DB cache. */
-    const row = await getOrGenerateFlatBlankMockup(productType).catch(() => null);
+    const row = await getOrGenerateFlatBlankMockup(productType).catch((err) => {
+      console.warn("[blank-mockup] persisting to DB cache threw", {
+        productType,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
     const result: BlankPhotoResult = {
       url: row?.mockup_url ?? generated.url,
       status: "ready",
       printArea: extractRowPrintArea(row) ?? generated.printArea,
     };
+    console.log("[blank-mockup] background generation finished", {
+      productType,
+      url: result.url,
+      fromDbRow: Boolean(row?.mockup_url),
+      printArea: result.printArea,
+    });
     memo.set(productType, { result });
     return result;
   })();
@@ -134,10 +188,21 @@ function extractRowPrintArea(
 export async function getBlankPhotoForProductType(
   productType: ProductType,
 ): Promise<BlankPhotoResult> {
+  console.log("[blank-mockup] resolve start", { productType });
+
   const memoEntry = memo.get(productType);
-  if (memoEntry && memoEntry.result.status === "ready") return memoEntry.result;
+  if (memoEntry && memoEntry.result.status === "ready") {
+    console.log("[blank-mockup] process memo hit (ready)", {
+      productType,
+      url: memoEntry.result.url,
+    });
+    return memoEntry.result;
+  }
 
   if (!isPrintfulConfigured()) {
+    console.warn("[blank-mockup] PRINTFUL_API_TOKEN not set — returning unavailable", {
+      productType,
+    });
     const result: BlankPhotoResult = { url: null, status: "unavailable", printArea: null };
     memo.set(productType, { result });
     return result;
@@ -150,10 +215,16 @@ export async function getBlankPhotoForProductType(
   }
 
   if (memoEntry?.pending) {
+    console.log("[blank-mockup] generation already in flight — returning generating", {
+      productType,
+    });
     return { url: null, status: "generating", printArea: null };
   }
 
   /** Fire-and-await-elsewhere: do NOT await `p`, return generating status now. */
   void startBackgroundGeneration(productType);
+  console.log("[blank-mockup] kicked off background generation — returning generating", {
+    productType,
+  });
   return { url: null, status: "generating", printArea: null };
 }

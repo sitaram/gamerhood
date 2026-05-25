@@ -34,12 +34,19 @@ interface FetchOnceResult {
 }
 
 async function fetchOnce(productType: ProductType): Promise<FetchOnceResult | null> {
+  console.log("[blank-mockup-client] fetch start", { productType });
   try {
     const res = await fetch(
       `/api/printful/blank-photo?type=${encodeURIComponent(productType)}`,
       { cache: "no-store" },
     );
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn("[blank-mockup-client] fetch non-OK", {
+        productType,
+        httpStatus: res.status,
+      });
+      return null;
+    }
     const j = (await res.json()) as {
       url?: string | null;
       status?: string;
@@ -51,12 +58,23 @@ async function fetchOnce(productType: ProductType): Promise<FetchOnceResult | nu
       typeof w === "number" && typeof h === "number" && w > 0 && h > 0
         ? { width: w, height: h }
         : null;
-    return {
+    const result = {
       url: typeof j.url === "string" && j.url ? j.url : null,
       status: typeof j.status === "string" ? j.status : "unavailable",
       area,
     };
-  } catch {
+    console.log("[blank-mockup-client] fetch result", {
+      productType,
+      status: result.status,
+      url: result.url,
+      area: result.area,
+    });
+    return result;
+  } catch (err) {
+    console.warn("[blank-mockup-client] fetch threw", {
+      productType,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
@@ -77,18 +95,28 @@ function ensureFetch(productType: ProductType, onChange: () => void): Promise<vo
       const r = await fetchOnce(productType);
 
       if (!r) {
+        console.warn("[blank-mockup-client] terminal: fetch failed → SVG fallback", {
+          productType,
+        });
         browserCache.set(productType, { status: "unavailable", url: null, area: null });
         onChange();
         return;
       }
 
       if (r.status === "ready" && r.url) {
+        console.log("[blank-mockup-client] terminal: ready", {
+          productType,
+          url: r.url,
+        });
         browserCache.set(productType, { status: "ready", url: r.url, area: r.area });
         onChange();
         return;
       }
 
       if (r.status === "unavailable") {
+        console.warn("[blank-mockup-client] terminal: server says unavailable → SVG fallback", {
+          productType,
+        });
         browserCache.set(productType, { status: "unavailable", url: null, area: r.area });
         onChange();
         return;
@@ -101,8 +129,17 @@ function ensureFetch(productType: ProductType, onChange: () => void): Promise<vo
       }
       const delay = POLL_DELAYS_MS[Math.min(attempt, POLL_DELAYS_MS.length - 1)];
       attempt += 1;
+      console.log("[blank-mockup-client] generating — backing off", {
+        productType,
+        attempt,
+        delayMs: delay,
+      });
       if (attempt > POLL_DELAYS_MS.length + 2) {
         /** Give up after ~90 s — the SVG silhouette continues to render. */
+        console.warn("[blank-mockup-client] gave up after polling — SVG fallback", {
+          productType,
+          attempts: attempt,
+        });
         browserCache.set(productType, { status: "unavailable", url: null, area: null });
         onChange();
         return;

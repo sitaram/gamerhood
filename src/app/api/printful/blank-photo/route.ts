@@ -43,11 +43,21 @@ const KNOWN_TYPES = new Set<ProductType>([
  */
 export async function GET(request: NextRequest) {
   const type = request.nextUrl.searchParams.get("type");
+  console.log("[blank-mockup-api] received", { productType: type });
+
   if (!type || !KNOWN_TYPES.has(type as ProductType)) {
+    console.warn("[blank-mockup-api] rejected unknown product type", { productType: type });
     return NextResponse.json({ error: "Unknown product type" }, { status: 400 });
   }
 
   const result = await getBlankPhotoForProductType(type as ProductType);
+  console.log("[blank-mockup-api] responded", {
+    productType: type,
+    status: result.status,
+    hasUrl: Boolean(result.url),
+    url: result.url,
+    printArea: result.printArea,
+  });
   /** Short cache only when ready — `generating` must re-poll. */
   const cacheControl =
     result.status === "ready" ? "public, max-age=600, s-maxage=3600" : "no-store";

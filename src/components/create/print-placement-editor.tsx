@@ -87,7 +87,24 @@ export function PrintPlacementEditor({
       : pickStablePreviewType(selectedProductTypes);
 
   const baseLayout = getMerchPreviewLayout(previewType);
-  const { url: blankPhotoUrl, area: liveArea } = usePrintfulBlankPhoto(previewType);
+  const { url: blankPhotoUrl, loading: blankPhotoLoading, area: liveArea } =
+    usePrintfulBlankPhoto(previewType);
+
+  useEffect(() => {
+    if (blankPhotoUrl) {
+      console.log("[placement-editor] rendering Printful flat mockup backdrop", {
+        productType: previewType,
+        url: blankPhotoUrl,
+      });
+    } else {
+      console.warn("[placement-editor] rendering SVG silhouette fallback", {
+        productType: previewType,
+        loading: blankPhotoLoading,
+        reason: blankPhotoLoading ? "still_loading" : "unavailable_or_no_url",
+      });
+    }
+  }, [previewType, blankPhotoUrl, blankPhotoLoading]);
+
   /**
    * Print area in inches: prefer the live Printful-reported dims (cached on
    * `printful_blank_mockups` and surfaced via the blank-photo API), fall back
@@ -318,6 +335,20 @@ export function PrintPlacementEditor({
                     className="object-contain"
                     unoptimized
                     draggable={false}
+                    onLoad={() =>
+                      console.log("[placement-editor] mockup img loaded", {
+                        productType: previewType,
+                        url: blankPhotoUrl,
+                      })
+                    }
+                    onError={(e) =>
+                      console.error("[placement-editor] mockup img FAILED to load", {
+                        productType: previewType,
+                        url: blankPhotoUrl,
+                        // SyntheticEvent has no useful detail; surface what we can
+                        type: e.type,
+                      })
+                    }
                   />
                 </div>
               ) : (

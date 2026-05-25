@@ -30,7 +30,11 @@
  */
 
 import { getServiceClient } from "@/lib/supabase/admin";
-import { getCatalogConfig, getPrintAreaInches } from "@/lib/printful/catalog";
+import {
+  getCatalogConfig,
+  getPrintAreaInches,
+  printfulCatalogVariantEnvName,
+} from "@/lib/printful/catalog";
 import {
   isPrintfulConfigured,
   type PrintfulFileLayer,
@@ -250,16 +254,44 @@ export interface BlankMockupResult {
 export async function generateFlatBlankMockup(
   productType: ProductType,
 ): Promise<BlankMockupResult | null> {
-  if (!isPrintfulConfigured()) return null;
+  console.log("[blank-mockup] generate: start", { productType });
+  if (!isPrintfulConfigured()) {
+    console.warn("[blank-mockup] generate: PRINTFUL_API_TOKEN missing", { productType });
+    return null;
+  }
 
   const cfg = getCatalogConfig(productType);
-  if (!cfg) return null;
+  if (!cfg) {
+    console.warn("[blank-mockup] generate: no catalog config (variant env unset)", {
+      productType,
+      envVar: printfulCatalogVariantEnvName(productType),
+    });
+    return null;
+  }
+  console.log("[blank-mockup] generate: catalog config", {
+    productType,
+    catalogVariantId: cfg.catalogVariantId,
+    placement: cfg.placement,
+    technique: cfg.technique,
+  });
 
   const summary = await fetchCatalogVariantSummary(cfg.catalogVariantId);
   const catalogProductId = summary.catalogProductId;
-  if (!catalogProductId) return null;
+  if (!catalogProductId) {
+    console.warn("[blank-mockup] generate: catalog-variants summary missing product id", {
+      productType,
+      catalogVariantId: cfg.catalogVariantId,
+    });
+    return null;
+  }
 
   const printArea = pickPrintAreaForPlacement(summary.placementDims, cfg.placement);
+  console.log("[blank-mockup] generate: variant summary", {
+    productType,
+    catalogProductId,
+    placement: cfg.placement,
+    printArea,
+  });
 
   const groups = await fetchCatalogMockupStyles(catalogProductId, cfg.placement, {
     includeAll: true,
@@ -271,11 +303,19 @@ export async function generateFlatBlankMockup(
     cfg.catalogVariantId,
   );
   if (!picked) {
-    console.warn(
-      `[Printful blank-mockup] No mockup style for catalog_product=${catalogProductId} placement=${cfg.placement}`,
-    );
+    console.warn("[blank-mockup] generate: no mockup style matched", {
+      productType,
+      catalogProductId,
+      placement: cfg.placement,
+      technique: cfg.technique,
+    });
     return null;
   }
+  console.log("[blank-mockup] generate: mockup style picked", {
+    productType,
+    styleId: picked.styleId,
+    printAreaType: picked.printAreaType,
+  });
 
   const dummyUrl = await ensureDummyDesignUrl();
 
@@ -325,7 +365,13 @@ export async function generateFlatBlankMockup(
   };
 
   const taskId = await createMockupGeneratorTask(payload);
+  console.log("[blank-mockup] generate: task created", { productType, taskId });
   const printfulUrl = await waitForMockupTaskMockupUrl(taskId, { timeoutMs: 60_000 });
+  console.log("[blank-mockup] generate: task completed", {
+    productType,
+    taskId,
+    printfulUrl,
+  });
 
   /**
    * Re-host into our own storage so the URL doesn't expire. If the rehost
@@ -334,12 +380,24 @@ export async function generateFlatBlankMockup(
    * cache refresh will retry the upload.
    */
   const rehosted = await rehostMockupToStorage(productType, printfulUrl).catch((err) => {
-    console.warn(
-      `[Printful blank-mockup] re-host failed for ${productType}; falling back to tmp URL:`,
-      err instanceof Error ? err.message : err,
-    );
+    console.warn("[blank-mockup] generate: re-host to Supabase failed", {
+      productType,
+      printfulUrl,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   });
+  if (rehosted) {
+    console.log("[blank-mockup] generate: re-hosted to Supabase", {
+      productType,
+      url: rehosted,
+    });
+  } else {
+    console.warn("[blank-mockup] generate: falling back to ephemeral Printful URL", {
+      productType,
+      printfulUrl,
+    });
+  }
 
   return {
     url: rehosted ?? printfulUrl,
@@ -432,7 +490,17 @@ export async function getOrGenerateFlatBlankMockup(
     .eq("product_type", productType)
     .maybeSingle();
 
+  if (error) {
+    console.warn("[blank-mockup] persist: DB select error", {
+      productType,
+      error: error.message,
+    });
+  }
   if (!error && cached?.mockup_url) {
+    console.log("[blank-mockup] persist: returning existing DB row (no regeneration)", {
+      productType,
+      url: cached.mockup_url,
+    });
     return cached as BlankMockupRow;
   }
 
@@ -463,7 +531,15 @@ export async function getOrGenerateFlatBlankMockup(
     .from("printful_blank_mockups")
     .upsert(row, { onConflict: "product_type" });
   if (upsertErr) {
-    console.warn("[Printful blank-mockup] cache upsert failed:", upsertErr.message);
+    console.warn("[blank-mockup] persist: cache upsert failed", {
+      productType,
+      error: upsertErr.message,
+    });
+  } else {
+    console.log("[blank-mockup] persist: cache upsert succeeded", {
+      productType,
+      url: row.mockup_url,
+    });
   }
 
   return row;
