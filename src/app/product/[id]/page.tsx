@@ -53,5 +53,6 @@ export default async function ProductPage({ params }: Props) {
 
   if (!product) notFound();
 
-  return <ProductDetail product={product} />;
+  const shareUrl = `${siteUrl()}/product/${id}`;
+  return <ProductDetail product={product} shareUrl={shareUrl} />;
 }
