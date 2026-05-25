@@ -244,7 +244,7 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
       </div>
 
       {product.printfulCatalogMeta && (
-        <PrintfulCatalogDetails meta={product.printfulCatalogMeta} />
+        <PrintfulCatalogDetails meta={product.printfulCatalogMeta} productId={product.id} />
       )}
     </div>
   );

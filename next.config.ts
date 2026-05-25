@@ -25,6 +25,10 @@ const nextConfig: NextConfig = {
   // Lets you open http://127.0.0.1:3000 alongside localhost without Turbopack dev/HMR blocking.
   allowedDevOrigins: ["127.0.0.1"],
 
+  /** `@react-pdf/renderer` ships native deps + `package.json#main` (no `exports` map);
+   * Next/Turbopack must require it at runtime instead of bundling. */
+  serverExternalPackages: ["@react-pdf/renderer"],
+
   images: {
     remotePatterns: [
       { hostname: "api.dicebear.com" },

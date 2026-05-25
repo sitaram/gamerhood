@@ -1,9 +1,17 @@
 "use client";
 
+import { Download } from "lucide-react";
 import type { PrintfulCatalogMeta } from "@/lib/types";
 
-export function PrintfulCatalogDetails({ meta }: { meta: PrintfulCatalogMeta }) {
+export function PrintfulCatalogDetails({
+  meta,
+  productId,
+}: {
+  meta: PrintfulCatalogMeta;
+  productId?: string;
+}) {
   const subtitle = [meta.brand, meta.model].filter(Boolean).join(" · ") || meta.productName;
+  const canDownload = !!productId && meta.sizeGuides.length > 0;
 
   return (
     <div className="mt-12 space-y-8 border-t border-border/50 pt-10">
@@ -26,9 +34,22 @@ export function PrintfulCatalogDetails({ meta }: { meta: PrintfulCatalogMeta }) 
 
       {meta.sizeGuides.length > 0 && (
         <div className="space-y-6">
-          <h3 className="text-lg font-semibold">Size guide</h3>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold">Size guide</h3>
+            {canDownload && (
+              <a
+                href={`/api/products/${productId}/size-guide.pdf`}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download size guide (PDF)
+              </a>
+            )}
+          </div>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Measurements come from Printful&apos;s supplier data. Values may vary slightly by batch.
+            Measurements come from the supplier&apos;s product data. Values may vary slightly by batch.
           </p>
 
           {meta.sizeGuides.map((guide, gi) => {
