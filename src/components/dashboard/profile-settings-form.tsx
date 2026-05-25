@@ -23,7 +23,13 @@ const DEFAULT_AVATAR_SET: ReadonlySet<string> = new Set(DEFAULT_AVATAR_POOL);
 const MAX_DISPLAY_NAME_LEN = 80;
 const MAX_CATCHPHRASE_LEN = 120;
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const MAX_BANNER_BYTES = 4 * 1024 * 1024;
 const ALLOWED_AVATAR_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
+// Storefront banner aspect-ratio guidance. We accept anything close to this
+// but warn the creator if their image is meaningfully off-ratio so they're
+// not surprised by `object-cover` cropping on the live page.
+const RECOMMENDED_BANNER_RATIO = 16 / 5;
+const BANNER_RATIO_TOLERANCE = 0.4;
 
 const AXOLOTL_DESIGN_FIELD_MAX = 80;
 // Mirrors the server-side rate limit in /api/account/generate-axolotl
@@ -37,6 +43,7 @@ type Props = {
   initialCatchphrase: string | null;
   initialAvatarUrl: string | null;
   initialStorefrontAvatarUrl: string | null;
+  initialStorefrontBannerUrl: string | null;
   /**
    * Used to pick which bundled axolotl to preview when the creator
    * hasn't uploaded a photo yet — matches what the rest of the site
@@ -52,6 +59,7 @@ export function ProfileSettingsForm({
   initialCatchphrase,
   initialAvatarUrl,
   initialStorefrontAvatarUrl,
+  initialStorefrontBannerUrl,
   profileId,
   email,
   hasEmailPassword,
@@ -63,10 +71,14 @@ export function ProfileSettingsForm({
   const [storefrontAvatarUrl, setStorefrontAvatarUrl] = useState<string | null>(
     initialStorefrontAvatarUrl,
   );
+  const [storefrontBannerUrl, setStorefrontBannerUrl] = useState<string | null>(
+    initialStorefrontBannerUrl,
+  );
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingCatchphrase, setSavingCatchphrase] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [storefrontAvatarBusy, setStorefrontAvatarBusy] = useState(false);
+  const [storefrontBannerBusy, setStorefrontBannerBusy] = useState(false);
 
   const [personalGalleryOpen, setPersonalGalleryOpen] = useState(false);
   const [storefrontGalleryOpen, setStorefrontGalleryOpen] = useState(false);
@@ -108,6 +120,11 @@ export function ProfileSettingsForm({
     if (data.storefrontAvatarUrl !== undefined) {
       setStorefrontAvatarUrl(
         typeof data.storefrontAvatarUrl === "string" ? data.storefrontAvatarUrl : null,
+      );
+    }
+    if (data.storefrontBannerUrl !== undefined) {
+      setStorefrontBannerUrl(
+        typeof data.storefrontBannerUrl === "string" ? data.storefrontBannerUrl : null,
       );
     }
     router.refresh();
@@ -258,6 +275,61 @@ export function ProfileSettingsForm({
       toast.error(err instanceof Error ? err.message : "Could not pick axolotl");
     } finally {
       setStorefrontAvatarBusy(false);
+    }
+  }
+
+  function validateBannerFile(file: File): string | null {
+    if (!ALLOWED_AVATAR_TYPES.has(file.type)) {
+      return "Please upload PNG, JPG, or WebP";
+    }
+    if (file.size > MAX_BANNER_BYTES) {
+      return "Banner must be 4 MB or smaller";
+    }
+    return null;
+  }
+
+  async function onStorefrontBannerFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    const error = validateBannerFile(file);
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    setStorefrontBannerBusy(true);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const ratio = await readImageAspectRatio(dataUrl);
+      await patchProfile({ storefrontBannerImageDataUrl: dataUrl });
+      // Server accepts off-ratio images (we don't reject them) but warn the
+      // creator so they're not surprised by the live page cropping.
+      if (
+        ratio !== null &&
+        Math.abs(ratio - RECOMMENDED_BANNER_RATIO) > BANNER_RATIO_TOLERANCE
+      ) {
+        toast.success("Banner uploaded — it's off from 16:5, so it may crop on your shop page.");
+      } else {
+        toast.success("Storefront banner updated");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not upload banner");
+    } finally {
+      setStorefrontBannerBusy(false);
+    }
+  }
+
+  async function handleClearStorefrontBanner() {
+    setStorefrontBannerBusy(true);
+    try {
+      await patchProfile({ clearStorefrontBanner: true });
+      toast.success("Storefront banner cleared — using the default look");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not clear banner");
+    } finally {
+      setStorefrontBannerBusy(false);
     }
   }
 
@@ -444,6 +516,62 @@ export function ProfileSettingsForm({
       </Card>
 
       <Card className="space-y-4 border-border/50 bg-card p-6">
+        <h2 className="text-lg font-semibold">Storefront banner (optional)</h2>
+        <p className="text-sm text-muted-foreground">
+          Shown at the top of your public shop page. Leave blank to use the default gradient.
+          PNG, JPG, or WebP up to 4 MB. Same kid-safe check applies.
+        </p>
+        <div className="flex flex-col items-start gap-5">
+          <div className="relative aspect-[16/5] w-full max-w-2xl shrink-0 overflow-hidden rounded-lg border border-border/60 bg-gradient-to-br from-primary/15 via-background to-accent/15 shadow-inner">
+            {storefrontBannerUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={storefrontBannerUrl}
+                alt="Storefront banner preview"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-center text-xs text-muted-foreground">
+                No banner — using the default gradient
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">
+              Recommended size: wide 16:5 ratio (e.g., 2400×750 px). Off-ratio images will be
+              accepted, but may crop oddly on the live page.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <label className="inline-flex cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  className="hidden"
+                  onChange={onStorefrontBannerFile}
+                  disabled={storefrontBannerBusy}
+                />
+                {storefrontBannerBusy
+                  ? "Working…"
+                  : storefrontBannerUrl
+                    ? "Replace banner"
+                    : "Upload banner"}
+              </label>
+              {storefrontBannerUrl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={storefrontBannerBusy}
+                  onClick={() => void handleClearStorefrontBanner()}
+                >
+                  Use the default banner
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <Card className="space-y-4 border-border/50 bg-card p-6">
         <h2 className="text-lg font-semibold">Display name</h2>
         <p className="text-sm text-muted-foreground">
           Shown in the nav, dashboard, and on your public storefront.
@@ -592,6 +720,29 @@ function readFileAsDataUrl(file: File): Promise<string> {
     };
     reader.onerror = () => reject(new Error("Could not read file"));
     reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Best-effort aspect ratio probe — used only to warn about off-ratio banner
+ * uploads. Returns null on any decode failure so the upload still proceeds.
+ */
+function readImageAspectRatio(dataUrl: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined") {
+      resolve(null);
+      return;
+    }
+    const img = new window.Image();
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        resolve(img.naturalWidth / img.naturalHeight);
+      } else {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
   });
 }
 

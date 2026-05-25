@@ -10,6 +10,8 @@ import {
   removeProfileAvatarFromStorage,
   uploadStorefrontProfileAvatar,
   removeStorefrontProfileAvatarFromStorage,
+  uploadStorefrontBannerImage,
+  removeStorefrontBannerFromStorage,
 } from "@/lib/storage";
 import { moderateImageBase64, moderateText } from "@/lib/moderation";
 import { DEFAULT_AVATAR_POOL } from "@/lib/profile-avatar";
@@ -21,6 +23,10 @@ export const dynamic = "force-dynamic";
 const MAX_DISPLAY_NAME_LEN = 80;
 const MAX_CATCHPHRASE_LEN = 120;
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+// Banners are wider than avatars (~16:5) and people upload higher-res
+// source files for them, so we allow up to 4 MB rather than the 2 MB
+// cap that's plenty for a circular avatar.
+const MAX_BANNER_BYTES = 4 * 1024 * 1024;
 const ALLOWED_AVATAR_MIME = /^image\/(png|jpe?g|webp)$/i;
 
 function validateDisplayName(raw: unknown): { ok: true; value: string } | { ok: false; error: string } {
@@ -67,11 +73,15 @@ function estimateDataUrlBytes(dataUrl: string): number | null {
 
 /**
  * Shared mime/size/moderation gate for the personal AND storefront avatar
- * uploaders — same kid-safety rules apply to both photos.
+ * uploaders — same kid-safety rules apply to both photos. Banners reuse the
+ * same MIME/moderation rules but with a larger size cap (see
+ * `validateAndModerateBanner`).
  */
-async function validateAndModerateAvatar(
+async function validateAndModerateImage(
   dataUrl: string,
   label: string,
+  maxBytes: number,
+  sizeLabel: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const mimeMatch = dataUrl.match(/^data:([^;,]+)/i);
   const mime = mimeMatch?.[1]?.split(";")[0].trim().toLowerCase() ?? "";
@@ -79,17 +89,30 @@ async function validateAndModerateAvatar(
     return { ok: false, error: `${label} must be PNG, JPG, or WebP.` };
   }
   const bytes = estimateDataUrlBytes(dataUrl);
-  if (bytes !== null && bytes > MAX_AVATAR_BYTES) {
-    return { ok: false, error: `${label} must be 2 MB or smaller.` };
+  if (bytes !== null && bytes > maxBytes) {
+    return { ok: false, error: `${label} must be ${sizeLabel} or smaller.` };
   }
   const moderation = await moderateImageBase64(dataUrl);
   if (!moderation.safe) {
     return {
       ok: false,
-      error: "That photo didn't pass our safety check. Try a different image.",
+      error: "That image didn't pass our safety check. Try a different one.",
     };
   }
   return { ok: true };
+}
+
+async function validateAndModerateAvatar(
+  dataUrl: string,
+  label: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  return validateAndModerateImage(dataUrl, label, MAX_AVATAR_BYTES, "2 MB");
+}
+
+async function validateAndModerateBanner(
+  dataUrl: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  return validateAndModerateImage(dataUrl, "Storefront banner", MAX_BANNER_BYTES, "4 MB");
 }
 
 /**
@@ -225,6 +248,32 @@ export async function PATCH(request: NextRequest) {
     await removeStorefrontProfileAvatarFromStorage(profile.id);
   }
 
+  const storefrontBannerDataUrl =
+    typeof body.storefrontBannerImageDataUrl === "string" &&
+    body.storefrontBannerImageDataUrl.startsWith("data:")
+      ? body.storefrontBannerImageDataUrl
+      : null;
+
+  if (storefrontBannerDataUrl) {
+    const validation = await validateAndModerateBanner(storefrontBannerDataUrl);
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+    try {
+      const publicUrl = await uploadStorefrontBannerImage(
+        profile.id,
+        storefrontBannerDataUrl,
+      );
+      profilePatch.storefront_banner_url = publicUrl;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Storefront banner upload failed";
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
+  } else if (body.clearStorefrontBanner === true) {
+    profilePatch.storefront_banner_url = null;
+    await removeStorefrontBannerFromStorage(profile.id);
+  }
+
   if (Object.keys(profilePatch).length === 0) {
     return NextResponse.json({ error: "No valid fields to update" }, { status: 400 });
   }
@@ -261,5 +310,7 @@ export async function PATCH(request: NextRequest) {
     avatarUrl: updated?.avatar_url ?? profile.avatar_url ?? null,
     storefrontAvatarUrl:
       updated?.storefront_avatar_url ?? profile.storefront_avatar_url ?? null,
+    storefrontBannerUrl:
+      updated?.storefront_banner_url ?? profile.storefront_banner_url ?? null,
   });
 }

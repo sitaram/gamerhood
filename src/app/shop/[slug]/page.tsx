@@ -119,6 +119,8 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
   const hasHero = Boolean(
     (profile as { storefront_hero_image_url?: string | null }).storefront_hero_image_url,
   );
+  const bannerUrl =
+    (profile as { storefront_banner_url?: string | null }).storefront_banner_url || null;
 
   const categories = Array.from(new Set(allProducts.flatMap((p) => storefrontBrowseTokens(p)))).sort();
 
@@ -147,9 +149,40 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
         }
       />
 
-      <div className="rounded-2xl border border-border/50 bg-card p-8">
-        <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-start">
-          <div className="relative flex h-40 w-40 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-primary/30 bg-primary/10 text-4xl font-semibold text-primary shadow-xl shadow-primary/20 ring-2 ring-primary/30 ring-offset-2 ring-offset-card sm:h-44 sm:w-44">
+      <div
+        className={`relative overflow-hidden rounded-2xl border border-border/50 ${
+          bannerUrl ? "p-0" : "bg-card p-8"
+        }`}
+      >
+        {bannerUrl && (
+          <>
+            <Image
+              src={bannerUrl}
+              alt=""
+              fill
+              priority
+              sizes="(max-width: 1280px) 100vw, 1280px"
+              className="object-cover"
+              unoptimized
+            />
+            <div
+              aria-hidden
+              className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/40 to-black/20"
+            />
+          </>
+        )}
+        <div
+          className={`relative flex flex-col items-center gap-6 sm:flex-row sm:items-start ${
+            bannerUrl ? "p-8" : ""
+          }`}
+        >
+          <div
+            className={`relative flex h-40 w-40 shrink-0 items-center justify-center overflow-hidden rounded-full text-4xl font-semibold sm:h-44 sm:w-44 ${
+              bannerUrl
+                ? "border-2 border-white/40 bg-white/10 text-white shadow-xl shadow-black/40 ring-2 ring-white/30 ring-offset-2 ring-offset-black/20"
+                : "border-2 border-primary/30 bg-primary/10 text-primary shadow-xl shadow-primary/20 ring-2 ring-primary/30 ring-offset-2 ring-offset-card"
+            }`}
+          >
             {avatarUrl ? (
               <Image
                 src={avatarUrl}
@@ -164,36 +197,91 @@ export default async function CreatorStorefront({ params, searchParams }: Props)
           </div>
 
           <div className="flex-1 text-center sm:text-left">
-            {!hasHero && <h1 className="text-3xl font-bold">{profile.display_name}</h1>}
+            {!hasHero && (
+              <h1
+                className={`text-3xl font-bold ${
+                  bannerUrl ? "text-white drop-shadow-md" : ""
+                }`}
+              >
+                {profile.display_name}
+              </h1>
+            )}
             {hasHero && (
-              <p className="text-lg font-semibold text-muted-foreground">{profile.display_name}</p>
+              <p
+                className={`text-lg font-semibold ${
+                  bannerUrl ? "text-white/90 drop-shadow" : "text-muted-foreground"
+                }`}
+              >
+                {profile.display_name}
+              </p>
             )}
             {catchphrase && (
-              <p className="mt-1 text-base font-medium text-primary">{catchphrase}</p>
+              <p
+                className={`mt-1 text-base font-medium ${
+                  bannerUrl ? "text-white drop-shadow" : "text-primary"
+                }`}
+              >
+                {catchphrase}
+              </p>
             )}
             {profile.bio && !hasHero && (
-              <p className="mt-2 text-muted-foreground max-w-lg">{profile.bio}</p>
+              <p
+                className={`mt-2 max-w-lg ${
+                  bannerUrl ? "text-white/90 drop-shadow" : "text-muted-foreground"
+                }`}
+              >
+                {profile.bio}
+              </p>
             )}
             {profile.bio && hasHero && (
-              <p className="mt-1 text-sm text-muted-foreground max-w-lg">{profile.bio}</p>
+              <p
+                className={`mt-1 max-w-lg text-sm ${
+                  bannerUrl ? "text-white/90 drop-shadow" : "text-muted-foreground"
+                }`}
+              >
+                {profile.bio}
+              </p>
             )}
 
             <div className="mt-4 flex flex-wrap items-center justify-center gap-4 sm:justify-start">
-              <div className="flex items-center gap-1.5 text-sm">
+              <div
+                className={`flex items-center gap-1.5 text-sm ${
+                  bannerUrl ? "text-white drop-shadow" : ""
+                }`}
+              >
                 <Star className="h-4 w-4 text-neon-orange fill-neon-orange" />
                 <span className="font-semibold">Level {level}</span>
-                <span className="text-muted-foreground">({xp} XP)</span>
+                <span className={bannerUrl ? "text-white/80" : "text-muted-foreground"}>
+                  ({xp} XP)
+                </span>
               </div>
-              <Separator orientation="vertical" className="h-4" />
-              <span className="text-sm text-muted-foreground">{products.length} products</span>
+              <Separator
+                orientation="vertical"
+                className={`h-4 ${bannerUrl ? "bg-white/40" : ""}`}
+              />
+              <span
+                className={`text-sm ${
+                  bannerUrl ? "text-white/90 drop-shadow" : "text-muted-foreground"
+                }`}
+              >
+                {products.length} products
+              </span>
             </div>
 
             <div className="mt-4 max-w-xs">
-              <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+              <div
+                className={`mb-1 flex items-center justify-between text-xs ${
+                  bannerUrl ? "text-white/80 drop-shadow" : "text-muted-foreground"
+                }`}
+              >
                 <span>Level {level}</span>
                 <span>Level {level + 1}</span>
               </div>
-              <div className="h-2 rounded-full bg-secondary overflow-hidden">
+              <div
+                className={`h-2 overflow-hidden rounded-full ${
+                  bannerUrl ? "bg-white/20" : "bg-secondary"
+                }`}
+              >
                 <div
                   className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all"
                   style={{ width: `${xpProgress}%` }}

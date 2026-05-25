@@ -53,6 +53,7 @@ export default async function AccountSettingsPage() {
           initialCatchphrase={profile?.catchphrase ?? null}
           initialAvatarUrl={profile?.avatar_url ?? null}
           initialStorefrontAvatarUrl={profile?.storefront_avatar_url ?? null}
+          initialStorefrontBannerUrl={profile?.storefront_banner_url ?? null}
           profileId={profile?.id ?? user.id}
           email={user.email ?? null}
           hasEmailPassword={hasEmailPasswordProvider(user)}

@@ -335,3 +335,64 @@ export async function removeStorefrontProfileAvatarFromStorage(
 ): Promise<void> {
   return removeAvatarFromPrefix(STOREFRONT_AVATARS_PREFIX, profileId, "storefront avatar");
 }
+
+const STOREFRONT_BANNERS_PREFIX = "storefront-banners";
+const BANNER_EXTENSIONS = ["png", "jpg", "jpeg", "webp"] as const;
+
+/**
+ * Wide background image for the `/shop/[slug]` top section. Sibling of the
+ * `storefront-avatars/` prefix in the same public bucket, but accepts a
+ * larger payload because banners are wide (~16:5).
+ */
+export async function uploadStorefrontBannerImage(
+  profileId: string,
+  imageUrl: string,
+): Promise<string> {
+  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+    return imageUrl;
+  }
+
+  if (!isStorageConfigured()) {
+    throw new Error(
+      "Storage isn't configured on this deployment (missing SUPABASE_SERVICE_ROLE_KEY).",
+    );
+  }
+
+  const payload = decodeOrThrow(imageUrl);
+  const allowed = new Set<string>(BANNER_EXTENSIONS);
+  if (!allowed.has(payload.extension)) {
+    throw new Error("Storefront banner must be PNG, JPG, or WebP.");
+  }
+
+  const path = `${STOREFRONT_BANNERS_PREFIX}/${profileId}.${payload.extension}`;
+  const supabase = getServiceClient();
+  const { error } = await supabase.storage.from(BUCKET).upload(path, payload.bytes, {
+    contentType: payload.mimeType.split(";")[0].trim(),
+    upsert: true,
+  });
+
+  if (error) {
+    throw new Error(`Storefront banner upload failed: ${error.message}`);
+  }
+
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  if (!data?.publicUrl) {
+    throw new Error(`Storefront banner upload succeeded but no public URL for ${path}`);
+  }
+  return data.publicUrl;
+}
+
+/** Best-effort remove storefront banner object(s) for the given profile. */
+export async function removeStorefrontBannerFromStorage(
+  profileId: string,
+): Promise<void> {
+  if (!isStorageConfigured()) return;
+  const supabase = getServiceClient();
+  const paths = BANNER_EXTENSIONS.map(
+    (ext) => `${STOREFRONT_BANNERS_PREFIX}/${profileId}.${ext}`,
+  );
+  const { error } = await supabase.storage.from(BUCKET).remove(paths);
+  if (error && !/not found/i.test(String(error.message))) {
+    console.warn("[storage] remove storefront banner:", error.message);
+  }
+}

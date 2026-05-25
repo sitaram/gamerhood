@@ -623,6 +623,11 @@ export interface ProfileRow {
    * `avatar_url` is used.
    */
   storefront_avatar_url?: string | null;
+  /**
+   * Optional wide background image rendered behind the top section of the
+   * public `/shop/[slug]` page. NULL means use the default header.
+   */
+  storefront_banner_url?: string | null;
 }
 
 export async function getProfileBySlug(supabase: SupabaseClient, slug: string) {
@@ -692,6 +697,7 @@ export type ProfileStorefrontUpdate = Partial<
     | "catchphrase"
     | "avatar_url"
     | "storefront_avatar_url"
+    | "storefront_banner_url"
     | "display_name"
     | "storefront_hero_image_url"
     | "storefront_headline"
