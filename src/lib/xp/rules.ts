@@ -75,15 +75,17 @@ export const XP_RULES: Record<XpRuleKey, XpRule> = {
     key: "STOREFRONT_AVATAR",
     points: 50,
     oneShot: true,
-    label: "Set a storefront photo",
-    description: "Upload a dedicated photo for the public /shop page.",
+    label: "Set a shop profile photo",
+    description:
+      "A round profile picture shown next to your shop name. Can be different from your personal avatar.",
   },
   STOREFRONT_BANNER_UPLOAD: {
     key: "STOREFRONT_BANNER_UPLOAD",
     points: 75,
     oneShot: true,
-    label: "Upload a storefront banner",
-    description: "Drop in a 16:5 banner to make your shop stand out.",
+    label: "Add a shop banner",
+    description:
+      "A wide cover image (16:5) that sits behind your shop's name at the top of /shop.",
   },
   STRIPE_CONNECTED: {
     key: "STRIPE_CONNECTED",

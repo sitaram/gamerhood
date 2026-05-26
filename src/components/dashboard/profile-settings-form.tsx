@@ -251,7 +251,7 @@ export function ProfileSettingsForm({
     try {
       const dataUrl = await readFileAsDataUrl(file);
       await patchProfile({ storefrontAvatarImageDataUrl: dataUrl });
-      toast.success("Storefront photo updated");
+      toast.success("Shop profile photo updated");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not upload photo");
     } finally {
@@ -263,7 +263,7 @@ export function ProfileSettingsForm({
     setStorefrontAvatarBusy(true);
     try {
       await patchProfile({ clearStorefrontAvatar: true });
-      toast.success("Storefront photo cleared — using your profile photo");
+      toast.success("Shop profile photo cleared — using your profile photo");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not clear photo");
     } finally {
@@ -318,7 +318,7 @@ export function ProfileSettingsForm({
       ) {
         toast.success("Banner uploaded — it's off from 16:5, so it may crop on your shop page.");
       } else {
-        toast.success("Storefront banner updated");
+        toast.success("Shop banner updated");
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not upload banner");
@@ -331,7 +331,7 @@ export function ProfileSettingsForm({
     setStorefrontBannerBusy(true);
     try {
       await patchProfile({ clearStorefrontBanner: true });
-      toast.success("Storefront banner cleared — using the default look");
+      toast.success("Shop banner cleared — using the default look");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not clear banner");
     } finally {
@@ -440,7 +440,7 @@ export function ProfileSettingsForm({
 
       <Card className="space-y-4 border-border/50 bg-card p-6">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold">Storefront photo (optional)</h2>
+          <h2 className="text-lg font-semibold">Shop profile photo (optional)</h2>
           <XpBadge points={XP_RULES.STOREFRONT_AVATAR.points} variant="prominent" />
         </div>
         <p className="text-sm text-muted-foreground">
@@ -473,8 +473,8 @@ export function ProfileSettingsForm({
                 {storefrontAvatarBusy
                   ? "Working…"
                   : storefrontAvatarUrl
-                    ? "Replace storefront photo"
-                    : "Upload storefront photo"}
+                    ? "Replace shop profile photo"
+                    : "Upload shop profile photo"}
               </label>
               <Button
                 type="button"
@@ -529,7 +529,7 @@ export function ProfileSettingsForm({
 
       <Card className="space-y-4 border-border/50 bg-card p-6">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold">Storefront banner (optional)</h2>
+          <h2 className="text-lg font-semibold">Shop banner (optional)</h2>
           <XpBadge
             points={XP_RULES.STOREFRONT_BANNER_UPLOAD.points}
             variant="prominent"
@@ -545,7 +545,7 @@ export function ProfileSettingsForm({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={storefrontBannerUrl}
-                alt="Storefront banner preview"
+                alt="Shop banner preview"
                 className="h-full w-full object-cover"
               />
             ) : (
