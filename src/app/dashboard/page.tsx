@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Sparkles, Wand2, ImageOff, Store, ExternalLink } from "lucide-react";
+import { Sparkles, Wand2, ImageOff, Store, ExternalLink, LayoutGrid } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -96,8 +96,14 @@ export default async function DashboardPage() {
                 View my shop
               </Button>
             </Link>
-            <Link href="/dashboard/storefront">
+            <Link href="/dashboard/listings">
               <Button variant="secondary" className="gap-2" size="lg">
+                <LayoutGrid className="h-4 w-4" />
+                Manage listings
+              </Button>
+            </Link>
+            <Link href="/dashboard/storefront">
+              <Button variant="outline" className="gap-2" size="lg">
                 <Store className="h-4 w-4" />
                 Storefront settings
               </Button>

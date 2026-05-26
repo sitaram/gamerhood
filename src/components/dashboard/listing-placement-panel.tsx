@@ -30,7 +30,17 @@ export interface PlacementListingRow {
   printPlacement: StoredPrintPlacement | null;
 }
 
-export function ListingPlacementPanel({ listings }: { listings: PlacementListingRow[] }) {
+export function ListingPlacementPanel({
+  listings,
+  hideDestructiveActions = false,
+}: {
+  listings: PlacementListingRow[];
+  /**
+   * When true, suppresses the per-card "Remove" buttons. Used by the
+   * dedicated edit page so creators don't see two delete entry points.
+   */
+  hideDestructiveActions?: boolean;
+}) {
   const router = useRouter();
   const [rows, setRows] = useState(listings);
   const [active, setActive] = useState<PlacementListingRow | null>(null);
@@ -146,16 +156,18 @@ export function ListingPlacementPanel({ listings }: { listings: PlacementListing
                   >
                     Edit placement
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={() => setPendingDeleteId(row.id)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                    Remove
-                  </Button>
+                  {!hideDestructiveActions && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => setPendingDeleteId(row.id)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                      Remove
+                    </Button>
+                  )}
                 </div>
               </div>
             </Card>

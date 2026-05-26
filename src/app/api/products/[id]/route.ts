@@ -2,7 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getServiceClient } from "@/lib/supabase/admin";
-import { getDefaultProfileForAuthUser } from "@/lib/supabase/queries";
+import {
+  getDefaultProfileForAuthUser,
+  getStorefrontById,
+} from "@/lib/supabase/queries";
 import { decodeDesignDataUrl, uploadProductListingMockup, removeListingMockupFromStorage } from "@/lib/storage";
 import {
   bytesToBase64DataUrl,
@@ -138,6 +141,37 @@ export async function PATCH(
   } else if (Array.isArray(body.tags)) {
     const t = parseTagsInput(body.tags.filter((x) => typeof x === "string").join(","));
     row.tags = t.length ? t : null;
+  }
+
+  // ── Visibility toggle ──
+  // Creators can hide a listing from the public shop without deleting it;
+  // the row stays in their dashboard so they can flip it back on later.
+  if (typeof body.isPublished === "boolean") {
+    row.is_published = body.isPublished;
+  }
+
+  // ── Move between storefronts ──
+  // Re-verify ownership of the target storefront here so a hand-crafted
+  // PATCH can't reassign someone else's product into a different shop.
+  // `null` is allowed and clears the link (legacy/default behavior).
+  if (body.storefrontId !== undefined) {
+    if (body.storefrontId === null) {
+      row.storefront_id = null;
+    } else if (typeof body.storefrontId === "string" && body.storefrontId.length > 0) {
+      const target = await getStorefrontById(supabase, body.storefrontId);
+      if (!target || target.owner_profile_id !== profile.id) {
+        return NextResponse.json(
+          { error: "That storefront isn't yours to move products into." },
+          { status: 403 },
+        );
+      }
+      row.storefront_id = target.id;
+    } else {
+      return NextResponse.json(
+        { error: "storefrontId must be a string id or null." },
+        { status: 400 },
+      );
+    }
   }
 
   if (body.printPlacement !== undefined) {

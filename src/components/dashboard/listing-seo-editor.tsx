@@ -29,7 +29,18 @@ export interface ListingRow {
   printfulCatalogVariantId?: number | null;
 }
 
-export function ListingSeoEditor({ listings }: { listings: ListingRow[] }) {
+export function ListingSeoEditor({
+  listings,
+  hideDestructiveActions = false,
+}: {
+  listings: ListingRow[];
+  /**
+   * When true, suppresses the per-card "Remove listing" buttons. Used by
+   * the dedicated edit page, which surfaces deletion in its own danger
+   * zone so creators don't see two delete buttons on the same screen.
+   */
+  hideDestructiveActions?: boolean;
+}) {
   const router = useRouter();
   const [rows, setRows] = useState(listings);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -145,7 +156,11 @@ export function ListingSeoEditor({ listings }: { listings: ListingRow[] }) {
             row={row}
             rowIndex={i}
             setRows={setRows}
-            onRequestDelete={() => setPendingDeleteId(row.id)}
+            onRequestDelete={
+              hideDestructiveActions
+                ? undefined
+                : () => setPendingDeleteId(row.id)
+            }
             onSaveListing={() => save(row).catch((e) => toast.error(e.message))}
             uploadMockup={(file) => uploadMockupCard(i, file).catch((e) => toast.error(e.message))}
             onRefreshPrintful={() => refreshPrintful(row).catch((e) => toast.error(e.message))}
@@ -188,7 +203,8 @@ function ListingEditorCard({
   row: ListingRow;
   rowIndex: number;
   setRows: Dispatch<SetStateAction<ListingRow[]>>;
-  onRequestDelete: () => void;
+  /** Optional — when omitted, the destructive "Remove listing" button is hidden. */
+  onRequestDelete?: () => void;
   onSaveListing: () => void;
   uploadMockup: (file: File) => void;
   onRefreshPrintful: () => void;
@@ -307,16 +323,18 @@ function ListingEditorCard({
           <RefreshCw className="h-3.5 w-3.5 shrink-0" aria-hidden />
           Sync Printful info
         </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={onRequestDelete}
-        >
-          <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          Remove listing
-        </Button>
+        {onRequestDelete && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={onRequestDelete}
+          >
+            <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            Remove listing
+          </Button>
+        )}
       </div>
     </div>
   );

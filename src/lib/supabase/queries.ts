@@ -200,6 +200,12 @@ export interface ProductRow {
   wholesale_price_cents?: number | null;
   /** US-domestic shipping estimate snapshot at publish time (cents). */
   shipping_estimate_cents?: number | null;
+  /**
+   * Storefront the listing currently lives on. Nullable for legacy rows
+   * published before multi-storefront landed; readers should fall back
+   * to the owner's default storefront when this is null.
+   */
+  storefront_id?: string | null;
   designs?: { image_url: string } | null;
 }
 

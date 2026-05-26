@@ -15,6 +15,7 @@ import {
   LogIn,
   LogOut,
   LayoutDashboard,
+  LayoutGrid,
   Store,
   ChevronDown,
   ExternalLink,
@@ -41,6 +42,7 @@ function buildStorefrontNavItems(shopSlug: string | null): { href: string; label
     items.push({ href: `/shop/${shopSlug}`, label: "View my shop", icon: ExternalLink });
   }
   items.push(
+    { href: "/dashboard/listings", label: "Listings", icon: LayoutGrid },
     { href: "/dashboard/storefront", label: "Storefront settings", icon: Store },
     { href: "/dashboard/categories", label: "SEO categories", icon: Tags },
   );
