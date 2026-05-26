@@ -26,6 +26,7 @@ import {
 import { getMerchPreviewLayout } from "@/lib/create/merch-preview-layout";
 import { getPrintAreaInches } from "@/lib/printful/catalog";
 import { normalizedPlacementToPrintful } from "@/lib/print/placement";
+import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
 
 /** Lowercase + hyphenate + strip non-url-safe chars for QR PNG filenames. */
 function slugifyForFilename(input: string): string {
@@ -293,10 +294,13 @@ function ColorSwatchDot({
 }
 
 /**
- * Renders the listing image. Defaults to the published Printful mockup
- * (which is photographed in the originally-published color). When the
- * shopper picks a different color we composite the design over a
- * silhouette tinted with that color's hex — instant, no API call.
+ * Renders the listing image. The published default color uses the persisted
+ * `mockupUrl` (a Printful-rendered listing photo with the design already
+ * composited). For any other color we look up a per-color blank from
+ * `/api/printful/blank-photo` (Track A in the cache — re-hosted catalog
+ * photo) and composite the design over it at the saved placement. The
+ * tinted SVG silhouette stays as a last-resort fallback while the per-
+ * color blank is loading or fully unavailable.
  */
 function ProductMockupImage({
   product,
@@ -315,6 +319,15 @@ function ProductMockupImage({
   );
   const hasDesign = !!product.designImageUrl?.trim();
 
+  /**
+   * Per-color blank fetch. We always invoke the hook (rules of hooks) but
+   * skip the network call for the default color by passing `null`.
+   */
+  const { url: blankPhotoUrl, loading: blankLoading } = usePrintfulBlankPhoto(
+    product.productType,
+    isDefaultColor ? null : selectedColor,
+  );
+
   if (isDefaultColor && canRenderMockup) {
     return (
       <Image
@@ -329,18 +342,34 @@ function ProductMockupImage({
   }
 
   /**
-   * Non-default color: we don't have a per-color mockup in the DB cache
-   * (the `printful_blank_mockups` table is keyed by product_type, and
-   * generating a Berry/Aqua/Berry blank inline would block the page for
-   * ~30 s). Show a colored silhouette + composite design so the shopper
-   * still sees their color choice reflected on the garment shape.
+   * Non-default color happy path: the per-color blank photo is cached → we
+   * composite the design on top. Transparent regions of the design show
+   * the photographic garment color through, so heathered colors look
+   * heathered (not flat) and there's no checkerboard fallback for alpha.
    */
-  if (hasDesign) {
+  if (!isDefaultColor && hasDesign && blankPhotoUrl) {
+    return (
+      <PhotographicColorMockup
+        product={product}
+        photoUrl={blankPhotoUrl}
+        colorName={selectedColor}
+      />
+    );
+  }
+
+  /**
+   * Last-resort fallback for non-default colors: tinted silhouette while
+   * the blank is still being warmed (or if Printful didn't ship a catalog
+   * photo for this variant). Subtle "Loading…" hint so the buyer knows a
+   * better preview is on its way.
+   */
+  if (!isDefaultColor && hasDesign) {
     return (
       <ColoredGarmentMockup
         product={product}
         swatch={swatch}
         colorName={selectedColor}
+        loading={blankLoading}
       />
     );
   }
@@ -377,19 +406,122 @@ function ProductMockupImage({
 }
 
 /**
+ * Composite the saved design over a real per-color Printful blank photo.
+ * Same placement geometry as `MerchPlacementPreview` — the design's
+ * transparent pixels reveal the garment beneath, so heathers stay
+ * heathered and there's no synthetic backdrop for transparent regions.
+ */
+function PhotographicColorMockup({
+  product,
+  photoUrl,
+  colorName,
+}: {
+  product: Product;
+  photoUrl: string;
+  colorName: string;
+}) {
+  const baseLayout = getMerchPreviewLayout(product.productType);
+  const layout = baseLayout.photoBand
+    ? { ...baseLayout, ...baseLayout.photoBand }
+    : baseLayout;
+  const area = getPrintAreaInches(product.productType);
+  const Aw = area?.width ?? 12;
+  const Ah = area?.height ?? 15;
+  const pf = normalizedPlacementToPrintful({
+    areaWidthIn: Aw,
+    areaHeightIn: Ah,
+    placement: product.printPlacement ?? DEFAULT_STORED,
+  });
+  const designImageUrl = product.designImageUrl ?? "";
+
+  return (
+    <div
+      className="relative h-full w-full overflow-hidden bg-secondary"
+      role="img"
+      aria-label={`${product.title} preview in ${colorName}`}
+    >
+      <div className="absolute inset-0">
+        <Image
+          src={photoUrl}
+          alt=""
+          fill
+          sizes="(max-width: 1024px) 100vw, 50vw"
+          className="object-contain"
+          unoptimized
+          draggable={false}
+        />
+      </div>
+
+      {/**
+       * Design overlay — positioned at the same percentages used by the
+       * placement editor + storefront card. No background fill so
+       * transparent areas of the design show the garment photo through.
+       */}
+      <div
+        className={
+          layout.printBandLeftPct != null && layout.printBandWidthPct != null
+            ? "pointer-events-none absolute flex items-center justify-center"
+            : "pointer-events-none absolute left-1 right-1 flex items-center justify-center sm:left-2 sm:right-2"
+        }
+        style={{
+          top: `${layout.printBandTopPct}%`,
+          bottom: `${layout.printBandBottomPct}%`,
+          ...(layout.printBandLeftPct != null && layout.printBandWidthPct != null
+            ? {
+                left: `${layout.printBandLeftPct}%`,
+                width: `${layout.printBandWidthPct}%`,
+              }
+            : {}),
+        }}
+      >
+        <div
+          className="relative max-h-full overflow-visible"
+          style={{
+            aspectRatio: `${Aw} / ${Ah}`,
+            width: `${layout.printMaxWidthPct}%`,
+          }}
+        >
+          <div
+            className="pointer-events-none absolute"
+            style={{
+              width: `${(pf.width / pf.area_width) * 100}%`,
+              height: `${(pf.height / pf.area_height) * 100}%`,
+              left: `${(pf.left / pf.area_width) * 100}%`,
+              top: `${(pf.top / pf.area_height) * 100}%`,
+            }}
+          >
+            <Image
+              src={designImageUrl}
+              alt=""
+              fill
+              sizes="(max-width: 1024px) 100vw, 50vw"
+              className="object-contain object-center"
+              unoptimized
+              draggable={false}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * Silhouette filled with the selected garment color, with the creator's
- * design composited on top at the saved print placement. Used as the v1
- * stand-in for a Printful-rendered per-color mockup, which we don't cache
- * per (product_type, color) today.
+ * design composited on top at the saved print placement. Last-resort
+ * fallback used while the per-color photo is being warmed or when
+ * Printful doesn't ship a catalog photo for the variant.
  */
 function ColoredGarmentMockup({
   product,
   swatch,
   colorName,
+  loading = false,
 }: {
   product: Product;
   swatch: ColorSwatch;
   colorName: string;
+  loading?: boolean;
 }) {
   const layout = getMerchPreviewLayout(product.productType);
   const area = getPrintAreaInches(product.productType);
@@ -519,6 +651,13 @@ function ColoredGarmentMockup({
           </div>
         </div>
       </div>
+      {loading && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+          <span className="rounded-full bg-background/80 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
+            Loading high-res preview…
+          </span>
+        </div>
+      )}
     </div>
   );
 }

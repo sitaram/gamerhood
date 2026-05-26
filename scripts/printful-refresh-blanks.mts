@@ -3,23 +3,30 @@
  * Invoked from `scripts/printful-refresh-blanks.mjs` (which loads `.env.local`
  * and spawns `tsx` against this file so we can import `src/lib/printful/*`).
  *
+ * Post-030 schema: rows are keyed by `catalog_variant_id`, so the warmer
+ * iterates every *color variant* of each product type — a Track A (per-
+ * color catalog photo) round-trip per variant. Track B (mockup-tasks)
+ * stays as a fallback for the env-default variant only.
+ *
  * Usage flags are forwarded by the wrapper:
- *   (no args)   warm only missing types
- *   --force     regenerate every type
- *   <type ...>  only the named ProductType(s)
+ *   (no args)            warm only missing variants
+ *   --force              regenerate every variant (deletes cached rows first)
+ *   --product=hoodie     only the named ProductType (repeatable)
+ *   <type ...>           same as --product= but positional
  */
 
-/**
- * Dynamic import + namespace destructure avoids tsx's ESM/CJS interop quirk
- * (the project has no `"type": "module"`, so `.ts` files are treated as CJS
- * and importing named exports from an `.mts` file fails).
- */
 const mockupMod = await import("../src/lib/printful/blank-mockup.ts");
 const adminMod = await import("../src/lib/supabase/admin.ts");
 const catalogMod = await import("../src/lib/printful/catalog.ts");
-const { generateFlatBlankMockup } = mockupMod;
+const clientMod = await import("../src/lib/printful/client.ts");
+
+const {
+  getOrGenerateBlankForVariantId,
+  listColorVariantsForCatalogProduct,
+} = mockupMod;
 const { getServiceClient } = adminMod;
 const { getCatalogConfig } = catalogMod;
+const { printfulRequest } = clientMod;
 
 type ProductType = string;
 
@@ -49,13 +56,18 @@ const ALL_TYPES: ProductType[] = [
 
 const args = process.argv.slice(2);
 const force = args.includes("--force");
-const only = args.filter((a) => !a.startsWith("--")) as ProductType[];
+const productFilters = args
+  .filter((a) => a.startsWith("--product="))
+  .map((a) => a.slice("--product=".length));
+const positional = args.filter((a) => !a.startsWith("--")) as ProductType[];
+const only = [...productFilters, ...positional];
 
 const targets = only.length ? ALL_TYPES.filter((t) => only.includes(t)) : ALL_TYPES;
 
-let ok = 0;
-let skipped = 0;
-let failed = 0;
+let okVariants = 0;
+let skippedVariants = 0;
+let failedVariants = 0;
+let cachedVariants = 0;
 
 function sleep(ms: number) {
   return new Promise<void>((r) => setTimeout(r, ms));
@@ -70,88 +82,160 @@ function rateLimitDelayMs(err: unknown): number | null {
   return null;
 }
 
-/** Generous default spacing between SKUs so we stay under Printful's burst limit. */
-const INTER_REQUEST_DELAY_MS = 6_000;
+/**
+ * Track A is a single catalog-variants fetch + one Supabase Storage upload
+ * per color — way cheaper than mockup-tasks. We can run a tighter inter-
+ * request delay than the legacy script used (which was tuned for the slow
+ * mockup-tasks path).
+ */
+const INTER_REQUEST_DELAY_MS = 1_200;
 
 const supabase = getServiceClient();
 
-let firstAttempt = true;
+interface VariantRow {
+  variantId: number;
+  colorName: string;
+  colorHex: string | null;
+  hasCatalogPhoto: boolean;
+}
+
+/**
+ * Resolve `catalog_product_id` for a product type by hitting Printful's
+ * `/catalog-variants/{default_variant_id}` once. We don't trust the cached
+ * DB row here because `--force` runs may have just deleted it.
+ */
+async function resolveCatalogProductId(productType: ProductType): Promise<number | null> {
+  const cfg = getCatalogConfig(productType as never);
+  if (!cfg) return null;
+  try {
+    const res = await printfulRequest<{ data?: { catalog_product_id?: number } }>(
+      `/catalog-variants/${cfg.catalogVariantId}`,
+    );
+    const id = res.data?.catalog_product_id;
+    return typeof id === "number" ? id : null;
+  } catch (err) {
+    console.warn(
+      "[printful-refresh-blanks] catalog-variants fetch failed",
+      productType,
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
+console.log("[printful-refresh-blanks] starting", {
+  targets,
+  force,
+  productFilters: only,
+});
 
 for (const type of targets) {
-  process.stdout.write(`  ${type.padEnd(22)} … `);
+  process.stdout.write(`\n${type}\n`);
 
   const cfg = getCatalogConfig(type as never);
   if (!cfg) {
-    process.stdout.write("skipped (no PRINTFUL_<TYPE>_VARIANT_ID configured)\n");
-    skipped++;
+    process.stdout.write(`  skipped (no PRINTFUL_<TYPE>_VARIANT_ID configured)\n`);
     continue;
   }
 
-  if (!force) {
-    const { data: existing } = await supabase
+  const catalogProductId = await resolveCatalogProductId(type);
+  if (!catalogProductId) {
+    process.stdout.write(`  FAIL: could not resolve catalog_product_id\n`);
+    continue;
+  }
+
+  /**
+   * One variant per unique color from the catalog. The image on a Black/S
+   * variant is identical to Black/M / Black/L (Printful photographs at the
+   * color level, not size), so we don't need to warm one row per size.
+   */
+  const variants = (await listColorVariantsForCatalogProduct(catalogProductId)) as VariantRow[];
+  if (!variants.length) {
+    process.stdout.write(`  FAIL: 0 variants returned for catalog_product_id=${catalogProductId}\n`);
+    continue;
+  }
+  process.stdout.write(`  catalog_product_id=${catalogProductId}, ${variants.length} colors\n`);
+
+  /** Always include the env-default variant id even if the catalog-products
+   * variants endpoint deduped it under a different size. */
+  const seenIds = new Set(variants.map((v) => v.variantId));
+  if (!seenIds.has(cfg.catalogVariantId)) {
+    variants.unshift({
+      variantId: cfg.catalogVariantId,
+      colorName: "Default",
+      colorHex: null,
+      hasCatalogPhoto: false,
+    });
+  }
+
+  if (force) {
+    const ids = variants.map((v) => v.variantId);
+    const { error: delErr } = await supabase
       .from("printful_blank_mockups")
-      .select("mockup_url")
-      .eq("product_type", type)
-      .maybeSingle();
-    if (existing?.mockup_url) {
-      process.stdout.write(`cached  ${existing.mockup_url}\n`);
-      ok++;
-      continue;
+      .delete()
+      .in("catalog_variant_id", ids);
+    if (delErr) {
+      process.stdout.write(`  WARN: delete-on-force failed: ${delErr.message}\n`);
+    } else {
+      process.stdout.write(`  cleared ${ids.length} cached rows\n`);
     }
   }
 
-  if (!firstAttempt) await sleep(INTER_REQUEST_DELAY_MS);
-  firstAttempt = false;
+  let firstAttemptForType = true;
+  for (const v of variants) {
+    const label = `    ${String(v.variantId).padEnd(7)} ${v.colorName.padEnd(30)} `;
 
-  let attempt = 0;
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    try {
-      const generated = await generateFlatBlankMockup(type as never);
-      if (!generated) {
-        process.stdout.write("FAIL  (generator returned null)\n");
-        failed++;
-        break;
-      }
-      const { error: upsertErr } = await supabase
+    if (!force) {
+      const { data: existing } = await supabase
         .from("printful_blank_mockups")
-        .upsert(
-          {
-            product_type: type,
-            mockup_url: generated.url,
-            catalog_product_id: generated.catalogProductId,
-            catalog_variant_id: generated.catalogVariantId,
-            mockup_style_id: generated.mockupStyleId,
-            technique: cfg.technique,
-            placement: cfg.placement,
-            print_area_width_in: generated.printArea?.width ?? null,
-            print_area_height_in: generated.printArea?.height ?? null,
-            generated_at: new Date().toISOString(),
-          },
-          { onConflict: "product_type" },
-        );
-      if (upsertErr) {
-        process.stdout.write(`FAIL  upsert: ${upsertErr.message}\n`);
-        failed++;
-        break;
-      }
-      process.stdout.write(`ok  ${generated.url}\n`);
-      ok++;
-      break;
-    } catch (err) {
-      const wait = rateLimitDelayMs(err);
-      if (wait && attempt < 3) {
-        process.stdout.write(`429, retrying in ${Math.round(wait / 1000)}s … `);
-        await sleep(wait);
-        attempt++;
+        .select("mockup_url")
+        .eq("catalog_variant_id", v.variantId)
+        .maybeSingle();
+      if (existing?.mockup_url) {
+        process.stdout.write(`${label}cached\n`);
+        cachedVariants++;
         continue;
       }
-      process.stdout.write(`FAIL  ${err instanceof Error ? err.message : String(err)}\n`);
-      failed++;
-      break;
+    }
+
+    if (!firstAttemptForType) await sleep(INTER_REQUEST_DELAY_MS);
+    firstAttemptForType = false;
+
+    let attempt = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        const row = await getOrGenerateBlankForVariantId(v.variantId, type as never, {
+          colorName: v.colorName,
+          colorHex: v.colorHex,
+        });
+        if (!row?.mockup_url) {
+          process.stdout.write(`${label}FAIL  (generator returned null)\n`);
+          failedVariants++;
+          break;
+        }
+        process.stdout.write(`${label}ok  (${row.source ?? "?"})\n`);
+        okVariants++;
+        break;
+      } catch (err) {
+        const wait = rateLimitDelayMs(err);
+        if (wait && attempt < 3) {
+          process.stdout.write(`${label}429, retrying in ${Math.round(wait / 1000)}s …\n`);
+          await sleep(wait);
+          attempt++;
+          continue;
+        }
+        process.stdout.write(
+          `${label}FAIL  ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+        failedVariants++;
+        break;
+      }
     }
   }
 }
 
-console.log(`\nDone — ok=${ok} skipped=${skipped} failed=${failed}`);
-process.exit(failed > 0 ? 1 : 0);
+console.log(
+  `\nDone — variants ok=${okVariants} cached=${cachedVariants} skipped=${skippedVariants} failed=${failedVariants}`,
+);
+process.exit(failedVariants > 0 ? 1 : 0);

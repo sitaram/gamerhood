@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import {
   insertDesign,
@@ -11,6 +12,10 @@ import { getCatalogConfig, printfulCatalogVariantEnvName } from "@/lib/printful/
 import { isPrintfulConfigured } from "@/lib/printful/client";
 import { generateListingMockupUrl } from "@/lib/printful/mockups";
 import { augmentMerchFromPrintfulCatalog } from "@/lib/printful/catalog-meta";
+import {
+  getOrGenerateBlankForVariantId,
+  listColorVariantsForCatalogProduct,
+} from "@/lib/printful/blank-mockup";
 import {
   apparelSizes,
   storefrontColors,
@@ -322,6 +327,16 @@ export async function POST(request: NextRequest) {
       printfulCatalogVariantId: number | null;
     }[] = [];
 
+    /**
+     * Catalog product ids of the SKUs we just published. Used by the
+     * post-response `after()` block to warm per-color blank photos for
+     * every color variant — so the buyer's color picker shows real
+     * photographic blanks instead of the abstract silhouette fallback.
+     * Deduped by catalog_product_id so two products with the same blueprint
+     * (e.g. two hoodies) only trigger one Printful warm round.
+     */
+    const warmTargets = new Map<number, ProductType>();
+
     const publishFailures: { productType: string; message: string }[] = [];
 
     for (const productType of body.productTypes) {
@@ -440,6 +455,9 @@ export async function POST(request: NextRequest) {
         id: product.id,
         printfulCatalogVariantId: catalog?.catalogVariantId ?? null,
       });
+      if (printfulCatalogProductId) {
+        warmTargets.set(printfulCatalogProductId, productType);
+      }
     }
 
     // ── XP awards ────────────────────────────────────────────────
@@ -509,6 +527,51 @@ export async function POST(request: NextRequest) {
           );
         }
       }
+    }
+
+    /**
+     * Fire-and-forget per-color blank warmer. By the time the buyer reaches
+     * the product page (~seconds after publish), every color swatch has a
+     * real photographic blank in the cache so `ProductMockupImage` can
+     * render the photo instead of the abstract silhouette. We never await
+     * this — `after()` runs after the response is flushed; failures are
+     * logged but never bubble up to the publish call.
+     */
+    if (isPrintfulConfigured() && warmTargets.size > 0) {
+      after(async () => {
+        for (const [catalogProductId, productType] of warmTargets) {
+          try {
+            const variants = await listColorVariantsForCatalogProduct(catalogProductId);
+            console.log("[Publish.warm] starting", {
+              productType,
+              catalogProductId,
+              variantCount: variants.length,
+            });
+            for (const v of variants) {
+              try {
+                await getOrGenerateBlankForVariantId(v.variantId, productType, {
+                  colorName: v.colorName,
+                  colorHex: v.colorHex,
+                });
+              } catch (e) {
+                console.warn("[Publish.warm] variant failed", {
+                  productType,
+                  variantId: v.variantId,
+                  color: v.colorName,
+                  error: e instanceof Error ? e.message : String(e),
+                });
+              }
+            }
+            console.log("[Publish.warm] finished", { productType, catalogProductId });
+          } catch (err) {
+            console.warn("[Publish.warm] product type failed", {
+              productType,
+              catalogProductId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+      });
     }
 
     return NextResponse.json({

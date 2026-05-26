@@ -5,6 +5,23 @@ import type { ProductType } from "@/lib/types";
 
 type Status = "idle" | "loading" | "ready" | "unavailable";
 
+/**
+ * Pixel-space rectangle for the printable area on the rendered mockup
+ * image. Sourced from Printful's v1 mockup-generator/templates endpoint
+ * and persisted in `printful_blank_mockups` (`mockup_*_px`,
+ * `print_area_*_px`). Re-exported here so the placement editor / print-
+ * frame helpers can resolve the cyan rectangle without reaching into the
+ * server-side cache types.
+ */
+export interface BlankPrintRect {
+  mockupWidthPx: number;
+  mockupHeightPx: number;
+  xPx: number;
+  yPx: number;
+  wPx: number;
+  hPx: number;
+}
+
 interface CacheEntry {
   status: Status;
   url: string | null;
@@ -12,9 +29,9 @@ interface CacheEntry {
   area: { width: number; height: number } | null;
 }
 
-/** Shared across all components mounted in the same browser tab. */
-const browserCache = new Map<ProductType, CacheEntry>();
-const pending = new Map<ProductType, Promise<void>>();
+/** Shared across all components mounted in the same browser tab. Keyed by `productType[::color]`. */
+const browserCache = new Map<string, CacheEntry>();
+const pending = new Map<string, Promise<void>>();
 
 /**
  * The blank mockup may need ~10–30 s to render on the Printful side the first
@@ -33,16 +50,23 @@ interface FetchOnceResult {
   area: { width: number; height: number } | null;
 }
 
-async function fetchOnce(productType: ProductType): Promise<FetchOnceResult | null> {
-  console.log("[blank-mockup-client] fetch start", { productType });
+function cacheKey(productType: ProductType, color?: string | null): string {
+  return color ? `${productType}::${color.toLowerCase()}` : productType;
+}
+
+async function fetchOnce(
+  productType: ProductType,
+  color: string | null,
+): Promise<FetchOnceResult | null> {
+  console.log("[blank-mockup-client] fetch start", { productType, color });
   try {
-    const res = await fetch(
-      `/api/printful/blank-photo?type=${encodeURIComponent(productType)}`,
-      { cache: "no-store" },
-    );
+    const qs = new URLSearchParams({ type: productType });
+    if (color) qs.set("color", color);
+    const res = await fetch(`/api/printful/blank-photo?${qs.toString()}`, { cache: "no-store" });
     if (!res.ok) {
       console.warn("[blank-mockup-client] fetch non-OK", {
         productType,
+        color,
         httpStatus: res.status,
       });
       return null;
@@ -65,6 +89,7 @@ async function fetchOnce(productType: ProductType): Promise<FetchOnceResult | nu
     };
     console.log("[blank-mockup-client] fetch result", {
       productType,
+      color,
       status: result.status,
       url: result.url,
       area: result.area,
@@ -73,6 +98,7 @@ async function fetchOnce(productType: ProductType): Promise<FetchOnceResult | nu
   } catch (err) {
     console.warn("[blank-mockup-client] fetch threw", {
       productType,
+      color,
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
@@ -80,25 +106,31 @@ async function fetchOnce(productType: ProductType): Promise<FetchOnceResult | nu
 }
 
 /**
- * Drives the cache for one ProductType. Resolves once we reach a terminal
- * state (`ready` or `unavailable`); intermediate `generating` responses
- * trigger another poll after a bounded backoff. Multiple in-flight callers
- * for the same type share a single promise via the `pending` map.
+ * Drives the cache for one (productType, color) pair. Resolves once we
+ * reach a terminal state (`ready` or `unavailable`); intermediate
+ * `generating` responses trigger another poll after a bounded backoff.
+ * Multiple in-flight callers for the same key share a single promise.
  */
-function ensureFetch(productType: ProductType, onChange: () => void): Promise<void> {
-  const inFlight = pending.get(productType);
+function ensureFetch(
+  productType: ProductType,
+  color: string | null,
+  onChange: () => void,
+): Promise<void> {
+  const key = cacheKey(productType, color);
+  const inFlight = pending.get(key);
   if (inFlight) return inFlight;
 
   const p = (async () => {
     let attempt = 0;
     while (true) {
-      const r = await fetchOnce(productType);
+      const r = await fetchOnce(productType, color);
 
       if (!r) {
         console.warn("[blank-mockup-client] terminal: fetch failed → SVG fallback", {
           productType,
+          color,
         });
-        browserCache.set(productType, { status: "unavailable", url: null, area: null });
+        browserCache.set(key, { status: "unavailable", url: null, area: null });
         onChange();
         return;
       }
@@ -106,9 +138,10 @@ function ensureFetch(productType: ProductType, onChange: () => void): Promise<vo
       if (r.status === "ready" && r.url) {
         console.log("[blank-mockup-client] terminal: ready", {
           productType,
+          color,
           url: r.url,
         });
-        browserCache.set(productType, { status: "ready", url: r.url, area: r.area });
+        browserCache.set(key, { status: "ready", url: r.url, area: r.area });
         onChange();
         return;
       }
@@ -116,21 +149,23 @@ function ensureFetch(productType: ProductType, onChange: () => void): Promise<vo
       if (r.status === "unavailable") {
         console.warn("[blank-mockup-client] terminal: server says unavailable → SVG fallback", {
           productType,
+          color,
         });
-        browserCache.set(productType, { status: "unavailable", url: null, area: r.area });
+        browserCache.set(key, { status: "unavailable", url: null, area: r.area });
         onChange();
         return;
       }
 
       /** "generating" — back off and poll again. */
-      if (browserCache.get(productType)?.status !== "loading") {
-        browserCache.set(productType, { status: "loading", url: null, area: r.area });
+      if (browserCache.get(key)?.status !== "loading") {
+        browserCache.set(key, { status: "loading", url: null, area: r.area });
         onChange();
       }
       const delay = POLL_DELAYS_MS[Math.min(attempt, POLL_DELAYS_MS.length - 1)];
       attempt += 1;
       console.log("[blank-mockup-client] generating — backing off", {
         productType,
+        color,
         attempt,
         delayMs: delay,
       });
@@ -138,28 +173,37 @@ function ensureFetch(productType: ProductType, onChange: () => void): Promise<vo
         /** Give up after ~90 s — the SVG silhouette continues to render. */
         console.warn("[blank-mockup-client] gave up after polling — SVG fallback", {
           productType,
+          color,
           attempts: attempt,
         });
-        browserCache.set(productType, { status: "unavailable", url: null, area: null });
+        browserCache.set(key, { status: "unavailable", url: null, area: null });
         onChange();
         return;
       }
       await sleep(delay);
     }
   })().finally(() => {
-    pending.delete(productType);
+    pending.delete(key);
   });
 
-  pending.set(productType, p);
+  pending.set(key, p);
   return p;
 }
 
 /**
- * Returns the Printful flat blank photo URL for a product type, or `null`
- * (with `loading: true`) while the first-time mockup task renders. Callers
- * should display the SVG silhouette as a fallback when `url` is null.
+ * Returns the Printful flat blank photo URL for a product type / color, or
+ * `null` (with `loading: true`) while the first-time mockup task renders.
+ * Callers should display the SVG silhouette as a fallback when `url` is
+ * null.
+ *
+ * Pass a non-null `color` to fetch the per-color photo (Track A in the
+ * server-side cache). Omit it for the env-default variant (the placement
+ * editor + product card use this path).
  */
-export function usePrintfulBlankPhoto(productType: ProductType): {
+export function usePrintfulBlankPhoto(
+  productType: ProductType,
+  color?: string | null,
+): {
   url: string | null;
   loading: boolean;
   /**
@@ -170,22 +214,23 @@ export function usePrintfulBlankPhoto(productType: ProductType): {
   area: { width: number; height: number } | null;
 } {
   const [, setTick] = useState(0);
+  const key = cacheKey(productType, color);
 
   useEffect(() => {
-    const existing = browserCache.get(productType);
+    const existing = browserCache.get(key);
     if (existing && (existing.status === "ready" || existing.status === "unavailable")) {
       return;
     }
     let cancelled = false;
-    ensureFetch(productType, () => {
+    ensureFetch(productType, color ?? null, () => {
       if (!cancelled) setTick((t) => t + 1);
     });
     return () => {
       cancelled = true;
     };
-  }, [productType]);
+  }, [productType, color, key]);
 
-  const entry = browserCache.get(productType);
+  const entry = browserCache.get(key);
   return {
     url: entry?.status === "ready" ? entry.url : null,
     loading: !entry || entry.status === "loading",

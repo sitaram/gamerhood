@@ -30,29 +30,40 @@ const KNOWN_TYPES = new Set<ProductType>([
 
 /**
  * Returns `{ url, status, printArea }` for the flat blank product mockup of a given product type.
- *   - status="ready"        — `url` is a Printful CDN URL safe to use as a backdrop
+ *   - status="ready"        — `url` is a re-hosted Supabase URL safe to use as a backdrop
  *   - status="generating"   — first-time generation in flight (client should re-poll)
  *   - status="unavailable"  — Printful not configured or catalog mapping missing
  *   - printArea             — `{ width, height }` in inches from Printful's
  *                             `placement_dimensions` (when cached); falls back
  *                             to hardcoded DEFAULT_PRINT_AREA_IN on the client.
  *
+ * Query params:
+ *   - `type`   ProductType — required
+ *   - `color`  optional color name (e.g. "Heather Sport Dark Navy") — when
+ *              set, resolves the variant for that color and serves the
+ *              per-color blank photo; cache is keyed by
+ *              (product_type, color_name) on the server.
+ *
  * Mockups + print area dims are cached in `printful_blank_mockups` (DB) plus
- * an in-process memo. Generation takes ~10–30 s for a cold SKU; the route
- * returns "generating" immediately and finishes the job in the background.
+ * an in-process memo. Track A (catalog photo) is ~1 s for a cold variant;
+ * Track B (mockup-tasks) is ~10–30 s. The route returns "generating"
+ * immediately when it kicks off Track A in the background.
  */
 export async function GET(request: NextRequest) {
   const type = request.nextUrl.searchParams.get("type");
-  console.log("[blank-mockup-api] received", { productType: type });
+  const colorRaw = request.nextUrl.searchParams.get("color");
+  const color = colorRaw && colorRaw.trim() ? colorRaw.trim() : null;
+  console.log("[blank-mockup-api] received", { productType: type, color });
 
   if (!type || !KNOWN_TYPES.has(type as ProductType)) {
     console.warn("[blank-mockup-api] rejected unknown product type", { productType: type });
     return NextResponse.json({ error: "Unknown product type" }, { status: 400 });
   }
 
-  const result = await getBlankPhotoForProductType(type as ProductType);
+  const result = await getBlankPhotoForProductType(type as ProductType, color);
   console.log("[blank-mockup-api] responded", {
     productType: type,
+    color,
     status: result.status,
     hasUrl: Boolean(result.url),
     url: result.url,

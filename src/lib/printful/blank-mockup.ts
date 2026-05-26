@@ -69,6 +69,12 @@ export interface BlankMockupRow {
   /** From `placement_dimensions[placement].width` (inches). Overrides hardcoded DEFAULT_PRINT_AREA_IN. */
   print_area_width_in: number | null;
   print_area_height_in: number | null;
+  /** Printful catalog color name for this variant (post-030 schema). */
+  color_name?: string | null;
+  /** `color_code` from /catalog-variants/{id} (post-030 schema). */
+  color_hex?: string | null;
+  /** "catalog_image" (Track A) or "mockup_task" (Track B). */
+  source?: string | null;
   generated_at: string;
 }
 
@@ -124,13 +130,24 @@ interface PlacementDim {
 interface CatalogVariantSummary {
   catalogProductId: number | null;
   placementDims: PlacementDim[];
+  /**
+   * Per-variant blank product photo from Printful's catalog (e.g.
+   * `https://files.cdn.printful.com/products/146/9220_…jpg`). Per the v2
+   * docs this is the studio flat shot in the variant's actual color —
+   * stable, not an expiring `/tmp/` URL like mockup-tasks output. Empty
+   * string when Printful didn't ship one (rare, accessory SKUs).
+   */
+  imageUrl: string | null;
+  colorName: string | null;
+  colorHex: string | null;
 }
 
 /**
- * Fetch the variant's `catalog_product_id` AND its `placement_dimensions[]`
- * in a single call. Printful exposes per-placement print-area sizes (in
- * inches) here, which we cache so the editor can size its print box to
- * the real SKU instead of a hardcoded default.
+ * Fetch the variant's `catalog_product_id`, `placement_dimensions[]`,
+ * `image`, and color metadata in a single call. Printful exposes per-
+ * placement print-area sizes (in inches) here as well as the per-color
+ * blank product photo we use as the storefront backdrop for non-default
+ * colors (Track A in `getOrGenerateBlankForVariantId`).
  */
 async function fetchCatalogVariantSummary(catalogVariantId: number): Promise<CatalogVariantSummary> {
   try {
@@ -138,20 +155,111 @@ async function fetchCatalogVariantSummary(catalogVariantId: number): Promise<Cat
       data?: {
         catalog_product_id?: number;
         placement_dimensions?: PlacementDim[];
+        image?: string;
+        product_image?: string;
+        color?: string;
+        color_code?: string;
       };
     }>(`/catalog-variants/${catalogVariantId}`);
     const data = res.data ?? {};
+    const rawImage =
+      (typeof data.image === "string" && data.image.trim()) ||
+      (typeof data.product_image === "string" && data.product_image.trim()) ||
+      "";
     return {
       catalogProductId: typeof data.catalog_product_id === "number" ? data.catalog_product_id : null,
       placementDims: Array.isArray(data.placement_dimensions) ? data.placement_dimensions : [],
+      imageUrl: rawImage || null,
+      colorName: typeof data.color === "string" && data.color.trim() ? data.color.trim() : null,
+      colorHex: typeof data.color_code === "string" && data.color_code.trim() ? data.color_code.trim() : null,
     };
   } catch (err) {
     console.warn(
       "[Printful blank-mockup] catalog-variants fetch failed:",
       err instanceof Error ? err.message : err,
     );
-    return { catalogProductId: null, placementDims: [] };
+    return {
+      catalogProductId: null,
+      placementDims: [],
+      imageUrl: null,
+      colorName: null,
+      colorHex: null,
+    };
   }
+}
+
+/**
+ * Page through `/catalog-products/{id}/catalog-variants` and return one
+ * representative variant per unique color name. The caller uses this to
+ * warm a single per-color blank without enumerating every size×color SKU
+ * (most apparel ships ~5 sizes × ~10 colors = ~50 variants; we only need
+ * 10 photos because the color photo is identical across sizes).
+ */
+export interface CatalogColorVariant {
+  variantId: number;
+  colorName: string;
+  colorHex: string | null;
+  /** Set when Printful returned a non-empty `image` for the variant — Track A is viable. */
+  imageUrl: string | null;
+}
+
+export async function listColorVariantsForCatalogProduct(
+  catalogProductId: number,
+): Promise<CatalogColorVariant[]> {
+  if (!isPrintfulConfigured()) return [];
+
+  const seen = new Map<string, CatalogColorVariant>();
+  const limit = 100;
+  let offset = 0;
+
+  while (offset < 2_000) {
+    let page;
+    try {
+      page = await printfulRequest<{
+        data?: Array<{
+          id?: number;
+          color?: string;
+          color_code?: string;
+          image?: string;
+          product_image?: string;
+        }>;
+        paging?: { total?: number; offset?: number; limit?: number };
+      }>(`/catalog-products/${catalogProductId}/catalog-variants?offset=${offset}&limit=${limit}`);
+    } catch (err) {
+      console.warn("[Printful blank-mockup] catalog-variants list failed", {
+        catalogProductId,
+        offset,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      break;
+    }
+
+    const rows = Array.isArray(page.data) ? page.data : [];
+    for (const v of rows) {
+      const id = typeof v.id === "number" ? v.id : null;
+      const name = typeof v.color === "string" ? v.color.trim() : "";
+      if (!id || !name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      const rawImage =
+        (typeof v.image === "string" && v.image.trim()) ||
+        (typeof v.product_image === "string" && v.product_image.trim()) ||
+        "";
+      seen.set(key, {
+        variantId: id,
+        colorName: name,
+        colorHex:
+          typeof v.color_code === "string" && v.color_code.trim() ? v.color_code.trim() : null,
+        imageUrl: rawImage || null,
+      });
+    }
+
+    const total = page.paging?.total ?? rows.length;
+    offset += rows.length || limit;
+    if (rows.length < limit || offset >= total) break;
+  }
+
+  return [...seen.values()];
 }
 
 /** First `placement_dimensions` entry whose `placement` matches; sizes may be 0/missing on some embroidery SKUs. */
@@ -379,14 +487,16 @@ export async function generateFlatBlankMockup(
    * raw Printful URL — the editor will still work for a while, and the next
    * cache refresh will retry the upload.
    */
-  const rehosted = await rehostMockupToStorage(productType, printfulUrl).catch((err) => {
-    console.warn("[blank-mockup] generate: re-host to Supabase failed", {
-      productType,
-      printfulUrl,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  });
+  const rehosted = await rehostImageToStorage(`v-${cfg.catalogVariantId}`, printfulUrl).catch(
+    (err) => {
+      console.warn("[blank-mockup] generate: re-host to Supabase failed", {
+        productType,
+        printfulUrl,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    },
+  );
   if (rehosted) {
     console.log("[blank-mockup] generate: re-hosted to Supabase", {
       productType,
@@ -409,19 +519,25 @@ export async function generateFlatBlankMockup(
 }
 
 /**
- * Download `sourceUrl` from Printful's temporary S3 bucket and re-upload the
- * JPEG into our own public `design-images` bucket at a stable path. Returns
- * the durable Supabase public URL.
+ * Download `sourceUrl` and re-upload the bytes into our own public
+ * `design-images` bucket at a stable path. Returns the durable Supabase
+ * public URL.
  *
- * Critical: Printful's mockup-tasks API returns URLs under
- * `printful-upload.s3-accelerate.amazonaws.com/tmp/<uuid>/<filename>` and
- * those `/tmp/` objects expire (S3 starts returning 403 within days). Storing
- * that ephemeral URL in `printful_blank_mockups` silently bricked the
- * placement editor backdrop in production. By copying the bytes into our own
- * bucket the URL is stable for the lifetime of the row.
+ * Why we re-host:
+ *   - Mockup-tasks output (`printful-upload.s3-accelerate.amazonaws.com/tmp/`)
+ *     expires within days; storing that URL in `printful_blank_mockups`
+ *     silently brick'd the placement editor in production.
+ *   - Catalog variant photos on `files.cdn.printful.com` are stable, but
+ *     re-hosting them lets us serve every blank from one CDN with one
+ *     cache-control story (no Printful CDN dependency at view time).
+ *
+ * `pathKey` becomes the storage path component, e.g. `"hoodie"` (legacy,
+ * one-per-type) or `"v-9220"` (post-030, one-per-variant). The latter
+ * pattern keeps every variant in its own object so a single re-warm
+ * doesn't invalidate sibling colors.
  */
-async function rehostMockupToStorage(
-  productType: ProductType,
+async function rehostImageToStorage(
+  pathKey: string,
   sourceUrl: string,
 ): Promise<string> {
   const res = await fetch(sourceUrl);
@@ -434,7 +550,7 @@ async function rehostMockupToStorage(
   const ext = contentType.includes("png") ? "png" : "jpg";
 
   const supabase = getServiceClient();
-  const path = `${REHOST_PREFIX}/${productType}.${ext}`;
+  const path = `${REHOST_PREFIX}/${pathKey}.${ext}`;
   const { error: uploadErr } = await supabase.storage.from(BUCKET).upload(path, bytes, {
     contentType,
     upsert: true,
@@ -449,95 +565,204 @@ async function rehostMockupToStorage(
   }
   /**
    * Cache-bust query param so CDN / next/image revalidate when a refresh
-   * replaces the same path. The bytes are content-addressed by ProductType,
-   * so a timestamp is fine here (no risk of cache pollution across types).
+   * replaces the same path. The bytes are content-addressed by pathKey,
+   * so a timestamp is fine here (no risk of cache pollution across keys).
    */
   return `${data.publicUrl}?v=${Date.now()}`;
 }
 
 /**
- * Get the cached flat blank mockup URL for a product type, generating it via
- * Printful on cache miss. Returns `null` on any failure so callers fall back
- * gracefully (typically to the SVG silhouette).
+ * Track A — fast path for non-default colors.
+ *
+ * Pulls the per-variant `image` URL straight from `/v2/catalog-variants/{id}`
+ * and re-hosts to Supabase Storage. Stable, ~1 second per variant, and not
+ * subject to mockup-tasks rate limits — so we can warm every color of every
+ * product on publish without burning Printful quota. Returns `null` when the
+ * variant has no catalog photo (fall through to Track B).
  */
-export async function getOrGenerateFlatBlankMockup(
+async function generateBlankFromCatalogPhoto(
+  variantId: number,
   productType: ProductType,
+): Promise<{
+  result: BlankMockupResult;
+  colorName: string | null;
+  colorHex: string | null;
+} | null> {
+  if (!isPrintfulConfigured()) return null;
+
+  const summary = await fetchCatalogVariantSummary(variantId);
+  if (!summary.catalogProductId) {
+    console.warn("[blank-mockup] catalog-photo: variant missing catalog_product_id", {
+      variantId,
+    });
+    return null;
+  }
+  if (!summary.imageUrl) {
+    console.warn("[blank-mockup] catalog-photo: variant has no image, falling back to Track B", {
+      variantId,
+      productType,
+      catalogProductId: summary.catalogProductId,
+    });
+    return null;
+  }
+
+  const cfg = getCatalogConfig(productType);
+  const printArea = cfg
+    ? pickPrintAreaForPlacement(summary.placementDims, cfg.placement)
+    : null;
+
+  const rehosted = await rehostImageToStorage(`v-${variantId}`, summary.imageUrl).catch((err) => {
+    console.warn("[blank-mockup] catalog-photo: rehost failed", {
+      variantId,
+      sourceUrl: summary.imageUrl,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  });
+  if (!rehosted) return null;
+
+  console.log("[blank-mockup] catalog-photo: rehosted", {
+    variantId,
+    productType,
+    color: summary.colorName,
+    url: rehosted,
+  });
+
+  return {
+    result: {
+      url: rehosted,
+      catalogProductId: summary.catalogProductId,
+      catalogVariantId: variantId,
+      mockupStyleId: 0,
+      printArea,
+    },
+    colorName: summary.colorName,
+    colorHex: summary.colorHex,
+  };
+}
+
+/**
+ * Get-or-generate the blank for a specific catalog variant id.
+ *
+ * Look-up order:
+ *   1. DB cache row (`catalog_variant_id` PK).
+ *   2. Track A — Printful catalog photo for the variant (fast, ~1 s).
+ *   3. Track B — `mockup-tasks` job (~10–30 s, requires the variant to be
+ *      the env-configured default for its product type so we have a valid
+ *      `getCatalogConfig()` for technique/placement metadata). Skipped for
+ *      non-default variants today since per-color photos are sufficient.
+ *
+ * Returns the persisted row (so callers can read back the cached print area
+ * and color metadata in one shot) or `null` on full failure.
+ */
+export async function getOrGenerateBlankForVariantId(
+  variantId: number,
+  productType: ProductType,
+  opts?: { colorName?: string | null; colorHex?: string | null },
 ): Promise<BlankMockupRow | null> {
+  if (!Number.isFinite(variantId) || variantId <= 0) return null;
+
   let supabase;
   try {
     supabase = getServiceClient();
   } catch {
-    /** Service role unavailable — skip DB cache, just call Printful inline. */
-    const generated = await generateFlatBlankMockup(productType).catch(() => null);
-    if (!generated) return null;
-    return {
-      product_type: productType,
-      mockup_url: generated.url,
-      catalog_product_id: generated.catalogProductId,
-      catalog_variant_id: generated.catalogVariantId,
-      mockup_style_id: generated.mockupStyleId,
-      technique: null,
-      placement: null,
-      print_area_width_in: generated.printArea?.width ?? null,
-      print_area_height_in: generated.printArea?.height ?? null,
-      generated_at: new Date().toISOString(),
-    };
+    console.warn("[blank-mockup] per-variant: service-role client unavailable", {
+      variantId,
+      productType,
+    });
+    return null;
   }
 
-  const { data: cached, error } = await supabase
+  const { data: cached, error: readErr } = await supabase
     .from("printful_blank_mockups")
     .select("*")
-    .eq("product_type", productType)
+    .eq("catalog_variant_id", variantId)
     .maybeSingle();
-
-  if (error) {
-    console.warn("[blank-mockup] persist: DB select error", {
-      productType,
-      error: error.message,
+  if (readErr) {
+    console.warn("[blank-mockup] per-variant: DB select error", {
+      variantId,
+      error: readErr.message,
     });
   }
-  if (!error && cached?.mockup_url) {
-    console.log("[blank-mockup] persist: returning existing DB row (no regeneration)", {
+  if (cached?.mockup_url) {
+    console.log("[blank-mockup] per-variant: cache hit", {
+      variantId,
       productType,
       url: cached.mockup_url,
     });
     return cached as BlankMockupRow;
   }
 
-  const generated = await generateFlatBlankMockup(productType).catch((err) => {
-    console.warn(
-      `[Printful blank-mockup] generation failed for ${productType}:`,
-      err instanceof Error ? err.message : err,
-    );
+  const cfg = getCatalogConfig(productType);
+  const isDefaultVariant = cfg?.catalogVariantId === variantId;
+
+  /** Track A: per-color catalog photo. Works for any variant. */
+  let trackA = await generateBlankFromCatalogPhoto(variantId, productType).catch((err) => {
+    console.warn("[blank-mockup] per-variant: Track A threw", {
+      variantId,
+      productType,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   });
-  if (!generated) return null;
 
-  const cfg = getCatalogConfig(productType);
+  /**
+   * Track B fallback. Only attempted for the env-default variant (where we
+   * have a guaranteed-valid catalog config for the mockup-tasks job). Non-
+   * default variants without a catalog photo stay uncached and fall back to
+   * the SVG silhouette client-side — better than spamming mockup-tasks for
+   * every missing color.
+   */
+  if (!trackA && isDefaultVariant) {
+    const trackB = await generateFlatBlankMockup(productType).catch((err) => {
+      console.warn("[blank-mockup] per-variant: Track B threw", {
+        variantId,
+        productType,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
+    if (trackB) {
+      trackA = {
+        result: trackB,
+        colorName: opts?.colorName ?? null,
+        colorHex: opts?.colorHex ?? null,
+      };
+    }
+  }
+
+  if (!trackA) return null;
+
   const row: BlankMockupRow = {
     product_type: productType,
-    mockup_url: generated.url,
-    catalog_product_id: generated.catalogProductId,
-    catalog_variant_id: generated.catalogVariantId,
-    mockup_style_id: generated.mockupStyleId,
+    mockup_url: trackA.result.url,
+    catalog_product_id: trackA.result.catalogProductId,
+    catalog_variant_id: trackA.result.catalogVariantId,
+    mockup_style_id: trackA.result.mockupStyleId || null,
     technique: cfg?.technique ?? null,
     placement: cfg?.placement ?? null,
-    print_area_width_in: generated.printArea?.width ?? null,
-    print_area_height_in: generated.printArea?.height ?? null,
+    print_area_width_in: trackA.result.printArea?.width ?? null,
+    print_area_height_in: trackA.result.printArea?.height ?? null,
+    color_name: opts?.colorName ?? trackA.colorName ?? null,
+    color_hex: opts?.colorHex ?? trackA.colorHex ?? null,
+    source: trackA.result.mockupStyleId ? "mockup_task" : "catalog_image",
     generated_at: new Date().toISOString(),
   };
 
   const { error: upsertErr } = await supabase
     .from("printful_blank_mockups")
-    .upsert(row, { onConflict: "product_type" });
+    .upsert(row, { onConflict: "catalog_variant_id" });
   if (upsertErr) {
-    console.warn("[blank-mockup] persist: cache upsert failed", {
-      productType,
+    console.warn("[blank-mockup] per-variant: upsert failed", {
+      variantId,
       error: upsertErr.message,
     });
   } else {
-    console.log("[blank-mockup] persist: cache upsert succeeded", {
+    console.log("[blank-mockup] per-variant: upsert ok", {
+      variantId,
       productType,
+      color: row.color_name,
+      source: row.source,
       url: row.mockup_url,
     });
   }
@@ -545,11 +770,39 @@ export async function getOrGenerateFlatBlankMockup(
   return row;
 }
 
-/** Force-refresh: regenerate the blank mockup ignoring the cache. */
+/**
+ * Get the cached flat blank mockup URL for a product type, generating it via
+ * Printful on cache miss. Returns `null` on any failure so callers fall back
+ * gracefully (typically to the SVG silhouette).
+ *
+ * Post-030 schema: this resolves to the env-default variant for `productType`
+ * and delegates to `getOrGenerateBlankForVariantId`. Callers that want a
+ * specific color should call the per-variant function directly.
+ */
+export async function getOrGenerateFlatBlankMockup(
+  productType: ProductType,
+): Promise<BlankMockupRow | null> {
+  const cfg = getCatalogConfig(productType);
+  if (!cfg) {
+    console.warn("[blank-mockup] flat-blank: no catalog config", {
+      productType,
+      envVar: printfulCatalogVariantEnvName(productType),
+    });
+    return null;
+  }
+  return getOrGenerateBlankForVariantId(cfg.catalogVariantId, productType);
+}
+
+/** Force-refresh: regenerate the default blank mockup ignoring the cache. */
 export async function refreshFlatBlankMockup(
   productType: ProductType,
 ): Promise<BlankMockupRow | null> {
+  const cfg = getCatalogConfig(productType);
+  if (!cfg) return null;
   const supabase = getServiceClient();
-  await supabase.from("printful_blank_mockups").delete().eq("product_type", productType);
-  return getOrGenerateFlatBlankMockup(productType);
+  await supabase
+    .from("printful_blank_mockups")
+    .delete()
+    .eq("catalog_variant_id", cfg.catalogVariantId);
+  return getOrGenerateBlankForVariantId(cfg.catalogVariantId, productType);
 }
