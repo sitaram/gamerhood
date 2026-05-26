@@ -144,7 +144,7 @@ export function ListingPlacementPanel({ listings }: { listings: PlacementListing
                     disabled={!row.designImageUrl}
                     onClick={() => openEditor(row)}
                   >
-                    Tune placement
+                    Edit placement
                   </Button>
                   <Button
                     type="button"
