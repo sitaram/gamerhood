@@ -36,6 +36,21 @@ export interface BlankPhotoResult {
    * `DEFAULT_PRINT_AREA_IN` from catalog.ts.
    */
   printArea: { width: number; height: number } | null;
+  /**
+   * Authoritative pixel-space rectangle for the print box on the rendered
+   * mockup (`mockup_*_px` + `print_area_*_px` columns, populated by
+   * `fetchVariantPrintAreaPx`). When set, surfaces draw the cyan frame at
+   * these exact coordinates instead of falling back to `photoBand`. `null`
+   * for legacy rows pre-migration 033 or variants without a v1 template.
+   */
+  printAreaPixelRect: {
+    mockupWidthPx: number;
+    mockupHeightPx: number;
+    xPx: number;
+    yPx: number;
+    wPx: number;
+    hPx: number;
+  } | null;
 }
 
 interface MemoEntry {
@@ -75,7 +90,9 @@ async function readCachedBlank(
     const supabase = getServiceClient();
     let query = supabase
       .from("printful_blank_mockups")
-      .select("mockup_url, print_area_width_in, print_area_height_in")
+      .select(
+        "mockup_url, print_area_width_in, print_area_height_in, mockup_width_px, mockup_height_px, print_area_x_px, print_area_y_px, print_area_w_px, print_area_h_px, source",
+      )
       .eq("product_type", productType);
     if (colorName) {
       query = query.ilike("color_name", colorName);
@@ -115,8 +132,15 @@ async function readCachedBlank(
       typeof w === "number" && typeof h === "number" && w > 0 && h > 0
         ? { width: w, height: h }
         : null;
-    console.log("[blank-mockup] DB cache hit", { productType, colorName, url, printArea });
-    return { url, status: "ready", printArea };
+    const printAreaPixelRect = extractRowPixelRect(data);
+    console.log("[blank-mockup] DB cache hit", {
+      productType,
+      colorName,
+      url,
+      printArea,
+      hasPixelRect: !!printAreaPixelRect,
+    });
+    return { url, status: "ready", printArea, printAreaPixelRect };
   } catch (err) {
     console.warn("[blank-mockup] DB cache read threw", {
       productType,
@@ -223,7 +247,12 @@ function startBackgroundGeneration(
     if (colorName) {
       const resolved = await resolveVariantForColor(productType, colorName);
       if (!resolved) {
-        const result: BlankPhotoResult = { url: null, status: "unavailable", printArea: null };
+        const result: BlankPhotoResult = {
+          url: null,
+          status: "unavailable",
+          printArea: null,
+          printAreaPixelRect: null,
+        };
         memo.set(key, { result });
         return result;
       }
@@ -239,7 +268,12 @@ function startBackgroundGeneration(
         return null;
       });
       if (!row?.mockup_url) {
-        const result: BlankPhotoResult = { url: null, status: "unavailable", printArea: null };
+        const result: BlankPhotoResult = {
+          url: null,
+          status: "unavailable",
+          printArea: null,
+          printAreaPixelRect: null,
+        };
         memo.set(key, { result });
         return result;
       }
@@ -247,6 +281,7 @@ function startBackgroundGeneration(
         url: row.mockup_url,
         status: "ready",
         printArea: extractRowPrintArea(row),
+        printAreaPixelRect: extractRowPixelRect(row),
       };
       memo.set(key, { result });
       return result;
@@ -261,7 +296,12 @@ function startBackgroundGeneration(
       return null;
     });
     if (!generated) {
-      const result: BlankPhotoResult = { url: null, status: "unavailable", printArea: null };
+      const result: BlankPhotoResult = {
+        url: null,
+        status: "unavailable",
+        printArea: null,
+        printAreaPixelRect: null,
+      };
       memo.set(key, { result });
       return result;
     }
@@ -272,17 +312,39 @@ function startBackgroundGeneration(
       });
       return null;
     });
+    /**
+     * `generated.printAreaPx` from the live mockup-tasks run carries a
+     * `templateId` field we don't surface to clients; strip it (and drop
+     * height-rounding it never had) so the wire format matches the
+     * cache-hit path exactly.
+     */
+    const livePixelRect = generated.printAreaPx
+      ? {
+          mockupWidthPx: generated.printAreaPx.mockupWidthPx,
+          mockupHeightPx: generated.printAreaPx.mockupHeightPx,
+          xPx: generated.printAreaPx.xPx,
+          yPx: generated.printAreaPx.yPx,
+          wPx: generated.printAreaPx.wPx,
+          hPx: generated.printAreaPx.hPx,
+        }
+      : null;
     const result: BlankPhotoResult = {
       url: row?.mockup_url ?? generated.url,
       status: "ready",
       printArea: extractRowPrintArea(row) ?? generated.printArea,
+      printAreaPixelRect: extractRowPixelRect(row) ?? livePixelRect,
     };
     memo.set(key, { result });
     return result;
   })();
 
   memo.set(key, {
-    result: { url: null, status: "generating", printArea: null },
+    result: {
+      url: null,
+      status: "generating",
+      printArea: null,
+      printAreaPixelRect: null,
+    },
     pending: p,
   });
 
@@ -298,6 +360,52 @@ function extractRowPrintArea(
     return { width: w, height: h };
   }
   return null;
+}
+
+/**
+ * Pull the mockup/print pixel rect from a cache row, when all six values
+ * are present and positive. The `source` filter keeps us from handing
+ * back template-derived coords for a `catalog_image` mockup (the Track A
+ * studio photo is framed differently than the mockup-tasks rendering the
+ * v1 template coords were calibrated to). For per-color catalog photos
+ * the caller will fall back to photoBand.
+ */
+function extractRowPixelRect(
+  row: {
+    mockup_width_px?: number | null;
+    mockup_height_px?: number | null;
+    print_area_x_px?: number | null;
+    print_area_y_px?: number | null;
+    print_area_w_px?: number | null;
+    print_area_h_px?: number | null;
+    source?: string | null;
+  } | null,
+): BlankPhotoResult["printAreaPixelRect"] {
+  if (!row) return null;
+  if (row.source && row.source !== "mockup_task") return null;
+  const mw = row.mockup_width_px;
+  const mh = row.mockup_height_px;
+  const xPx = row.print_area_x_px;
+  const yPx = row.print_area_y_px;
+  const wPx = row.print_area_w_px;
+  const hPx = row.print_area_h_px;
+  const allNumeric =
+    typeof mw === "number" &&
+    typeof mh === "number" &&
+    typeof xPx === "number" &&
+    typeof yPx === "number" &&
+    typeof wPx === "number" &&
+    typeof hPx === "number";
+  if (!allNumeric) return null;
+  if (mw <= 0 || mh <= 0 || wPx <= 0 || hPx <= 0) return null;
+  return {
+    mockupWidthPx: mw,
+    mockupHeightPx: mh,
+    xPx,
+    yPx,
+    wPx,
+    hPx,
+  };
 }
 
 /**
@@ -330,7 +438,12 @@ export async function getBlankPhotoForProductType(
     console.warn("[blank-mockup] PRINTFUL_API_TOKEN not set — returning unavailable", {
       productType,
     });
-    const result: BlankPhotoResult = { url: null, status: "unavailable", printArea: null };
+    const result: BlankPhotoResult = {
+      url: null,
+      status: "unavailable",
+      printArea: null,
+      printAreaPixelRect: null,
+    };
     memo.set(key, { result });
     return result;
   }
@@ -346,7 +459,12 @@ export async function getBlankPhotoForProductType(
       productType,
       colorName,
     });
-    return { url: null, status: "generating", printArea: null };
+    return {
+      url: null,
+      status: "generating",
+      printArea: null,
+      printAreaPixelRect: null,
+    };
   }
 
   /** Fire-and-await-elsewhere: do NOT await `p`, return generating status now. */
@@ -355,5 +473,10 @@ export async function getBlankPhotoForProductType(
     productType,
     colorName,
   });
-  return { url: null, status: "generating", printArea: null };
+  return {
+    url: null,
+    status: "generating",
+    printArea: null,
+    printAreaPixelRect: null,
+  };
 }

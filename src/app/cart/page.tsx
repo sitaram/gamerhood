@@ -280,7 +280,11 @@ function CartLineThumbnail({
   const isDefaultColor = selectedColor === defaultColor;
   const hasDesign = !!product.designImageUrl?.trim();
 
-  const { url: blankPhotoUrl, area: printAreaInches } = usePrintfulBlankPhoto(
+  const {
+    url: blankPhotoUrl,
+    area: printAreaInches,
+    pixelRect: printAreaPixelRect,
+  } = usePrintfulBlankPhoto(
     product.productType,
     isDefaultColor ? null : selectedColor,
   );
@@ -292,6 +296,7 @@ function CartLineThumbnail({
         photoUrl={blankPhotoUrl}
         colorName={selectedColor}
         printAreaInches={printAreaInches}
+        printAreaPixelRect={printAreaPixelRect}
         sizes="96px"
       />
     );

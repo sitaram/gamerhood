@@ -364,11 +364,15 @@ function ProductMockupImage({
   );
   const hasDesign = !!product.designImageUrl?.trim();
 
-  const { url: blankPhotoUrl, loading: blankLoading, area: printAreaInches } =
-    usePrintfulBlankPhoto(
-      product.productType,
-      isDefaultColor ? null : selectedColor,
-    );
+  const {
+    url: blankPhotoUrl,
+    loading: blankLoading,
+    area: printAreaInches,
+    pixelRect: blankPixelRect,
+  } = usePrintfulBlankPhoto(
+    product.productType,
+    isDefaultColor ? null : selectedColor,
+  );
 
   /**
    * The layer we *want* to display for the current selection. May be
@@ -532,6 +536,7 @@ function ProductMockupImage({
                 photoUrl={layer.url}
                 colorName={layer.colorLabel}
                 printAreaInches={printAreaInches}
+                printAreaPixelRect={blankPixelRect}
                 onPhotoLoad={() => markLoaded(layer.id)}
               />
             )}

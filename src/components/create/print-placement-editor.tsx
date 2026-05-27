@@ -98,8 +98,12 @@ export function PrintPlacementEditor({
       : pickStablePreviewType(selectedProductTypes);
 
   const baseLayout = getMerchPreviewLayout(previewType);
-  const { url: blankPhotoUrl, loading: blankPhotoLoading, area: liveArea } =
-    usePrintfulBlankPhoto(previewType);
+  const {
+    url: blankPhotoUrl,
+    loading: blankPhotoLoading,
+    area: liveArea,
+    pixelRect: blankPixelRect,
+  } = usePrintfulBlankPhoto(previewType);
 
   useEffect(() => {
     if (blankPhotoUrl) {
@@ -125,6 +129,12 @@ export function PrintPlacementEditor({
    * Unified overlay geometry: same helper drives every preview surface so
    * `Aw`/`Ah` (used for the cyan frame's aspect ratio + the indicator
    * caption) always match what Printful will print.
+   *
+   * When Printful has provided pixel-space coordinates for this variant's
+   * mockup (`blankPixelRect`), we forward them — `computeDesignOverlayBox`
+   * then pins the band to those exact coords instead of the hand-tuned
+   * photoBand. The earlier hoodie audit showed photoBand was ~16 % too
+   * low and ~6 % too narrow; the pixel-rect path eliminates that drift.
    */
   const overlay = computeDesignOverlayBox({
     productType: previewType,
@@ -132,6 +142,7 @@ export function PrintPlacementEditor({
     printAreaInches: liveArea,
     defaultPrintAreaInches: getDefaultPrintAreaInches(previewType),
     normalizedPlacement: value,
+    printAreaPixelRect: blankPhotoUrl ? blankPixelRect : null,
   });
   const Aw = overlay.printAreaInches.width;
   const Ah = overlay.printAreaInches.height;

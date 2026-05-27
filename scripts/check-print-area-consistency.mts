@@ -15,6 +15,7 @@ const layoutMod = await import("../src/lib/create/merch-preview-layout.ts");
 const placementMod = await import("../src/lib/print/placement.ts");
 const catalogMod = await import("../src/lib/printful/catalog.ts");
 const adminMod = await import("../src/lib/supabase/admin.ts");
+const mockupMod = await import("../src/lib/printful/blank-mockup.ts");
 
 const { verifyPrintAreaForOrder } = driftMod;
 const { computeDesignOverlayBox, getDefaultPrintAreaInches, formatInchesLabel } = overlayMod;
@@ -22,6 +23,7 @@ const { getMerchPreviewLayout } = layoutMod;
 const { parseStoredPlacement, DEFAULT_STORED } = placementMod;
 const { getCatalogConfig } = catalogMod;
 const { getServiceClient } = adminMod;
+const { fetchVariantPrintAreaPx } = mockupMod;
 
 type ProductType = string;
 
@@ -67,10 +69,24 @@ interface ProductRow {
   printful_catalog_variant_id: number | null;
 }
 
+interface CachedPixelRect {
+  catalogProductId: number | null;
+  placement: string | null;
+  source: string | null;
+  mockup_width_px: number | null;
+  mockup_height_px: number | null;
+  print_area_x_px: number | null;
+  print_area_y_px: number | null;
+  print_area_w_px: number | null;
+  print_area_h_px: number | null;
+}
+
 let checked = 0;
 let ok = 0;
 let driftCount = 0;
 let missing = 0;
+let pxDriftCount = 0;
+let pxMissing = 0;
 
 console.log(
   `[check-print-area-consistency] running over ${targets.length} product types`,
@@ -162,13 +178,72 @@ for (const type of targets) {
     missing++;
   }
 
+  /**
+   * Px-coord drift check: same idea as the inches drift above but for the
+   * authoritative pixel rect we draw the cyan frame from (post-033). Pull
+   * the cached row, re-fetch live coords from Printful's v1 templates
+   * endpoint, compare. Skips when the cached row doesn't have coords yet
+   * (legacy or no v1 template); fails when cached + live differ on any
+   * axis by more than 1 % of the mockup dimension.
+   */
+  let pxLabel = "—";
+  let pxStatus = "—";
+  const { data: cachedRows } = await supabase
+    .from("printful_blank_mockups")
+    .select(
+      "catalog_product_id, placement, source, mockup_width_px, mockup_height_px, print_area_x_px, print_area_y_px, print_area_w_px, print_area_h_px",
+    )
+    .eq("catalog_variant_id", variantId)
+    .maybeSingle();
+  const cachedPx = cachedRows as CachedPixelRect | null;
+  if (
+    cachedPx &&
+    cachedPx.catalog_product_id &&
+    cachedPx.placement &&
+    cachedPx.mockup_width_px &&
+    cachedPx.mockup_height_px &&
+    cachedPx.print_area_x_px != null &&
+    cachedPx.print_area_y_px != null &&
+    cachedPx.print_area_w_px != null &&
+    cachedPx.print_area_h_px != null
+  ) {
+    const livePx = await fetchVariantPrintAreaPx({
+      catalogProductId: cachedPx.catalog_product_id,
+      catalogVariantId: variantId,
+      placement: cachedPx.placement,
+      outputWidthPx: cachedPx.mockup_width_px,
+    }).catch(() => null);
+    if (!livePx) {
+      pxLabel = "live-missing";
+      pxStatus = "px-skip";
+      pxMissing++;
+    } else {
+      const dx = Math.abs(livePx.xPx - cachedPx.print_area_x_px) / cachedPx.mockup_width_px;
+      const dy = Math.abs(livePx.yPx - cachedPx.print_area_y_px) / cachedPx.mockup_height_px;
+      const dw = Math.abs(livePx.wPx - cachedPx.print_area_w_px) / cachedPx.mockup_width_px;
+      const dh = Math.abs(livePx.hPx - cachedPx.print_area_h_px) / cachedPx.mockup_height_px;
+      const worst = Math.max(dx, dy, dw, dh);
+      pxLabel = `${(worst * 100).toFixed(2)}%`;
+      if (worst > 0.01) {
+        pxStatus = "PX-DRIFT";
+        pxDriftCount++;
+      } else {
+        pxStatus = "px-ok";
+      }
+    }
+  } else if (cachedPx) {
+    pxLabel = "no-cached";
+    pxStatus = "px-skip";
+    pxMissing++;
+  }
+
   console.log(
-    `  ${type.padEnd(22)} variant=${String(variantId).padEnd(7)} cached=${cachedLabel.padEnd(12)} live=${liveLabel.padEnd(12)} drift=${driftLabel.padEnd(7)} design=${designLabel.padEnd(12)} ${status}`,
+    `  ${type.padEnd(22)} variant=${String(variantId).padEnd(7)} cached=${cachedLabel.padEnd(12)} live=${liveLabel.padEnd(12)} drift=${driftLabel.padEnd(7)} design=${designLabel.padEnd(12)} pxDrift=${pxLabel.padEnd(8)} ${status}/${pxStatus}`,
   );
 }
 
 console.log(
-  `Done — checked=${checked} ok=${ok} drift=${driftCount} missing=${missing}`,
+  `Done — checked=${checked} ok=${ok} drift=${driftCount} missing=${missing} pxDrift=${pxDriftCount} pxMissing=${pxMissing}`,
 );
 
-process.exit(driftCount > 0 ? 1 : 0);
+process.exit(driftCount > 0 || pxDriftCount > 0 ? 1 : 0);

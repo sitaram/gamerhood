@@ -33,7 +33,11 @@ export function MerchPlacementPreview({
   className?: string;
 }) {
   const baseLayout = getMerchPreviewLayout(productType);
-  const { url: blankPhotoUrl, area: liveArea } = usePrintfulBlankPhoto(productType);
+  const {
+    url: blankPhotoUrl,
+    area: liveArea,
+    pixelRect: blankPixelRect,
+  } = usePrintfulBlankPhoto(productType);
   const layout = blankPhotoUrl && baseLayout.photoBand
     ? { ...baseLayout, ...baseLayout.photoBand }
     : baseLayout;
@@ -44,6 +48,7 @@ export function MerchPlacementPreview({
     printAreaInches: liveArea,
     defaultPrintAreaInches: getDefaultPrintAreaInches(productType),
     normalizedPlacement: placement,
+    printAreaPixelRect: blankPhotoUrl ? blankPixelRect : null,
   });
 
   const renderArtwork = (opacity: number) => (

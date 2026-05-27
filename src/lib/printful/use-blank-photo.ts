@@ -27,6 +27,13 @@ interface CacheEntry {
   url: string | null;
   /** Real Printful print area in inches from the DB cache, when populated. */
   area: { width: number; height: number } | null;
+  /**
+   * Authoritative pixel-space print-area rectangle on the rendered mockup.
+   * When non-null the placement editor / preview surfaces draw the cyan
+   * frame from these exact coords; null falls back to the hand-tuned
+   * photoBand in `merch-preview-layout.ts`.
+   */
+  pixelRect: BlankPrintRect | null;
 }
 
 /** Shared across all components mounted in the same browser tab. Keyed by `productType[::color]`. */
@@ -48,10 +55,34 @@ interface FetchOnceResult {
   url: string | null;
   status: string;
   area: { width: number; height: number } | null;
+  pixelRect: BlankPrintRect | null;
 }
 
 function cacheKey(productType: ProductType, color?: string | null): string {
   return color ? `${productType}::${color.toLowerCase()}` : productType;
+}
+
+function parsePixelRect(raw: unknown): BlankPrintRect | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const mw = r.mockupWidthPx;
+  const mh = r.mockupHeightPx;
+  const xPx = r.xPx;
+  const yPx = r.yPx;
+  const wPx = r.wPx;
+  const hPx = r.hPx;
+  if (
+    typeof mw !== "number" ||
+    typeof mh !== "number" ||
+    typeof xPx !== "number" ||
+    typeof yPx !== "number" ||
+    typeof wPx !== "number" ||
+    typeof hPx !== "number"
+  ) {
+    return null;
+  }
+  if (mw <= 0 || mh <= 0 || wPx <= 0 || hPx <= 0) return null;
+  return { mockupWidthPx: mw, mockupHeightPx: mh, xPx, yPx, wPx, hPx };
 }
 
 async function fetchOnce(
@@ -75,6 +106,7 @@ async function fetchOnce(
       url?: string | null;
       status?: string;
       printArea?: { width?: number; height?: number } | null;
+      printAreaPixelRect?: unknown;
     };
     const w = j.printArea?.width;
     const h = j.printArea?.height;
@@ -82,10 +114,11 @@ async function fetchOnce(
       typeof w === "number" && typeof h === "number" && w > 0 && h > 0
         ? { width: w, height: h }
         : null;
-    const result = {
+    const result: FetchOnceResult = {
       url: typeof j.url === "string" && j.url ? j.url : null,
       status: typeof j.status === "string" ? j.status : "unavailable",
       area,
+      pixelRect: parsePixelRect(j.printAreaPixelRect),
     };
     console.log("[blank-mockup-client] fetch result", {
       productType,
@@ -93,6 +126,7 @@ async function fetchOnce(
       status: result.status,
       url: result.url,
       area: result.area,
+      hasPixelRect: !!result.pixelRect,
     });
     return result;
   } catch (err) {
@@ -130,7 +164,12 @@ function ensureFetch(
           productType,
           color,
         });
-        browserCache.set(key, { status: "unavailable", url: null, area: null });
+        browserCache.set(key, {
+          status: "unavailable",
+          url: null,
+          area: null,
+          pixelRect: null,
+        });
         onChange();
         return;
       }
@@ -141,7 +180,12 @@ function ensureFetch(
           color,
           url: r.url,
         });
-        browserCache.set(key, { status: "ready", url: r.url, area: r.area });
+        browserCache.set(key, {
+          status: "ready",
+          url: r.url,
+          area: r.area,
+          pixelRect: r.pixelRect,
+        });
         onChange();
         return;
       }
@@ -151,14 +195,24 @@ function ensureFetch(
           productType,
           color,
         });
-        browserCache.set(key, { status: "unavailable", url: null, area: r.area });
+        browserCache.set(key, {
+          status: "unavailable",
+          url: null,
+          area: r.area,
+          pixelRect: r.pixelRect,
+        });
         onChange();
         return;
       }
 
       /** "generating" — back off and poll again. */
       if (browserCache.get(key)?.status !== "loading") {
-        browserCache.set(key, { status: "loading", url: null, area: r.area });
+        browserCache.set(key, {
+          status: "loading",
+          url: null,
+          area: r.area,
+          pixelRect: r.pixelRect,
+        });
         onChange();
       }
       const delay = POLL_DELAYS_MS[Math.min(attempt, POLL_DELAYS_MS.length - 1)];
@@ -176,7 +230,12 @@ function ensureFetch(
           color,
           attempts: attempt,
         });
-        browserCache.set(key, { status: "unavailable", url: null, area: null });
+        browserCache.set(key, {
+          status: "unavailable",
+          url: null,
+          area: null,
+          pixelRect: null,
+        });
         onChange();
         return;
       }
@@ -212,6 +271,14 @@ export function usePrintfulBlankPhoto(
    * `getPrintAreaInches(productType)` when null (during first generation).
    */
   area: { width: number; height: number } | null;
+  /**
+   * Authoritative pixel-space rectangle for the cyan print frame on the
+   * mockup at `url`. When non-null, surfaces should position the print
+   * box from these coords instead of from `photoBand`. `null` for legacy
+   * cache rows or per-color catalog photos that don't share the mockup-
+   * tasks framing.
+   */
+  pixelRect: BlankPrintRect | null;
 } {
   const [, setTick] = useState(0);
   const key = cacheKey(productType, color);
@@ -235,5 +302,6 @@ export function usePrintfulBlankPhoto(
     url: entry?.status === "ready" ? entry.url : null,
     loading: !entry || entry.status === "loading",
     area: entry?.area ?? null,
+    pixelRect: entry?.pixelRect ?? null,
   };
 }

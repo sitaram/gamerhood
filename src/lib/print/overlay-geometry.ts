@@ -66,6 +66,24 @@ export interface OverlayInput {
    * calibrated default by the ratio of live-to-default print area.
    */
   garmentWidthInches?: number | null;
+  /**
+   * Pixel-space rect for the print area on the rendered Printful mockup,
+   * sourced from `printful_blank_mockups.print_area_*_px` + `mockup_*_px`
+   * (populated by `fetchVariantPrintAreaPx`). When set, the band's
+   * top/left/width are derived from these exact coordinates instead of
+   * from the hand-tuned `photoBand` percentages — making the cyan frame
+   * pixel-accurate to where Printful actually prints. Null for variants
+   * whose product line has no v1 mockup-generator template (some
+   * embroidery / cut-sew / knitwear SKUs) — those keep using photoBand.
+   */
+  printAreaPixelRect?: {
+    mockupWidthPx: number;
+    mockupHeightPx: number;
+    xPx: number;
+    yPx: number;
+    wPx: number;
+    hPx: number;
+  } | null;
 }
 
 export interface ComputedOverlay {
@@ -73,7 +91,12 @@ export interface ComputedOverlay {
   band: {
     topPct: number;
     bottomPct: number;
-    /** Set together with `widthPct` for side prints; else `widthPct` only. */
+    /**
+     * Set together with `widthPct` for side prints (joggers leg) AND for
+     * any band positioned from Printful's authoritative pixel coords
+     * (chest prints included). When set, callers should pin the band
+     * with `left + width` instead of the `left-2 right-2` centred wrapper.
+     */
     leftPct: number | null;
     widthPct: number;
     /** CSS `aspect-ratio` string in inches space (e.g. "14 / 14"). */
@@ -99,6 +122,13 @@ export interface ComputedOverlay {
    * product type not yet warmed).
    */
   printAreaSource: "printful-cache" | "default";
+  /**
+   * How the band's on-photo position was derived. `printful-pixel-rect`
+   * means we used Printful's authoritative pixel coords (post-migration
+   * 033); `photo-band-fallback` means we fell back to the hand-tuned
+   * photoBand percentages from `merch-preview-layout.ts`.
+   */
+  bandSource: "printful-pixel-rect" | "photo-band-fallback";
   /**
    * Convenience absolute-pixel values when `garmentPhotoSize` was passed.
    * Computed once in the helper so callers (debug logger, regression
@@ -136,6 +166,65 @@ export function computeDesignOverlayBox(input: OverlayInput): ComputedOverlay {
    */
   const isSidePrint =
     input.layout.printBandLeftPct != null && input.layout.printBandWidthPct != null;
+
+  /**
+   * Authoritative path: Printful's per-variant pixel coords for the
+   * print area on the rendered mockup. When present this completely
+   * supersedes the hand-tuned photoBand — top/left/bottom/width all come
+   * straight from the cached `print_area_*_px` / `mockup_*_px` values.
+   */
+  const pxRect = input.printAreaPixelRect;
+  if (
+    pxRect &&
+    pxRect.mockupWidthPx > 0 &&
+    pxRect.mockupHeightPx > 0 &&
+    pxRect.wPx > 0 &&
+    pxRect.hPx > 0
+  ) {
+    const topPct = (pxRect.yPx / pxRect.mockupHeightPx) * 100;
+    const leftPct = (pxRect.xPx / pxRect.mockupWidthPx) * 100;
+    const bottomPct =
+      ((pxRect.mockupHeightPx - pxRect.yPx - pxRect.hPx) / pxRect.mockupHeightPx) * 100;
+    const widthPct = (pxRect.wPx / pxRect.mockupWidthPx) * 100;
+
+    const designWidthPct = (pf.width / pf.area_width) * 100;
+    const designHeightPct = (pf.height / pf.area_height) * 100;
+    const designLeftPct = (pf.left / pf.area_width) * 100;
+    const designTopPct = (pf.top / pf.area_height) * 100;
+
+    let designPixelSize: { widthPx: number; heightPx: number } | null = null;
+    let inchesPerPixel: number | null = null;
+    if (input.garmentPhotoSize) {
+      const bandPx = (widthPct / 100) * input.garmentPhotoSize.widthPx;
+      const bandHeightPx = bandPx * (Ah / Aw);
+      const designWPx = (designWidthPct / 100) * bandPx;
+      const designHPx = (designHeightPct / 100) * bandHeightPx;
+      designPixelSize = { widthPx: designWPx, heightPx: designHPx };
+      inchesPerPixel = pf.width / Math.max(1, designWPx);
+    }
+
+    return {
+      band: {
+        topPct,
+        bottomPct,
+        leftPct,
+        widthPct,
+        aspectRatio: `${Aw} / ${Ah}`,
+      },
+      design: {
+        widthPct: designWidthPct,
+        heightPct: designHeightPct,
+        leftPct: designLeftPct,
+        topPct: designTopPct,
+      },
+      designInches: { width: pf.width, height: pf.height },
+      printAreaInches: { width: Aw, height: Ah },
+      printAreaSource: input.printAreaInches ? "printful-cache" : "default",
+      bandSource: "printful-pixel-rect",
+      designPixelSize,
+      inchesPerPixel,
+    };
+  }
 
   let bandWidthPct: number;
   if (isSidePrint) {
@@ -208,6 +297,7 @@ export function computeDesignOverlayBox(input: OverlayInput): ComputedOverlay {
     designInches: { width: pf.width, height: pf.height },
     printAreaInches: { width: Aw, height: Ah },
     printAreaSource: input.printAreaInches ? "printful-cache" : "default",
+    bandSource: "photo-band-fallback",
     designPixelSize,
     inchesPerPixel,
   };

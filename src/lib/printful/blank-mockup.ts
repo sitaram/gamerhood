@@ -46,7 +46,7 @@ import {
   pickFlatMockupStyleForVariant,
   waitForMockupTaskMockupUrl,
 } from "@/lib/printful/mockups";
-import { printfulRequest } from "@/lib/printful/client";
+import { printfulRequest, printfulRequestV1 } from "@/lib/printful/client";
 import type { ProductType } from "@/lib/types";
 
 const BUCKET = "design-images";
@@ -75,7 +75,41 @@ export interface BlankMockupRow {
   color_hex?: string | null;
   /** "catalog_image" (Track A) or "mockup_task" (Track B). */
   source?: string | null;
+  /**
+   * Pixel-space coordinates for the cyan print frame ON the rendered
+   * `mockup_url`. Sourced from Printful's v1
+   * `/mockup-generator/templates/{product_id}` endpoint and scaled to the
+   * mockup-tasks output size (typically 1200×1200). When populated,
+   * surfaces composite the print box at these exact pixel offsets instead
+   * of falling back to the hand-tuned `photoBand` percentages in
+   * `merch-preview-layout.ts`. `null` for variants whose product line has
+   * no v1 template (some embroidery / cut-sew / knit SKUs).
+   */
+  mockup_width_px?: number | null;
+  mockup_height_px?: number | null;
+  print_area_x_px?: number | null;
+  print_area_y_px?: number | null;
+  print_area_w_px?: number | null;
+  print_area_h_px?: number | null;
+  template_id?: number | null;
   generated_at: string;
+}
+
+/**
+ * Pixel-space print-area rectangle for a variant's rendered flat mockup.
+ * `mockupWidthPx` / `mockupHeightPx` describe the mockup the editor
+ * actually serves (so callers can convert to percentages via
+ * `xPx / mockupWidthPx` etc.); `xPx`/`yPx`/`wPx`/`hPx` are the cyan
+ * frame's top-left corner + size in that same pixel space.
+ */
+export interface VariantPrintAreaPx {
+  templateId: number;
+  mockupWidthPx: number;
+  mockupHeightPx: number;
+  xPx: number;
+  yPx: number;
+  wPx: number;
+  hPx: number;
 }
 
 let dummyUrlMemo: string | null = null;
@@ -353,6 +387,124 @@ export interface BlankMockupResult {
   mockupStyleId: number;
   /** Print area in inches for the configured placement, when Printful reports it. */
   printArea: { width: number; height: number } | null;
+  /** Pixel coords of the cyan frame on the rendered mockup, when v1 templates ship one. */
+  printAreaPx: VariantPrintAreaPx | null;
+}
+
+interface MockupTemplateRow {
+  template_id?: number;
+  placement?: string;
+  template_width?: number;
+  template_height?: number;
+  print_area_width?: number;
+  print_area_height?: number;
+  print_area_top?: number;
+  print_area_left?: number;
+}
+
+interface MockupTemplatesResponse {
+  result?: {
+    variant_mapping?: Array<{
+      variant_id?: number;
+      templates?: Array<{ placement?: string; template_id?: number }>;
+    }>;
+    templates?: MockupTemplateRow[];
+  };
+}
+
+/**
+ * Fetch the pixel-space print-area rectangle for `(variantId, placement)`
+ * from Printful's v1 `/mockup-generator/templates/{catalogProductId}`
+ * endpoint and scale it to the mockup-tasks output we serve
+ * (`outputWidthPx`, default 1200 — matches `mockup_width_px` in
+ * `generateFlatBlankMockup`'s payload).
+ *
+ * Returns `null` when:
+ *   - the request fails (network, 4xx);
+ *   - the variant has no template for the placement (some embroidery /
+ *     cut-sew / knitwear SKUs);
+ *   - the template's `print_area_*` fields are missing (zero/undefined).
+ *
+ * Callers (`getOrGenerateBlankForVariantId`, the backfill script) treat a
+ * null return as "fall back to hand-tuned photoBand" — no error path.
+ */
+export async function fetchVariantPrintAreaPx(input: {
+  catalogProductId: number;
+  catalogVariantId: number;
+  placement: string;
+  outputWidthPx?: number;
+}): Promise<VariantPrintAreaPx | null> {
+  const outputWidthPx = input.outputWidthPx ?? 1200;
+  let res: MockupTemplatesResponse;
+  try {
+    res = await printfulRequestV1<MockupTemplatesResponse>(
+      `/mockup-generator/templates/${input.catalogProductId}?placements=${encodeURIComponent(
+        input.placement,
+      )}`,
+    );
+  } catch (err) {
+    console.warn("[blank-mockup] templates v1 fetch failed", {
+      catalogProductId: input.catalogProductId,
+      catalogVariantId: input.catalogVariantId,
+      placement: input.placement,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+
+  const variantMap = res.result?.variant_mapping ?? [];
+  const variantEntry = variantMap.find((v) => v.variant_id === input.catalogVariantId);
+  const templateId = variantEntry?.templates?.find(
+    (t) => t.placement === input.placement,
+  )?.template_id;
+  if (!templateId) {
+    console.warn("[blank-mockup] templates v1: no template id for variant/placement", {
+      catalogProductId: input.catalogProductId,
+      catalogVariantId: input.catalogVariantId,
+      placement: input.placement,
+    });
+    return null;
+  }
+
+  const tmpl = (res.result?.templates ?? []).find((t) => t.template_id === templateId);
+  if (
+    !tmpl ||
+    !tmpl.template_width ||
+    !tmpl.template_height ||
+    !tmpl.print_area_width ||
+    !tmpl.print_area_height ||
+    tmpl.print_area_top == null ||
+    tmpl.print_area_left == null
+  ) {
+    console.warn("[blank-mockup] templates v1: template row missing print_area_* fields", {
+      catalogProductId: input.catalogProductId,
+      templateId,
+    });
+    return null;
+  }
+
+  /**
+   * Mockup-tasks renders the same template at our requested output width
+   * (and the height proportionally — both axes share the template scale).
+   * We scale the template-native print-area pixels into mockup-px space
+   * so consumers don't have to remember which reference frame this is in.
+   */
+  const scale = outputWidthPx / tmpl.template_width;
+  const mockupHeightPx = tmpl.template_height * scale;
+  const xPx = tmpl.print_area_left * scale;
+  const yPx = tmpl.print_area_top * scale;
+  const wPx = tmpl.print_area_width * scale;
+  const hPx = tmpl.print_area_height * scale;
+
+  return {
+    templateId,
+    mockupWidthPx: outputWidthPx,
+    mockupHeightPx,
+    xPx,
+    yPx,
+    wPx,
+    hPx,
+  };
 }
 
 /**
@@ -509,12 +661,20 @@ export async function generateFlatBlankMockup(
     });
   }
 
+  const printAreaPx = await fetchVariantPrintAreaPx({
+    catalogProductId,
+    catalogVariantId: cfg.catalogVariantId,
+    placement: cfg.placement,
+    outputWidthPx: 1200,
+  });
+
   return {
     url: rehosted ?? printfulUrl,
     catalogProductId,
     catalogVariantId: cfg.catalogVariantId,
     mockupStyleId: picked.styleId,
     printArea,
+    printAreaPx,
   };
 }
 
@@ -628,6 +788,29 @@ async function generateBlankFromCatalogPhoto(
     url: rehosted,
   });
 
+  /**
+   * Track A photos come from `/catalog-variants/{id}.image` (the per-
+   * color studio shot), not the mockup-tasks output. Printful's v1
+   * `/mockup-generator/templates` coordinates are calibrated to the
+   * mockup-tasks rendering (ghost mannequin), so they may NOT line up
+   * exactly with the catalog studio photo. We still cache them — the
+   * editor / preview surfaces will only use them when the
+   * `mockup_url` actually came from the mockup-tasks pipeline
+   * (`source = 'mockup_task'`); per-color catalog photos continue to
+   * use the photoBand fallback until we render their own coords. This
+   * keeps the slow path (placement editor + default-color backdrop)
+   * pixel-accurate while leaving the color-swap thumbnails on the
+   * existing approximation.
+   */
+  const printAreaPx = cfg
+    ? await fetchVariantPrintAreaPx({
+        catalogProductId: summary.catalogProductId,
+        catalogVariantId: variantId,
+        placement: cfg.placement,
+        outputWidthPx: 1200,
+      })
+    : null;
+
   return {
     result: {
       url: rehosted,
@@ -635,6 +818,7 @@ async function generateBlankFromCatalogPhoto(
       catalogVariantId: variantId,
       mockupStyleId: 0,
       printArea,
+      printAreaPx,
     },
     colorName: summary.colorName,
     colorHex: summary.colorHex,
@@ -733,6 +917,7 @@ export async function getOrGenerateBlankForVariantId(
 
   if (!trackA) return null;
 
+  const px = trackA.result.printAreaPx;
   const row: BlankMockupRow = {
     product_type: productType,
     mockup_url: trackA.result.url,
@@ -746,6 +931,13 @@ export async function getOrGenerateBlankForVariantId(
     color_name: opts?.colorName ?? trackA.colorName ?? null,
     color_hex: opts?.colorHex ?? trackA.colorHex ?? null,
     source: trackA.result.mockupStyleId ? "mockup_task" : "catalog_image",
+    mockup_width_px: px?.mockupWidthPx ?? null,
+    mockup_height_px: px ? Math.round(px.mockupHeightPx) : null,
+    print_area_x_px: px ? Math.round(px.xPx) : null,
+    print_area_y_px: px ? Math.round(px.yPx) : null,
+    print_area_w_px: px ? Math.round(px.wPx) : null,
+    print_area_h_px: px ? Math.round(px.hPx) : null,
+    template_id: px?.templateId ?? null,
     generated_at: new Date().toISOString(),
   };
 

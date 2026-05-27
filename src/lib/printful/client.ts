@@ -14,6 +14,15 @@
 // need `X-PF-Store-Id`; private store tokens don't.
 
 const BASE_URL = "https://api.printful.com/v2";
+/**
+ * Some Printful surfaces only exist on v1 (the mockup-generator templates
+ * endpoint, in particular) — v2 hasn't shipped an equivalent for the
+ * pixel-space print-area coordinates we need to draw an accurate cyan
+ * frame on the rendered flat mockup. We pin the v1 base URL here so the
+ * exception is explicit instead of being string-concatenated at each call
+ * site.
+ */
+const BASE_URL_V1 = "https://api.printful.com";
 
 function headers(): HeadersInit {
   const token = process.env.PRINTFUL_API_TOKEN;
@@ -35,6 +44,26 @@ export async function printfulRequest<T>(path: string, options?: RequestInit): P
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Printful API ${res.status}: ${body || res.statusText}`);
+  }
+  const text = await res.text();
+  return text ? (JSON.parse(text) as T) : (undefined as T);
+}
+
+/**
+ * Hit a v1-only Printful endpoint. Used exclusively for the mockup-
+ * generator templates lookup (`/mockup-generator/templates/{product_id}`)
+ * which exposes pixel-space `print_area_top/left/width/height` for each
+ * variant + placement — data v2 doesn't expose yet. Same auth headers as
+ * v2; only the base URL changes.
+ */
+export async function printfulRequestV1<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE_URL_V1}${path}`, {
+    ...options,
+    headers: { ...headers(), ...options?.headers },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Printful API v1 ${res.status}: ${body || res.statusText}`);
   }
   const text = await res.text();
   return text ? (JSON.parse(text) as T) : (undefined as T);

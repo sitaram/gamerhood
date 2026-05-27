@@ -27,6 +27,7 @@ export function PhotographicColorMockup({
   photoUrl,
   colorName,
   printAreaInches = null,
+  printAreaPixelRect = null,
   sizes = "(max-width: 1024px) 100vw, 50vw",
   onPhotoLoad,
 }: {
@@ -39,6 +40,21 @@ export function PhotographicColorMockup({
    * use only as a last resort: legacy rows pre-migration 023.
    */
   printAreaInches?: { width: number; height: number } | null;
+  /**
+   * Authoritative pixel-space rect for the print box on `photoUrl`. When
+   * set, the design is composited at the exact Printful coords; when
+   * null we fall back to the hand-tuned photoBand. Per-color Track A
+   * catalog photos are framed differently than the mockup-tasks default,
+   * so callers pass this only for the default-color render path.
+   */
+  printAreaPixelRect?: {
+    mockupWidthPx: number;
+    mockupHeightPx: number;
+    xPx: number;
+    yPx: number;
+    wPx: number;
+    hPx: number;
+  } | null;
   /** Responsive image `sizes` hint; default suits the product detail hero. */
   sizes?: string;
   /**
@@ -59,6 +75,7 @@ export function PhotographicColorMockup({
     printAreaInches,
     defaultPrintAreaInches: getDefaultPrintAreaInches(product.productType),
     normalizedPlacement: product.printPlacement ?? DEFAULT_STORED,
+    printAreaPixelRect,
   });
 
   const designImageUrl = product.designImageUrl ?? "";

@@ -29,13 +29,21 @@ const KNOWN_TYPES = new Set<ProductType>([
 ]);
 
 /**
- * Returns `{ url, status, printArea }` for the flat blank product mockup of a given product type.
+ * Returns `{ url, status, printArea, printAreaPixelRect }` for the flat
+ * blank product mockup of a given product type.
  *   - status="ready"        — `url` is a re-hosted Supabase URL safe to use as a backdrop
  *   - status="generating"   — first-time generation in flight (client should re-poll)
  *   - status="unavailable"  — Printful not configured or catalog mapping missing
  *   - printArea             — `{ width, height }` in inches from Printful's
  *                             `placement_dimensions` (when cached); falls back
  *                             to hardcoded DEFAULT_PRINT_AREA_IN on the client.
+ *   - printAreaPixelRect    — `{ mockupWidthPx, mockupHeightPx, xPx, yPx, wPx, hPx }`
+ *                             when the v1 mockup-generator template populated
+ *                             pixel coords for this variant (migration 033 +
+ *                             `fetchVariantPrintAreaPx`). Tells the editor
+ *                             exactly where the cyan frame should land on
+ *                             the rendered mockup; null = fall back to
+ *                             photoBand.
  *
  * Query params:
  *   - `type`   ProductType — required
@@ -68,6 +76,7 @@ export async function GET(request: NextRequest) {
     hasUrl: Boolean(result.url),
     url: result.url,
     printArea: result.printArea,
+    hasPixelRect: Boolean(result.printAreaPixelRect),
   });
   /** Short cache only when ready — `generating` must re-poll. */
   const cacheControl =
