@@ -36,6 +36,7 @@ import { sanitizeSlugInput, MAX_PRODUCT_CATEGORY_SLUG_LEN } from "@/lib/slug-uti
 import { PrintPlacementEditor } from "@/components/create/print-placement-editor";
 import { CategoryProductPicker } from "@/components/create/category-product-picker";
 import { PRODUCT_TYPE_LABELS } from "@/components/storefront/product-card";
+import { TransparencyBadge } from "@/components/design/transparency-badge";
 import {
   Dialog,
   DialogContent,
@@ -102,6 +103,13 @@ function CreatePageInner() {
   // "ai" → image came from /api/designs/generate (already moderated server-side).
   // "upload" → user picked a file from disk; needs server-side moderation on publish.
   const [imageSource, setImageSource] = useState<"ai" | "upload">("ai");
+  /**
+   * Alpha-channel check result for the currently-previewed design.
+   * `null` until the API answers (or for direct file uploads, which we
+   * don't pre-check client-side); the badge renders a neutral "?" state
+   * until it lands.
+   */
+  const [hasTransparency, setHasTransparency] = useState<boolean | null>(null);
   /** Set when `/api/designs/generate` falls back to a placeholder (no GEMINI_API_KEY). */
   const [placeholderNotice, setPlaceholderNotice] = useState<string | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Set<ProductType>>(new Set(["hoodie", "tshirt"]));
@@ -274,6 +282,9 @@ function CreatePageInner() {
         setPrompt(data.prompt || "");
         if (data.style) setStyle(data.style);
         setGeneratedImage(data.imageUrl);
+        setHasTransparency(
+          typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
+        );
         setEditingPublishedDesign(Boolean(data.hasPublishedProducts));
         setStep("preview");
       } catch {
@@ -323,6 +334,9 @@ function CreatePageInner() {
       const data = await res.json();
       setGeneratedImage(data.imageUrl);
       setImageSource("ai");
+      setHasTransparency(
+        typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
+      );
       setPlaceholderNotice(data.placeholder ? (data.placeholderReason ?? "") : null);
       setStep("preview");
 
@@ -371,6 +385,10 @@ function CreatePageInner() {
       }
       setGeneratedImage(dataUrl);
       setImageSource("upload");
+      // Local-file uploads don't carry a pre-computed transparency check.
+      // Reset to "unknown" so the badge falls back to neutral until publish
+      // (or the dashboard's edit view) runs the server-side sharp check.
+      setHasTransparency(null);
       setStep("preview");
       setError(null);
     };
@@ -405,6 +423,7 @@ function CreatePageInner() {
     setStep("prompt");
     setGeneratedImage(null);
     setImageSource("ai");
+    setHasTransparency(null);
     setSelectedProducts(
       new Set([
         "hoodie",
@@ -716,11 +735,19 @@ function CreatePageInner() {
                     {prompt && (
                       <p className="mt-2 text-muted-foreground">{`"${prompt}"`}</p>
                     )}
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className="border-primary/30 text-primary">{style}</Badge>
                       <Badge variant="outline" className="border-neon-green/30 text-neon-green">
                         {prompt ? "AI Generated" : "Uploaded"}
                       </Badge>
+                      {/**
+                       * Surfaces the alpha-channel check. The checkered
+                       * preview some image tools show is purely a visual
+                       * "this area is transparent" hint — it does NOT
+                       * print. The badge tells the creator what Printful
+                       * will actually see (alpha vs. opaque rectangle).
+                       */}
+                      <TransparencyBadge hasTransparency={hasTransparency} />
                     </div>
                   </div>
 

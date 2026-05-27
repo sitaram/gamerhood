@@ -31,6 +31,7 @@ import {
 } from "@/lib/print/normalize-upload";
 import { uploadDesignImage, decodeDesignDataUrl } from "@/lib/storage";
 import { moderateImageBase64 } from "@/lib/moderation";
+import { detectDesignTransparencyFromAnySource } from "@/lib/print/transparency";
 import { parseTagsInput, normalizeProductCategoryInput } from "@/lib/slug-utils";
 import { awardXp, pickXpToastPayload, type XpAwardResult } from "@/lib/xp/award";
 import {
@@ -248,6 +249,21 @@ export async function POST(request: NextRequest) {
 
     const designTitle = body.title || body.prompt?.slice(0, 50) || "My Design";
 
+    /**
+     * Alpha-channel check on the canonical bytes we're about to persist —
+     * runs for BOTH paths:
+     *   - uploads: `imageForPersist` is the normalized PNG/WebP/etc.
+     *   - ai-source: `body.imageUrl` is Gemini's raw `data:` PNG (which is
+     *     where the "checker baked into RGB" failure actually shows up).
+     * We compute it before insert so the new row lands with the value set.
+     */
+    const transparency = await detectDesignTransparencyFromAnySource(imageForPersist);
+    if (transparency && !transparency.transparent) {
+      console.warn(
+        `[Publish] Design has no usable alpha (reason=${transparency.reason}) — listing will print as a solid rectangle.`,
+      );
+    }
+
     // ── Persist the design row first so we get a stable id to use as the
     // storage object key. We start with the original (data) URL and update
     // to the public URL after upload — the row is private to the creator
@@ -264,6 +280,7 @@ export async function POST(request: NextRequest) {
         // Generation route already moderated; uploads were moderated above.
         status: "approved",
         content_safe: true,
+        has_transparency: transparency ? transparency.transparent : null,
       });
 
       if (designErr || !design) {

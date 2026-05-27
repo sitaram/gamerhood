@@ -5,6 +5,7 @@ import { moderateText, moderateImageBase64 } from "@/lib/moderation";
 import { createClient } from "@/lib/supabase/server";
 import { getDefaultProfileForAuthUser, insertDesign } from "@/lib/supabase/queries";
 import { uploadDesignImage } from "@/lib/storage";
+import { detectDesignTransparency } from "@/lib/print/transparency";
 
 const STYLE_MODIFIERS: Record<string, string> = {
   anime: "anime art style, cel shaded, vibrant colors, manga inspired",
@@ -98,6 +99,22 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      /**
+       * Alpha-channel check on the raw Gemini bytes. Gemini's image model
+       * routinely returns RGB-only PNGs with a literal checker pattern
+       * painted into the background pixels when the prompt implies
+       * "transparent" — which then prints as a solid checkered rectangle.
+       * Persisting this here means the create-flow preview can flag the
+       * design BEFORE the creator publishes anything.
+       */
+      const transparencyBuf = Buffer.from(base64, "base64");
+      const transparency = await detectDesignTransparency(transparencyBuf);
+      if (!transparency.transparent) {
+        console.warn(
+          `[Design Generate] PNG has no usable alpha (reason=${transparency.reason}) — design will print as a solid rectangle.`,
+        );
+      }
+
       let designId: string | null = null;
       try {
         const supabase = await createClient();
@@ -116,6 +133,7 @@ export async function POST(request: NextRequest) {
               // requires status = 'approved').
               status: "approved",
               content_safe: true,
+              has_transparency: transparency.transparent,
             });
             designId = design?.id ?? null;
             if (designId) {
@@ -147,6 +165,11 @@ export async function POST(request: NextRequest) {
         prompt: body.prompt,
         style: body.style,
         designId,
+        /**
+         * Surfaced so the /create preview can render the transparency
+         * badge immediately, without a round-trip to /api/designs/[id].
+         */
+        hasTransparency: transparency.transparent,
       });
     }
 

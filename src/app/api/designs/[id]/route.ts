@@ -7,6 +7,7 @@ import {
 } from "@/lib/delete-guards";
 import { getServiceClient } from "@/lib/supabase/admin";
 import { removeDesignImageFromStorage, removeListingMockupFromStorage } from "@/lib/storage";
+import { detectDesignTransparencyFromAnySource } from "@/lib/print/transparency";
 
 export async function GET(
   _request: NextRequest,
@@ -31,6 +32,34 @@ export async function GET(
     .eq("design_id", id)
     .eq("is_published", true);
 
+  /**
+   * Lazy backfill: pre-migration rows have `has_transparency = null`.
+   * The first read pulls the image, runs the sharp alpha check, persists
+   * the result, and returns it so the UI's badge never has to special-case
+   * "unknown" for legacy designs. Best-effort — if the fetch / decode
+   * fails we still return `null` so the badge stays in the neutral state.
+   */
+  let hasTransparency: boolean | null =
+    typeof data.has_transparency === "boolean" ? data.has_transparency : null;
+  if (hasTransparency === null && data.image_url) {
+    const result = await detectDesignTransparencyFromAnySource(data.image_url);
+    if (result) {
+      hasTransparency = result.transparent;
+      await supabase
+        .from("designs")
+        .update({ has_transparency: hasTransparency })
+        .eq("id", data.id)
+        .then(({ error: updErr }) => {
+          if (updErr) {
+            console.warn(
+              `[designs GET] has_transparency backfill failed for ${data.id}:`,
+              updErr.message,
+            );
+          }
+        });
+    }
+  }
+
   return NextResponse.json({
     id: data.id,
     imageUrl: data.image_url,
@@ -38,6 +67,7 @@ export async function GET(
     style: data.style,
     title: data.title,
     hasPublishedProducts: (publishedProductCount ?? 0) > 0,
+    hasTransparency,
   });
 }
 

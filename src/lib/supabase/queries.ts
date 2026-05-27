@@ -141,6 +141,12 @@ export interface DesignRow {
   content_safe: boolean | null;
   copyright_clear: boolean | null;
   created_at: string;
+  /**
+   * Alpha-channel result; null = "not yet checked". Computed by
+   * `detectDesignTransparency` (sharp) at upload/generate time and
+   * back-filled lazily by the edit screen for legacy rows.
+   */
+  has_transparency: boolean | null;
 }
 
 export async function insertDesign(
@@ -154,6 +160,12 @@ export async function insertDesign(
     status?: "pending" | "approved" | "rejected";
     moderation_notes?: string | null;
     content_safe?: boolean | null;
+    /**
+     * Alpha-channel check result (column added in migration 031). Null when
+     * the caller hasn't run the check yet — the design's edit screen will
+     * lazy-fill from the public URL the first time it sees a null.
+     */
+    has_transparency?: boolean | null;
   },
 ) {
   return supabase.from("designs").insert(data).select().single();
@@ -206,7 +218,16 @@ export interface ProductRow {
    * to the owner's default storefront when this is null.
    */
   storefront_id?: string | null;
-  designs?: { image_url: string } | null;
+  /**
+   * Joined columns from `designs` — present when the SELECT requested
+   * them. `has_transparency` is populated for designs created after
+   * migration 031 and lazy-filled on first read for legacy rows.
+   */
+  designs?: {
+    id?: string;
+    image_url: string;
+    has_transparency?: boolean | null;
+  } | null;
 }
 
 export async function insertProduct(

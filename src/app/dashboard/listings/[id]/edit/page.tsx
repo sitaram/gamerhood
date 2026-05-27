@@ -19,8 +19,11 @@ import {
   PRODUCT_TYPE_LABELS,
 } from "@/components/storefront/product-card";
 import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
+import { TransparencyBadge } from "@/components/design/transparency-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { detectDesignTransparencyFromAnySource } from "@/lib/print/transparency";
+import { getServiceClient } from "@/lib/supabase/admin";
 import { resolveCostBasis, type ResolvedCostBasis } from "@/lib/pricing/cost-basis";
 import {
   parseStoredPlacement,
@@ -74,10 +77,12 @@ export default async function EditListingPage({ params }: Props) {
 
   // Fetch the product joined with the source design so we can render the
   // placement preview when no Printful mockup landed. RLS plus the explicit
-  // `profile_id` check below makes someone-else's-product → 404.
+  // `profile_id` check below makes someone-else's-product → 404. We also
+  // pull `has_transparency` here so the alpha-channel badge has data on the
+  // initial render without a follow-up request.
   const { data, error: productErr } = await supabase
     .from("products")
-    .select("*, designs ( image_url )")
+    .select("*, designs ( id, image_url, has_transparency )")
     .eq("id", id)
     .maybeSingle();
 
@@ -125,6 +130,45 @@ export default async function EditListingPage({ params }: Props) {
     product.mockup_url,
     designImageUrl,
   );
+
+  /**
+   * Alpha-channel badge data. We prefer the persisted column (set by the
+   * publish/generate routes after migration 031), but fall back to a
+   * one-shot sharp inspection of the design's public URL when the column
+   * is null — legacy designs predate the column. The backfill is best-
+   * effort and uses the service-role client so the WRITE bypasses the
+   * read-only RLS policy when needed; rendering never blocks on it.
+   */
+  const persistedTransparency = product.designs?.has_transparency;
+  let hasTransparency: boolean | null =
+    typeof persistedTransparency === "boolean" ? persistedTransparency : null;
+  const persistedDesignId = product.designs?.id ?? product.design_id ?? null;
+  if (hasTransparency === null && designImageUrl) {
+    const computed = await detectDesignTransparencyFromAnySource(designImageUrl);
+    if (computed) {
+      hasTransparency = computed.transparent;
+      if (persistedDesignId) {
+        try {
+          const admin = getServiceClient();
+          const { error: updErr } = await admin
+            .from("designs")
+            .update({ has_transparency: hasTransparency })
+            .eq("id", persistedDesignId);
+          if (updErr) {
+            console.warn(
+              "[edit-listing] has_transparency backfill failed:",
+              updErr.message,
+            );
+          }
+        } catch (err) {
+          console.warn(
+            "[edit-listing] service client unavailable for transparency backfill:",
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
+    }
+  }
 
   const seoListings = [
     {
@@ -237,6 +281,12 @@ export default async function EditListingPage({ params }: Props) {
                 Hidden
               </Badge>
             )}
+            {/**
+             * Reads the alpha-channel result from `designs.has_transparency`.
+             * The check is what Printful actually sees — not whatever
+             * checker pattern an image tool draws as a preview hint.
+             */}
+            <TransparencyBadge hasTransparency={hasTransparency} />
           </div>
           <h1 className="text-2xl font-bold leading-tight tracking-tight">
             {product.title}
