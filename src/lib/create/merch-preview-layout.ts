@@ -247,4 +247,18 @@ export function getMerchPreviewLayout(productType: ProductType): MerchPreviewLay
         printMaxWidthPct: 86,
       };
   }
+  /**
+   * Defensive fallback for any product type that hasn't been added to the
+   * switch yet (or for legacy rows whose `product_type` isn't in the
+   * current `ProductType` union). The previous implicit `undefined` return
+   * crashed callers like `MerchPlacementPreview` during SSR — far worse
+   * than rendering a generic frameless preview.
+   */
+  return {
+    showGarment: false,
+    garmentAspect: 1,
+    printBandTopPct: 12,
+    printBandBottomPct: 12,
+    printMaxWidthPct: 80,
+  };
 }
