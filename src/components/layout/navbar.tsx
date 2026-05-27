@@ -103,7 +103,9 @@ export function Navbar({
   const [stripeOnboarded, setStripeOnboarded] = useState<boolean | null>(
     initialStripeOnboarded,
   );
-  const totalItems = useCartStore((s) => s.totalItems);
+  const cartItemCount = useCartStore((s) =>
+    s.items.reduce((sum, i) => sum + i.quantity, 0),
+  );
   const menuRef = useRef<HTMLDivElement | null>(null);
   const storefrontRef = useRef<HTMLDivElement | null>(null);
 
@@ -219,7 +221,7 @@ export function Navbar({
     router.refresh();
   }
 
-  const cartCount = mounted ? totalItems() : 0;
+  const cartCount = mounted ? cartItemCount : 0;
   const initials = profileInitials(user?.displayName ?? "");
 
   return (
