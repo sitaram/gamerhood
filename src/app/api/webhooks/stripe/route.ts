@@ -10,7 +10,12 @@ import {
 } from "@/lib/printful/client";
 import { getCatalogConfig } from "@/lib/printful/catalog";
 import { parseStoredPlacement, placementLayerForProduct } from "@/lib/print/placement";
-import { sendOrderConfirmation } from "@/lib/email";
+import {
+  summarizeDrift,
+  verifyPrintAreaForOrder,
+  type DriftCheckInput,
+} from "@/lib/print/drift-safeguard";
+import { sendOrderConfirmation, sendPrintAreaDriftAlert } from "@/lib/email";
 import { getServiceClient } from "@/lib/supabase/admin";
 import {
   getOrderBySessionId,
@@ -241,6 +246,53 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         session.id,
       );
     } else {
+      /**
+       * Pre-payment drift safeguard. Re-verify every line's print area
+       * against Printful's live catalog before we submit. If any line
+       * drifted past the 1% tolerance, mark the order for manual review
+       * and hold fulfillment — admin email + log give the operator a
+       * chance to re-confirm or refund.
+       */
+      const driftInputs: DriftCheckInput[] = dbItems
+        .map<DriftCheckInput | null>((i) => {
+          const p = productsById.get(i.product_id);
+          if (!p?.printful_catalog_variant_id) return null;
+          return {
+            productId: p.id,
+            productTitle: p.title,
+            productType: p.product_type,
+            catalogVariantId: p.printful_catalog_variant_id,
+          };
+        })
+        .filter((x): x is DriftCheckInput => x !== null);
+
+      const driftResult = await verifyPrintAreaForOrder(driftInputs);
+      let submitToPrintful = true;
+      if (!driftResult.passed) {
+        const summary = summarizeDrift(driftResult);
+        console.error("[print-area-drift] holding order for manual review", {
+          stripeSessionId: session.id,
+          orderId: paidOrder.id,
+          flaggedCount: driftResult.flaggedLines.length,
+          summary,
+          lines: driftResult.lines,
+        });
+
+        await flagOrderForManualReview(
+          supabase,
+          paidOrder.id,
+          `Print-area drift: ${summary}`,
+        );
+        await sendPrintAreaDriftAlert({
+          orderId: paidOrder.id,
+          stripeSessionId: session.id,
+          summary,
+          details: JSON.stringify(driftResult.lines, null, 2),
+        });
+
+        submitToPrintful = false;
+      }
+
       const recipient: PrintfulRecipient = {
         name: shippingName ?? "Customer",
         address1: shippingAddr.line1 || "",
@@ -255,20 +307,27 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
           : undefined,
       };
 
-      try {
-        // Two-step: create draft → confirm. Lets us catch validation issues
-        // (bad address, unprintable artwork) before the wallet is charged.
-        const draft = await createPrintfulOrder({
-          external_id: session.id,
-          shipping: "STANDARD",
-          recipient,
-          order_items: orderItems,
-        });
-        const confirmed = await confirmPrintfulOrder(draft.id);
-        await updateOrderPrintfulId(supabase, session.id, String(confirmed.id));
-        console.log("[Stripe Webhook] Printful order confirmed:", confirmed.id);
-      } catch (err) {
-        console.error("[Stripe Webhook] Printful order submit failed:", err);
+      if (submitToPrintful) {
+        try {
+          // Two-step: create draft → confirm. Lets us catch validation issues
+          // (bad address, unprintable artwork) before the wallet is charged.
+          const draft = await createPrintfulOrder({
+            external_id: session.id,
+            shipping: "STANDARD",
+            recipient,
+            order_items: orderItems,
+          });
+          const confirmed = await confirmPrintfulOrder(draft.id);
+          await updateOrderPrintfulId(supabase, session.id, String(confirmed.id));
+          console.log("[Stripe Webhook] Printful order confirmed:", confirmed.id);
+        } catch (err) {
+          console.error("[Stripe Webhook] Printful order submit failed:", err);
+        }
+      } else {
+        console.warn(
+          "[Stripe Webhook] Skipping Printful submission — order held for manual review.",
+          { stripeSessionId: session.id, orderId: paidOrder.id },
+        );
       }
     }
   }
@@ -298,5 +357,39 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     }).catch((err) =>
       console.error("[Stripe Webhook] Email send error:", err),
     );
+  }
+}
+
+/**
+ * Flip `orders.needs_manual_review = true` + reason. Defensive: swallows
+ * the error if migration 032 hasn't been applied yet so the `[print-area-
+ * drift]` log + admin email stay the canonical alerting path even before
+ * the column exists in the live schema.
+ */
+async function flagOrderForManualReview(
+  supabase: ReturnType<typeof getServiceClient>,
+  orderId: string,
+  reason: string,
+) {
+  try {
+    const { error } = await supabase
+      .from("orders")
+      .update({
+        needs_manual_review: true,
+        manual_review_reason: reason,
+      })
+      .eq("id", orderId);
+    if (error) {
+      console.warn("[print-area-drift] order flag update failed", {
+        orderId,
+        message: error.message,
+        code: (error as { code?: string }).code,
+      });
+    }
+  } catch (err) {
+    console.warn("[print-area-drift] order flag update threw", {
+      orderId,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }

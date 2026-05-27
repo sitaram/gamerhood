@@ -2,31 +2,43 @@
 
 import Image from "next/image";
 import type { Product } from "@/lib/types";
-import { DEFAULT_STORED, normalizedPlacementToPrintful } from "@/lib/print/placement";
+import { DEFAULT_STORED } from "@/lib/print/placement";
 import { getMerchPreviewLayout } from "@/lib/create/merch-preview-layout";
-import { getPrintAreaInches } from "@/lib/printful/catalog";
+import {
+  computeDesignOverlayBox,
+  getDefaultPrintAreaInches,
+} from "@/lib/print/overlay-geometry";
 
 /**
  * Composite the saved design over a real per-color Printful blank photo.
- * Same placement geometry as `MerchPlacementPreview` — the design's
- * transparent pixels reveal the garment beneath, so heathers stay
- * heathered and there's no synthetic backdrop for transparent regions.
  *
- * Single source of truth for "render this listing in a specific color".
+ * Geometry comes from the unified `computeDesignOverlayBox` helper so the
+ * design size always reflects Printful's authoritative print area — even
+ * when the buyer swaps colors. The helper takes the *per-color* live print
+ * area (when known via the blank-photo cache) so any per-variant
+ * differences are picked up automatically.
+ *
  * Used by the product detail page hero image AND the cart line thumbnails;
- * callers fetch the per-color blank URL via `usePrintfulBlankPhoto` and
- * pass it in here.
+ * callers fetch the per-color blank URL + print area via
+ * `usePrintfulBlankPhoto` and pass it in here.
  */
 export function PhotographicColorMockup({
   product,
   photoUrl,
   colorName,
+  printAreaInches = null,
   sizes = "(max-width: 1024px) 100vw, 50vw",
   onPhotoLoad,
 }: {
   product: Product;
   photoUrl: string;
   colorName: string;
+  /**
+   * Per-variant Printful print area in inches (from the blank-photo
+   * cache). When null the helper falls back to `DEFAULT_PRINT_AREA_IN` —
+   * use only as a last resort: legacy rows pre-migration 023.
+   */
+  printAreaInches?: { width: number; height: number } | null;
   /** Responsive image `sizes` hint; default suits the product detail hero. */
   sizes?: string;
   /**
@@ -40,14 +52,15 @@ export function PhotographicColorMockup({
   const layout = baseLayout.photoBand
     ? { ...baseLayout, ...baseLayout.photoBand }
     : baseLayout;
-  const area = getPrintAreaInches(product.productType);
-  const Aw = area?.width ?? 12;
-  const Ah = area?.height ?? 15;
-  const pf = normalizedPlacementToPrintful({
-    areaWidthIn: Aw,
-    areaHeightIn: Ah,
-    placement: product.printPlacement ?? DEFAULT_STORED,
+
+  const overlay = computeDesignOverlayBox({
+    productType: product.productType,
+    layout,
+    printAreaInches,
+    defaultPrintAreaInches: getDefaultPrintAreaInches(product.productType),
+    normalizedPlacement: product.printPlacement ?? DEFAULT_STORED,
   });
+
   const designImageUrl = product.designImageUrl ?? "";
 
   return (
@@ -69,24 +82,19 @@ export function PhotographicColorMockup({
         />
       </div>
 
-      {/**
-       * Design overlay — positioned at the same percentages used by the
-       * placement editor + storefront card. No background fill so
-       * transparent areas of the design show the garment photo through.
-       */}
       <div
         className={
-          layout.printBandLeftPct != null && layout.printBandWidthPct != null
+          overlay.band.leftPct != null
             ? "pointer-events-none absolute flex items-center justify-center"
             : "pointer-events-none absolute left-1 right-1 flex items-center justify-center sm:left-2 sm:right-2"
         }
         style={{
-          top: `${layout.printBandTopPct}%`,
-          bottom: `${layout.printBandBottomPct}%`,
-          ...(layout.printBandLeftPct != null && layout.printBandWidthPct != null
+          top: `${overlay.band.topPct}%`,
+          bottom: `${overlay.band.bottomPct}%`,
+          ...(overlay.band.leftPct != null
             ? {
-                left: `${layout.printBandLeftPct}%`,
-                width: `${layout.printBandWidthPct}%`,
+                left: `${overlay.band.leftPct}%`,
+                width: `${overlay.band.widthPct}%`,
               }
             : {}),
         }}
@@ -94,17 +102,20 @@ export function PhotographicColorMockup({
         <div
           className="relative max-h-full overflow-visible"
           style={{
-            aspectRatio: `${Aw} / ${Ah}`,
-            width: `${layout.printMaxWidthPct}%`,
+            aspectRatio: overlay.band.aspectRatio,
+            width:
+              overlay.band.leftPct != null
+                ? "100%"
+                : `${overlay.band.widthPct}%`,
           }}
         >
           <div
             className="pointer-events-none absolute"
             style={{
-              width: `${(pf.width / pf.area_width) * 100}%`,
-              height: `${(pf.height / pf.area_height) * 100}%`,
-              left: `${(pf.left / pf.area_width) * 100}%`,
-              top: `${(pf.top / pf.area_height) * 100}%`,
+              width: `${overlay.design.widthPct}%`,
+              height: `${overlay.design.heightPct}%`,
+              left: `${overlay.design.leftPct}%`,
+              top: `${overlay.design.topPct}%`,
             }}
           >
             <Image

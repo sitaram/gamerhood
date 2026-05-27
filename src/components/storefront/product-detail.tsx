@@ -24,10 +24,13 @@ import {
   type ColorSwatch,
 } from "@/lib/printful/color-swatches";
 import { getMerchPreviewLayout } from "@/lib/create/merch-preview-layout";
-import { getPrintAreaInches } from "@/lib/printful/catalog";
-import { normalizedPlacementToPrintful } from "@/lib/print/placement";
+import {
+  computeDesignOverlayBox,
+  getDefaultPrintAreaInches,
+} from "@/lib/print/overlay-geometry";
 import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
 import { PhotographicColorMockup } from "@/components/storefront/photographic-color-mockup";
+import { DesignPrintSizeIndicator } from "@/components/create/design-print-size-indicator";
 
 /** Lowercase + hyphenate + strip non-url-safe chars for QR PNG filenames. */
 function slugifyForFilename(input: string): string {
@@ -49,6 +52,23 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
   const hasClothing = !!product.sizes;
   /** First color = the variant the listing was published with → `mockupUrl` is in this color. */
   const defaultColor = product.colors[0];
+
+  /**
+   * Per-color print area — drives the dimensions indicator below the
+   * color/size pickers. Same hook the hero image's blank cache uses,
+   * deduped by the in-memory cache so this doesn't double-fetch.
+   */
+  const { area: indicatorPrintArea } = usePrintfulBlankPhoto(
+    product.productType,
+    selectedColor === defaultColor ? null : selectedColor,
+  );
+  const indicatorOverlay = computeDesignOverlayBox({
+    productType: product.productType,
+    layout: getMerchPreviewLayout(product.productType),
+    printAreaInches: indicatorPrintArea,
+    defaultPrintAreaInches: getDefaultPrintAreaInches(product.productType),
+    normalizedPlacement: product.printPlacement ?? DEFAULT_STORED,
+  });
 
   /** Snapshot from Printful catalog at publish time; preferred over the static fallback. */
   const swatches = useMemo(() => {
@@ -177,6 +197,12 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
               </div>
             </div>
           )}
+
+          <DesignPrintSizeIndicator
+            designInches={indicatorOverlay.designInches}
+            printAreaInches={indicatorOverlay.printAreaInches}
+            tone="compact"
+          />
 
           <div>
             <label className="text-sm font-semibold mb-2 block">Quantity</label>
@@ -338,10 +364,11 @@ function ProductMockupImage({
   );
   const hasDesign = !!product.designImageUrl?.trim();
 
-  const { url: blankPhotoUrl, loading: blankLoading } = usePrintfulBlankPhoto(
-    product.productType,
-    isDefaultColor ? null : selectedColor,
-  );
+  const { url: blankPhotoUrl, loading: blankLoading, area: printAreaInches } =
+    usePrintfulBlankPhoto(
+      product.productType,
+      isDefaultColor ? null : selectedColor,
+    );
 
   /**
    * The layer we *want* to display for the current selection. May be
@@ -504,6 +531,7 @@ function ProductMockupImage({
                 product={product}
                 photoUrl={layer.url}
                 colorName={layer.colorLabel}
+                printAreaInches={printAreaInches}
                 onPhotoLoad={() => markLoaded(layer.id)}
               />
             )}
@@ -546,13 +574,13 @@ function ColoredGarmentMockup({
   loading?: boolean;
 }) {
   const layout = getMerchPreviewLayout(product.productType);
-  const area = getPrintAreaInches(product.productType);
-  const Aw = area?.width ?? 12;
-  const Ah = area?.height ?? 15;
-  const pf = normalizedPlacementToPrintful({
-    areaWidthIn: Aw,
-    areaHeightIn: Ah,
-    placement: product.printPlacement ?? DEFAULT_STORED,
+  const overlay = computeDesignOverlayBox({
+    productType: product.productType,
+    layout,
+    /** No live blank ⇒ no per-variant override; helper falls back to defaults. */
+    printAreaInches: null,
+    defaultPrintAreaInches: getDefaultPrintAreaInches(product.productType),
+    normalizedPlacement: product.printPlacement ?? DEFAULT_STORED,
   });
 
   const designImageUrl = product.designImageUrl ?? "";
@@ -571,10 +599,10 @@ function ColoredGarmentMockup({
     <div
       className="pointer-events-none absolute"
       style={{
-        width: `${(pf.width / pf.area_width) * 100}%`,
-        height: `${(pf.height / pf.area_height) * 100}%`,
-        left: `${(pf.left / pf.area_width) * 100}%`,
-        top: `${(pf.top / pf.area_height) * 100}%`,
+        width: `${overlay.design.widthPct}%`,
+        height: `${overlay.design.heightPct}%`,
+        left: `${overlay.design.leftPct}%`,
+        top: `${overlay.design.topPct}%`,
         opacity,
       }}
     >
@@ -644,17 +672,17 @@ function ColoredGarmentMockup({
           {/* Design composited at the saved print band. */}
           <div
             className={
-              layout.printBandLeftPct != null && layout.printBandWidthPct != null
+              overlay.band.leftPct != null
                 ? "pointer-events-none absolute flex items-center justify-center"
                 : "pointer-events-none absolute left-1 right-1 flex items-center justify-center sm:left-2 sm:right-2"
             }
             style={{
-              top: `${layout.printBandTopPct}%`,
-              bottom: `${layout.printBandBottomPct}%`,
-              ...(layout.printBandLeftPct != null && layout.printBandWidthPct != null
+              top: `${overlay.band.topPct}%`,
+              bottom: `${overlay.band.bottomPct}%`,
+              ...(overlay.band.leftPct != null
                 ? {
-                    left: `${layout.printBandLeftPct}%`,
-                    width: `${layout.printBandWidthPct}%`,
+                    left: `${overlay.band.leftPct}%`,
+                    width: `${overlay.band.widthPct}%`,
                   }
                 : {}),
             }}
@@ -662,8 +690,11 @@ function ColoredGarmentMockup({
             <div
               className="relative max-h-full overflow-visible"
               style={{
-                aspectRatio: `${Aw} / ${Ah}`,
-                width: `${layout.printMaxWidthPct}%`,
+                aspectRatio: overlay.band.aspectRatio,
+                width:
+                  overlay.band.leftPct != null
+                    ? "100%"
+                    : `${overlay.band.widthPct}%`,
               }}
             >
               <div className="pointer-events-none absolute inset-0">

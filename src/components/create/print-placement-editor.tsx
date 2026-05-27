@@ -8,16 +8,19 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { MerchGarmentSilhouette } from "@/components/create/merch-garment-silhouette";
 import { getMerchPreviewLayout } from "@/lib/create/merch-preview-layout";
-import { getPrintAreaInches } from "@/lib/printful/catalog";
 import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
 import {
-  normalizedPlacementToPrintful,
   PLACEMENT_PAN_MAX,
   PLACEMENT_ZOOM_MAX,
   PLACEMENT_ZOOM_MIN,
   PLACEMENT_ZOOM_DEFAULT,
 } from "@/lib/print/placement";
 import type { StoredPrintPlacement } from "@/lib/print/placement";
+import {
+  computeDesignOverlayBox,
+  getDefaultPrintAreaInches,
+} from "@/lib/print/overlay-geometry";
+import { DesignPrintSizeIndicator } from "@/components/create/design-print-size-indicator";
 import type { ProductType } from "@/lib/types";
 import { PRODUCT_TYPE_LABELS } from "@/components/storefront/product-card";
 
@@ -113,19 +116,25 @@ export function PrintPlacementEditor({
     }
   }, [previewType, blankPhotoUrl, blankPhotoLoading]);
 
-  /**
-   * Print area in inches: prefer the live Printful-reported dims (cached on
-   * `printful_blank_mockups` and surfaced via the blank-photo API), fall back
-   * to our hardcoded DEFAULT_PRINT_AREA_IN values. This keeps the box
-   * accurate even when we point env vars at a new SKU without redeploying.
-   */
-  const hardcodedArea = getPrintAreaInches(previewType);
-  const Aw = liveArea?.width ?? hardcodedArea?.width ?? 12;
-  const Ah = liveArea?.height ?? hardcodedArea?.height ?? 15;
   /** Flat photo backdrop swaps in the per-SKU print band tune (different framing than the silhouette). */
   const layout = blankPhotoUrl && baseLayout.photoBand
     ? { ...baseLayout, ...baseLayout.photoBand }
     : baseLayout;
+
+  /**
+   * Unified overlay geometry: same helper drives every preview surface so
+   * `Aw`/`Ah` (used for the cyan frame's aspect ratio + the indicator
+   * caption) always match what Printful will print.
+   */
+  const overlay = computeDesignOverlayBox({
+    productType: previewType,
+    layout,
+    printAreaInches: liveArea,
+    defaultPrintAreaInches: getDefaultPrintAreaInches(previewType),
+    normalizedPlacement: value,
+  });
+  const Aw = overlay.printAreaInches.width;
+  const Ah = overlay.printAreaInches.height;
 
   const drag = useRef<{ lastX: number; lastY: number } | null>(null);
 
@@ -142,12 +151,6 @@ export function PrintPlacementEditor({
     };
     img.src = imageUrl;
   }, [imageUrl, onAspectDetected]);
-
-  const pf = normalizedPlacementToPrintful({
-    areaWidthIn: Aw,
-    areaHeightIn: Ah,
-    placement: value,
-  });
 
   const onPointerDown = (e: React.PointerEvent) => {
     drag.current = { lastX: e.clientX, lastY: e.clientY };
@@ -217,10 +220,10 @@ export function PrintPlacementEditor({
     <div
       className="pointer-events-none absolute"
       style={{
-        width: `${(pf.width / pf.area_width) * 100}%`,
-        height: `${(pf.height / pf.area_height) * 100}%`,
-        left: `${(pf.left / pf.area_width) * 100}%`,
-        top: `${(pf.top / pf.area_height) * 100}%`,
+        width: `${overlay.design.widthPct}%`,
+        height: `${overlay.design.heightPct}%`,
+        left: `${overlay.design.leftPct}%`,
+        top: `${overlay.design.topPct}%`,
         opacity,
       }}
     >
@@ -371,17 +374,17 @@ export function PrintPlacementEditor({
 
             <div
               className={
-                layout.printBandLeftPct != null && layout.printBandWidthPct != null
+                overlay.band.leftPct != null
                   ? "pointer-events-none absolute flex items-center justify-center"
                   : "pointer-events-none absolute left-2 right-2 flex items-center justify-center sm:left-4 sm:right-4"
               }
               style={{
-                top: `${layout.printBandTopPct}%`,
-                bottom: `${layout.printBandBottomPct}%`,
-                ...(layout.printBandLeftPct != null && layout.printBandWidthPct != null
+                top: `${overlay.band.topPct}%`,
+                bottom: `${overlay.band.bottomPct}%`,
+                ...(overlay.band.leftPct != null
                   ? {
-                      left: `${layout.printBandLeftPct}%`,
-                      width: `${layout.printBandWidthPct}%`,
+                      left: `${overlay.band.leftPct}%`,
+                      width: `${overlay.band.widthPct}%`,
                     }
                   : {}),
               }}
@@ -402,8 +405,11 @@ export function PrintPlacementEditor({
               <div
                 className="relative max-h-full overflow-visible rounded-sm border border-dashed border-cyan-400/80 ring-1 ring-cyan-300/20"
                 style={{
-                  aspectRatio: `${Aw} / ${Ah}`,
-                  width: `${layout.printMaxWidthPct}%`,
+                  aspectRatio: overlay.band.aspectRatio,
+                  width:
+                    overlay.band.leftPct != null
+                      ? "100%"
+                      : `${overlay.band.widthPct}%`,
                 }}
               >
                 <div className="pointer-events-none absolute inset-0">
@@ -446,6 +452,11 @@ export function PrintPlacementEditor({
             </p>
           </div>
         )}
+
+        <DesignPrintSizeIndicator
+          designInches={overlay.designInches}
+          printAreaInches={overlay.printAreaInches}
+        />
 
         {!hideBatchPlacementNote && (
           <p className="text-[11px] leading-snug text-muted-foreground">

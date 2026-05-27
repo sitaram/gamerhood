@@ -16,6 +16,13 @@ import { MerchPlacementPreview } from "@/components/create/merch-placement-previ
 import { PrintPlacementEditor } from "@/components/create/print-placement-editor";
 import { DEFAULT_STORED } from "@/lib/print/placement";
 import type { StoredPrintPlacement } from "@/lib/print/placement";
+import {
+  computeDesignOverlayBox,
+  getDefaultPrintAreaInches,
+} from "@/lib/print/overlay-geometry";
+import { getMerchPreviewLayout } from "@/lib/create/merch-preview-layout";
+import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
+import { DesignPrintSizeIndicator } from "@/components/create/design-print-size-indicator";
 import type { ProductType } from "@/lib/types";
 import { PRODUCT_TYPE_LABELS, hasRenderableListingMockup } from "@/components/storefront/product-card";
 import { toast } from "sonner";
@@ -116,63 +123,15 @@ export function ListingPlacementPanel({
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2">
-        {rows.map((row) => {
-          const placement = row.printPlacement ?? DEFAULT_STORED;
-          const label = PRODUCT_TYPE_LABELS[row.productType] || row.productType;
-          return (
-            <Card key={row.id} className="border-border/50 bg-card p-4">
-              <div className="flex gap-4">
-                <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-secondary">
-                  {hasRenderableListingMockup(row.mockupUrl, row.designImageUrl) ? (
-                    <Image
-                      src={row.mockupUrl!}
-                      alt=""
-                      fill
-                      className="object-cover"
-                      sizes="96px"
-                      unoptimized
-                    />
-                  ) : row.designImageUrl ? (
-                    <MerchPlacementPreview
-                      imageUrl={row.designImageUrl}
-                      productType={row.productType}
-                      placement={placement}
-                    />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] text-muted-foreground">
-                      No artwork preview
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="line-clamp-2 text-sm font-medium">{row.title}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">{label}</p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 mr-2"
-                    disabled={!row.designImageUrl}
-                    onClick={() => openEditor(row)}
-                  >
-                    Edit placement
-                  </Button>
-                  {!hideDestructiveActions && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-3 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      onClick={() => setPendingDeleteId(row.id)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                      Remove
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </Card>
-          );
-        })}
+        {rows.map((row) => (
+          <PlacementRowCard
+            key={row.id}
+            row={row}
+            hideDestructiveActions={hideDestructiveActions}
+            onEdit={() => openEditor(row)}
+            onAskDelete={() => setPendingDeleteId(row.id)}
+          />
+        ))}
       </div>
 
       <Dialog open={active !== null} onOpenChange={(open) => !open && setActive(null)}>
@@ -224,5 +183,93 @@ export function ListingPlacementPanel({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * One card in the placement grid. Split out so we can call the per-row
+ * `usePrintfulBlankPhoto` hook (needs to run once per row) without
+ * violating the rules of hooks at the parent level.
+ */
+function PlacementRowCard({
+  row,
+  hideDestructiveActions,
+  onEdit,
+  onAskDelete,
+}: {
+  row: PlacementListingRow;
+  hideDestructiveActions: boolean;
+  onEdit: () => void;
+  onAskDelete: () => void;
+}) {
+  const placement = row.printPlacement ?? DEFAULT_STORED;
+  const label = PRODUCT_TYPE_LABELS[row.productType] || row.productType;
+  const { area: liveArea } = usePrintfulBlankPhoto(row.productType);
+  const overlay = computeDesignOverlayBox({
+    productType: row.productType,
+    layout: getMerchPreviewLayout(row.productType),
+    printAreaInches: liveArea,
+    defaultPrintAreaInches: getDefaultPrintAreaInches(row.productType),
+    normalizedPlacement: placement,
+  });
+
+  return (
+    <Card className="border-border/50 bg-card p-4">
+      <div className="flex gap-4">
+        <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-secondary">
+          {hasRenderableListingMockup(row.mockupUrl, row.designImageUrl) ? (
+            <Image
+              src={row.mockupUrl!}
+              alt=""
+              fill
+              className="object-cover"
+              sizes="96px"
+              unoptimized
+            />
+          ) : row.designImageUrl ? (
+            <MerchPlacementPreview
+              imageUrl={row.designImageUrl}
+              productType={row.productType}
+              placement={placement}
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] text-muted-foreground">
+              No artwork preview
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="line-clamp-2 text-sm font-medium">{row.title}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{label}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3 mr-2"
+            disabled={!row.designImageUrl}
+            onClick={onEdit}
+          >
+            Edit placement
+          </Button>
+          {!hideDestructiveActions && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-3 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              onClick={onAskDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              Remove
+            </Button>
+          )}
+        </div>
+      </div>
+      <DesignPrintSizeIndicator
+        designInches={overlay.designInches}
+        printAreaInches={overlay.printAreaInches}
+        tone="compact"
+        className="mt-3"
+      />
+    </Card>
   );
 }

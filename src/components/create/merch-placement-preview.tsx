@@ -4,15 +4,22 @@ import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { MerchGarmentSilhouette } from "@/components/create/merch-garment-silhouette";
 import { getMerchPreviewLayout } from "@/lib/create/merch-preview-layout";
-import { getPrintAreaInches } from "@/lib/printful/catalog";
-import { normalizedPlacementToPrintful } from "@/lib/print/placement";
 import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
+import {
+  computeDesignOverlayBox,
+  getDefaultPrintAreaInches,
+} from "@/lib/print/overlay-geometry";
 import type { StoredPrintPlacement } from "@/lib/print/placement";
 import type { ProductType } from "@/lib/types";
 
 /**
- * Read-only on-merch preview (matches `PrintPlacementEditor` geometry).
- * Used for shop thumbnails and create-flow product tiles.
+ * Read-only on-merch preview — composites a design over the Printful flat
+ * mockup (or SVG silhouette fallback). Used for shop thumbnails and
+ * create-flow product tiles.
+ *
+ * Geometry comes from `computeDesignOverlayBox`; do not recompute band /
+ * design pcts inline here — every surface must funnel through that helper
+ * so the rendered design always reflects Printful's live print area.
  */
 export function MerchPlacementPreview({
   imageUrl,
@@ -26,35 +33,27 @@ export function MerchPlacementPreview({
   className?: string;
 }) {
   const baseLayout = getMerchPreviewLayout(productType);
-  const area = getPrintAreaInches(productType);
-  const Aw = area?.width ?? 12;
-  const Ah = area?.height ?? 15;
-  const { url: blankPhotoUrl } = usePrintfulBlankPhoto(productType);
+  const { url: blankPhotoUrl, area: liveArea } = usePrintfulBlankPhoto(productType);
   const layout = blankPhotoUrl && baseLayout.photoBand
     ? { ...baseLayout, ...baseLayout.photoBand }
     : baseLayout;
 
-  const pf = normalizedPlacementToPrintful({
-    areaWidthIn: Aw,
-    areaHeightIn: Ah,
-    placement,
+  const overlay = computeDesignOverlayBox({
+    productType,
+    layout,
+    printAreaInches: liveArea,
+    defaultPrintAreaInches: getDefaultPrintAreaInches(productType),
+    normalizedPlacement: placement,
   });
 
-  /**
-   * Artwork box — no inline background, so transparent design pixels
-   * reveal the garment beneath (the Printful flat mockup or silhouette).
-   * Rendered twice when wrapped in a cyan-frame: dimmed for any overhang
-   * past the print area, full opacity clipped to the frame. The dimmed
-   * "ghost" matches the editor's overhang affordance.
-   */
   const renderArtwork = (opacity: number) => (
     <div
       className="pointer-events-none absolute"
       style={{
-        width: `${(pf.width / pf.area_width) * 100}%`,
-        height: `${(pf.height / pf.area_height) * 100}%`,
-        left: `${(pf.left / pf.area_width) * 100}%`,
-        top: `${(pf.top / pf.area_height) * 100}%`,
+        width: `${overlay.design.widthPct}%`,
+        height: `${overlay.design.heightPct}%`,
+        left: `${overlay.design.leftPct}%`,
+        top: `${overlay.design.topPct}%`,
         opacity,
       }}
     >
@@ -76,7 +75,7 @@ export function MerchPlacementPreview({
         <div className="flex h-full w-full items-center justify-center p-2">
           <div
             className="relative w-[88%] overflow-hidden rounded-md border border-dashed border-primary/50 bg-muted/40 shadow-inner"
-            style={{ aspectRatio: `${Aw} / ${Ah}` }}
+            style={{ aspectRatio: overlay.band.aspectRatio }}
           >
             <div className="relative h-full w-full">{renderArtwork(1)}</div>
           </div>
@@ -89,7 +88,6 @@ export function MerchPlacementPreview({
           >
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-1 sm:p-2">
               {blankPhotoUrl ? (
-                /** Printful flat mockup; renders the same SKU the order will print to. */
                 <div className="relative h-full w-full">
                   <Image
                     src={blankPhotoUrl}
@@ -116,17 +114,17 @@ export function MerchPlacementPreview({
 
             <div
               className={
-                layout.printBandLeftPct != null && layout.printBandWidthPct != null
+                overlay.band.leftPct != null
                   ? "pointer-events-none absolute flex items-center justify-center"
                   : "pointer-events-none absolute left-1 right-1 flex items-center justify-center sm:left-2 sm:right-2"
               }
               style={{
-                top: `${layout.printBandTopPct}%`,
-                bottom: `${layout.printBandBottomPct}%`,
-                ...(layout.printBandLeftPct != null && layout.printBandWidthPct != null
+                top: `${overlay.band.topPct}%`,
+                bottom: `${overlay.band.bottomPct}%`,
+                ...(overlay.band.leftPct != null
                   ? {
-                      left: `${layout.printBandLeftPct}%`,
-                      width: `${layout.printBandWidthPct}%`,
+                      left: `${overlay.band.leftPct}%`,
+                      width: `${overlay.band.widthPct}%`,
                     }
                   : {}),
               }}
@@ -134,8 +132,11 @@ export function MerchPlacementPreview({
               <div
                 className="relative max-h-full overflow-visible rounded-sm border border-dashed border-primary/70 ring-1 ring-background/60"
                 style={{
-                  aspectRatio: `${Aw} / ${Ah}`,
-                  width: `${layout.printMaxWidthPct}%`,
+                  aspectRatio: overlay.band.aspectRatio,
+                  width:
+                    overlay.band.leftPct != null
+                      ? "100%"
+                      : `${overlay.band.widthPct}%`,
                 }}
               >
                 <div className="pointer-events-none absolute inset-0">

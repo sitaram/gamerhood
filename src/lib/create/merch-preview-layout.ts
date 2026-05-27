@@ -1,8 +1,21 @@
 import type { ProductType } from "@/lib/types";
 
 /**
- * Visual template for “art on actual merch” in the create flow.
- * Print box uses real Printful aspect (Aw/Ah); position is approximate on the garment.
+ * Visual template for "art on actual merch" in the create flow.
+ *
+ * IMPORTANT — these values are FALLBACK ONLY for the *garment-on-photo*
+ * framing (where the chest sits within the rendered photo). They were
+ * hand-calibrated against Printful's env-default flat mockup style for
+ * each product type. They are NOT the print area in inches — that comes
+ * from `printful_blank_mockups.print_area_{width,height}_in` (migration
+ * 023) via `usePrintfulBlankPhoto().area` or
+ * `getDefaultPrintAreaInches()`.
+ *
+ * Every surface that composites a design over a garment photo MUST flow
+ * through `computeDesignOverlayBox` in `src/lib/print/overlay-geometry.ts`
+ * so the design size always reflects the live Printful print area, even
+ * when this `photoBand` block is out of date. Do not re-introduce per-
+ * surface arithmetic against `printMaxWidthPct` outside that helper.
  */
 export type MerchPreviewLayout = {
   /** When false, show the legacy full-bleed print rectangle only. */

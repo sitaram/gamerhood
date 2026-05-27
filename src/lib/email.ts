@@ -126,6 +126,67 @@ export async function sendShippingNotification(
   });
 }
 
+/**
+ * Print-area drift alert — fires from the Stripe webhook when the pre-
+ * payment safeguard detects a divergence between the cached print area
+ * we used to render the preview and what Printful's catalog returns at
+ * fulfillment time. Surfaces to every admin in `ADMIN_EMAILS` so somebody
+ * can re-verify the variant in the Printful dashboard and either approve
+ * the order or refund the buyer.
+ *
+ * Silently no-ops when `RESEND_API_KEY` or `ADMIN_EMAILS` is unset (e.g.
+ * in dev). The `[print-area-drift]` console.error stays the canonical
+ * record either way.
+ */
+export async function sendPrintAreaDriftAlert(data: {
+  orderId: string | null;
+  stripeSessionId: string;
+  summary: string;
+  details: string;
+}) {
+  const resend = getResend();
+  if (!resend) return;
+  const recipientsRaw = process.env.ADMIN_EMAILS ?? "";
+  const recipients = recipientsRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (recipients.length === 0) return;
+
+  await resend.emails
+    .send({
+      from: FROM,
+      to: recipients,
+      subject: `[print-area-drift] Order ${data.stripeSessionId.slice(-12)} held for review`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <h1 style="color: #ef4444;">Print-area drift detected</h1>
+          <p>Pre-payment safeguard tripped on this order — automatic Printful
+          submission was <strong>skipped</strong>. Verify the variant in the
+          Printful catalog and either re-confirm the order or refund the
+          buyer.</p>
+          <table style="width: 100%; border-collapse: collapse; margin: 12px 0;">
+            <tr>
+              <td style="padding: 6px 0; color: #6b7280;">Stripe session</td>
+              <td style="padding: 6px 0;"><code>${data.stripeSessionId}</code></td>
+            </tr>
+            <tr>
+              <td style="padding: 6px 0; color: #6b7280;">Internal order id</td>
+              <td style="padding: 6px 0;"><code>${data.orderId ?? "—"}</code></td>
+            </tr>
+          </table>
+          <h3 style="margin-top: 24px;">Summary</h3>
+          <p>${data.summary}</p>
+          <h3 style="margin-top: 24px;">Details</h3>
+          <pre style="background: #f3f4f6; padding: 12px; border-radius: 6px; white-space: pre-wrap; font-size: 12px;">${data.details}</pre>
+        </div>
+      `,
+    })
+    .catch((err) => {
+      console.warn("[print-area-drift] admin notify email failed:", err);
+    });
+}
+
 export async function sendDmcaAcknowledgment(
   to: string,
   data: { contentUrl: string; description: string },

@@ -201,6 +201,25 @@ for (const type of targets) {
     if (!firstAttemptForType) await sleep(INTER_REQUEST_DELAY_MS);
     firstAttemptForType = false;
 
+    /**
+     * Snapshot the existing cached print area BEFORE we (re)warm so we
+     * can spot a Printful-side change at warm time — the earliest
+     * possible point in the drift detection funnel.
+     */
+    let priorPrintArea: { width: number; height: number } | null = null;
+    {
+      const { data: prior } = await supabase
+        .from("printful_blank_mockups")
+        .select("print_area_width_in, print_area_height_in")
+        .eq("catalog_variant_id", v.variantId)
+        .maybeSingle();
+      const pw = prior?.print_area_width_in;
+      const ph = prior?.print_area_height_in;
+      if (typeof pw === "number" && typeof ph === "number" && pw > 0 && ph > 0) {
+        priorPrintArea = { width: pw, height: ph };
+      }
+    }
+
     let attempt = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -213,6 +232,33 @@ for (const type of targets) {
           process.stdout.write(`${label}FAIL  (generator returned null)\n`);
           failedVariants++;
           break;
+        }
+        /**
+         * Drift early-warning: if the live print area differs from what
+         * we had on file (and the prior value existed) yell loudly. The
+         * pre-payment safeguard in the Stripe webhook is the safety
+         * net; this surfaces drift before any customer sees a stale
+         * preview, so we can investigate proactively.
+         */
+        const nextW = row.print_area_width_in;
+        const nextH = row.print_area_height_in;
+        if (
+          priorPrintArea &&
+          typeof nextW === "number" &&
+          typeof nextH === "number" &&
+          nextW > 0 &&
+          nextH > 0
+        ) {
+          const dw = Math.abs(nextW - priorPrintArea.width) / priorPrintArea.width;
+          const dh =
+            Math.abs(nextH - priorPrintArea.height) / priorPrintArea.height;
+          if (dw > 0.01 || dh > 0.01) {
+            console.warn(
+              `[printful-refresh-blanks] PRINT-AREA DRIFT for variant ${v.variantId} (${type} ${v.colorName}): ` +
+                `was ${priorPrintArea.width}×${priorPrintArea.height}", now ${nextW}×${nextH}". ` +
+                `Stored placements may render at the wrong physical size — re-verify the catalog.`,
+            );
+          }
         }
         process.stdout.write(`${label}ok  (${row.source ?? "?"})\n`);
         okVariants++;
