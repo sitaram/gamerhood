@@ -295,13 +295,31 @@ function ColorSwatchDot({
 }
 
 /**
- * Renders the listing image. The published default color uses the persisted
- * `mockupUrl` (a Printful-rendered listing photo with the design already
- * composited). For any other color we look up a per-color blank from
- * `/api/printful/blank-photo` (Track A in the cache — re-hosted catalog
- * photo) and composite the design over it at the saved placement. The
- * tinted SVG silhouette stays as a last-resort fallback while the per-
- * color blank is loading or fully unavailable.
+ * One renderable layer in the crossfade stack. `mockup` is the published
+ * listing photo (design already composited by Printful). `blank` is a
+ * per-color catalog photo with the design overlaid in the DOM. `silhouette`
+ * is the tinted SVG fallback used only when a variant truly has no photo.
+ */
+type MockupLayer =
+  | { id: string; kind: "mockup"; url: string; loaded: boolean; colorLabel: string }
+  | { id: string; kind: "blank"; url: string; loaded: boolean; colorLabel: string }
+  | {
+      id: string;
+      kind: "silhouette";
+      loaded: boolean;
+      colorLabel: string;
+      swatch: ColorSwatch;
+    };
+
+/**
+ * Renders the listing image as a small crossfade stack so color swaps
+ * stay visually continuous: the previously visible photo holds on screen
+ * until the new color's blank has fully decoded, then the incoming layer
+ * fades in over ~150 ms and the old layer is pruned. This eliminates both
+ * the silhouette flash (no fallback shown mid-swap once we've ever shown
+ * a real photo) and the naked-design flash (the design overlay sits
+ * inside each incoming layer, so it only appears together with its
+ * garment photo).
  */
 function ProductMockupImage({
   product,
@@ -320,88 +338,192 @@ function ProductMockupImage({
   );
   const hasDesign = !!product.designImageUrl?.trim();
 
-  /**
-   * Per-color blank fetch. We always invoke the hook (rules of hooks) but
-   * skip the network call for the default color by passing `null`.
-   */
   const { url: blankPhotoUrl, loading: blankLoading } = usePrintfulBlankPhoto(
     product.productType,
     isDefaultColor ? null : selectedColor,
   );
 
-  if (isDefaultColor && canRenderMockup) {
-    return (
-      <Image
-        src={product.mockupUrl}
-        alt={product.title}
-        fill
-        sizes="(max-width: 1024px) 100vw, 50vw"
-        className="object-cover"
-        unoptimized
-      />
-    );
-  }
+  /**
+   * The layer we *want* to display for the current selection. May be
+   * `null` while a per-color blank is being warmed — in that window we
+   * keep the previous layer on screen instead of flashing the silhouette.
+   */
+  const target = useMemo<MockupLayer | null>(() => {
+    if (isDefaultColor && canRenderMockup) {
+      return {
+        id: `mockup::${product.mockupUrl}`,
+        kind: "mockup",
+        url: product.mockupUrl,
+        loaded: false,
+        colorLabel: selectedColor,
+      };
+    }
+    if (!isDefaultColor && hasDesign && blankPhotoUrl) {
+      return {
+        id: `blank::${selectedColor}::${blankPhotoUrl}`,
+        kind: "blank",
+        url: blankPhotoUrl,
+        loaded: false,
+        colorLabel: selectedColor,
+      };
+    }
+    /** Cache terminal (unavailable) → fall back to the tinted silhouette so we don't keep showing a different color. */
+    if (!isDefaultColor && hasDesign && !blankLoading) {
+      return {
+        id: `silhouette::${selectedColor}`,
+        kind: "silhouette",
+        loaded: false,
+        colorLabel: selectedColor,
+        swatch,
+      };
+    }
+    return null;
+  }, [
+    isDefaultColor,
+    canRenderMockup,
+    hasDesign,
+    blankPhotoUrl,
+    blankLoading,
+    product.mockupUrl,
+    selectedColor,
+    swatch,
+  ]);
 
   /**
-   * Non-default color happy path: the per-color blank photo is cached → we
-   * composite the design on top. Transparent regions of the design show
-   * the photographic garment color through, so heathered colors look
-   * heathered (not flat) and there's no checkerboard fallback for alpha.
+   * The first layer is initialised as already-loaded: the default-color
+   * mockup is server-rendered, so the browser is painting it before React
+   * hydrates and any `<Image onLoad>` may already have fired on the SSR'd
+   * `<img>`. Starting at `loaded: true` keeps it opaque through hydration.
    */
-  if (!isDefaultColor && hasDesign && blankPhotoUrl) {
-    return (
-      <PhotographicColorMockup
-        product={product}
-        photoUrl={blankPhotoUrl}
-        colorName={selectedColor}
-      />
-    );
-  }
+  const [layers, setLayers] = useState<MockupLayer[]>(() =>
+    target ? [{ ...target, loaded: true }] : [],
+  );
 
   /**
-   * Last-resort fallback for non-default colors: tinted silhouette while
-   * the blank is still being warmed (or if Printful didn't ship a catalog
-   * photo for this variant). Subtle "Loading…" hint so the buyer knows a
-   * better preview is on its way.
+   * Sync `target` into the layer stack during render. React supports
+   * setState during render when guarded by a previous-value comparison —
+   * see https://react.dev/reference/react/useState#storing-information-from-previous-renders.
+   * Avoids the cascading-render warning that `useEffect → setLayers`
+   * would trigger.
    */
-  if (!isDefaultColor && hasDesign) {
+  const [prevTargetId, setPrevTargetId] = useState<string | null>(
+    target?.id ?? null,
+  );
+  if (target && target.id !== prevTargetId) {
+    setPrevTargetId(target.id);
+    setLayers((prev) => {
+      if (prev.length === 0) return [{ ...target, loaded: true }];
+      const top = prev[prev.length - 1];
+      if (top.id === target.id) return prev;
+      /** Drop an unloaded top (a layer the user clicked past before it ever painted). */
+      const base = top.loaded ? prev : prev.slice(0, -1);
+      if (target.kind === "silhouette") {
+        /**
+         * Silhouette has no `<Image>` to await, so it can't drive an
+         * `onLoad → opacity 0→1` crossfade. Replace the stack outright
+         * — the unavailable-blank branch is rare and a 0 ms switch beats
+         * complicating the fade machinery.
+         */
+        return [{ ...target, loaded: true }];
+      }
+      return [...base, { ...target, loaded: false }];
+    });
+  }
+
+  function markLoaded(id: string) {
+    setLayers((prev) => prev.map((l) => (l.id === id ? { ...l, loaded: true } : l)));
+  }
+
+  function pruneBelow(id: string) {
+    setLayers((prev) => {
+      const idx = prev.findIndex((l) => l.id === id);
+      if (idx <= 0 || idx !== prev.length - 1) return prev;
+      if (!prev[idx].loaded) return prev;
+      return prev.slice(idx);
+    });
+  }
+
+  /** Empty stack: only reached when even the default-color path can't produce a photo (no mockupUrl + no cached blank). */
+  if (layers.length === 0) {
+    if (!isDefaultColor && hasDesign) {
+      return (
+        <ColoredGarmentMockup
+          product={product}
+          swatch={swatch}
+          colorName={selectedColor}
+          loading={blankLoading}
+        />
+      );
+    }
+    if (product.designImageUrl?.trim()) {
+      return (
+        <MerchPlacementPreview
+          imageUrl={product.designImageUrl}
+          productType={product.productType}
+          placement={product.printPlacement ?? DEFAULT_STORED}
+        />
+      );
+    }
     return (
-      <ColoredGarmentMockup
-        product={product}
-        swatch={swatch}
-        colorName={selectedColor}
-        loading={blankLoading}
-      />
+      <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
+        No preview image for this listing yet.
+      </div>
     );
   }
 
-  /** Original fallback chain: design-only preview → empty state. */
-  if (canRenderMockup) {
-    return (
-      <Image
-        src={product.mockupUrl}
-        alt={product.title}
-        fill
-        sizes="(max-width: 1024px) 100vw, 50vw"
-        className="object-cover"
-        unoptimized
-      />
-    );
-  }
-
-  if (product.designImageUrl?.trim()) {
-    return (
-      <MerchPlacementPreview
-        imageUrl={product.designImageUrl}
-        productType={product.productType}
-        placement={product.printPlacement ?? DEFAULT_STORED}
-      />
-    );
-  }
+  /** Subtle hint only while a brand-new color's blank is actively warming. */
+  const showLoadingHint = !isDefaultColor && hasDesign && blankLoading;
 
   return (
-    <div className="flex h-full items-center justify-center p-8 text-center text-muted-foreground">
-      No preview image for this listing yet.
+    <div className="relative h-full w-full">
+      {layers.map((layer, i) => {
+        const isTop = i === layers.length - 1;
+        /** Lower layers stay opaque so they remain visible behind the fading-in top layer. */
+        const opacity =
+          layer.loaded || layers.length === 1 ? 1 : isTop ? 0 : 1;
+        return (
+          <div
+            key={layer.id}
+            className="absolute inset-0 transition-opacity duration-150 ease-out"
+            style={{ opacity }}
+            onTransitionEnd={() => pruneBelow(layer.id)}
+          >
+            {layer.kind === "mockup" && (
+              <Image
+                src={layer.url}
+                alt={product.title}
+                fill
+                sizes="(max-width: 1024px) 100vw, 50vw"
+                className="object-cover"
+                unoptimized
+                onLoad={() => markLoaded(layer.id)}
+              />
+            )}
+            {layer.kind === "blank" && (
+              <PhotographicColorMockup
+                product={product}
+                photoUrl={layer.url}
+                colorName={layer.colorLabel}
+                onPhotoLoad={() => markLoaded(layer.id)}
+              />
+            )}
+            {layer.kind === "silhouette" && (
+              <ColoredGarmentMockup
+                product={product}
+                swatch={layer.swatch}
+                colorName={layer.colorLabel}
+              />
+            )}
+          </div>
+        );
+      })}
+      {showLoadingHint && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+          <span className="rounded-full bg-background/80 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
+            Loading high-res preview…
+          </span>
+        </div>
+      )}
     </div>
   );
 }

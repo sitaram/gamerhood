@@ -22,12 +22,19 @@ export function PhotographicColorMockup({
   photoUrl,
   colorName,
   sizes = "(max-width: 1024px) 100vw, 50vw",
+  onPhotoLoad,
 }: {
   product: Product;
   photoUrl: string;
   colorName: string;
   /** Responsive image `sizes` hint; default suits the product detail hero. */
   sizes?: string;
+  /**
+   * Fires once the per-color blank photo has fully decoded. The product
+   * detail crossfade stack uses this to know when the new layer is safe
+   * to fade in (so the design overlay never appears without its garment).
+   */
+  onPhotoLoad?: () => void;
 }) {
   const baseLayout = getMerchPreviewLayout(product.productType);
   const layout = baseLayout.photoBand
@@ -58,6 +65,7 @@ export function PhotographicColorMockup({
           className="object-contain"
           unoptimized
           draggable={false}
+          onLoad={onPhotoLoad}
         />
       </div>
 
