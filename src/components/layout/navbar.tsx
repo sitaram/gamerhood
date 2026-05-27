@@ -39,10 +39,10 @@ const NAV_LINKS = [
 function buildStorefrontNavItems(shopSlug: string | null): { href: string; label: string; icon: LucideIcon }[] {
   const items: { href: string; label: string; icon: LucideIcon }[] = [];
   if (shopSlug) {
-    items.push({ href: `/shop/${shopSlug}`, label: "View my shop", icon: ExternalLink });
+    items.push({ href: `/shop/${shopSlug}`, label: "View my shop (public view)", icon: ExternalLink });
   }
   items.push(
-    { href: "/dashboard/listings", label: "Listings", icon: LayoutGrid },
+    { href: "/dashboard/listings", label: "Edit Listings", icon: LayoutGrid },
     { href: "/dashboard/storefront", label: "Storefront settings", icon: Store },
     { href: "/dashboard/categories", label: "SEO categories", icon: Tags },
   );
@@ -83,7 +83,7 @@ export function Navbar({
   stripeOnboarded: initialStripeOnboarded = null,
 }: {
   initialUser: NavUser | null;
-  /** Default profile slug — powers “View my shop” in the Storefront menu. */
+  /** Default profile slug — powers “View my shop (public view)” in the Storefront menu. */
   creatorShopSlug?: string | null;
   /**
    * Server-resolved Stripe Connect onboarding status. `false` triggers the
