@@ -17,6 +17,9 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { useCartStore } from "@/lib/store";
+import type { Product } from "@/lib/types";
+import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
+import { PhotographicColorMockup } from "@/components/storefront/photographic-color-mockup";
 
 export default function CartPage() {
   const [mounted, setMounted] = useState(false);
@@ -116,12 +119,9 @@ export default function CartPage() {
             >
               <div className="flex gap-4">
                 <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-secondary">
-                  <Image
-                    src={item.product.mockupUrl}
-                    alt={item.product.title}
-                    fill
-                    className="object-cover"
-                    unoptimized
+                  <CartLineThumbnail
+                    product={item.product}
+                    selectedColor={item.selectedColor}
                   />
                 </div>
 
@@ -252,5 +252,58 @@ export default function CartPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Cart row thumbnail.
+ *
+ * The listing's `mockupUrl` is the published default-color photo (e.g. white
+ * t-shirt). When the buyer picked a different color we composite the design
+ * over the per-color Printful blank photo — same path the product detail
+ * page uses — so the cart shows the actual variant they chose.
+ *
+ * Fallback hierarchy:
+ *   1. Default color OR per-color blank still loading → `product.mockupUrl`
+ *      (white-tee is better than nothing while warm-up resolves).
+ *   2. Per-color blank loaded + design present → composite via
+ *      `PhotographicColorMockup`.
+ */
+function CartLineThumbnail({
+  product,
+  selectedColor,
+}: {
+  product: Product;
+  selectedColor: string;
+}) {
+  const defaultColor = product.colors[0];
+  const isDefaultColor = selectedColor === defaultColor;
+  const hasDesign = !!product.designImageUrl?.trim();
+
+  const { url: blankPhotoUrl } = usePrintfulBlankPhoto(
+    product.productType,
+    isDefaultColor ? null : selectedColor,
+  );
+
+  if (!isDefaultColor && hasDesign && blankPhotoUrl) {
+    return (
+      <PhotographicColorMockup
+        product={product}
+        photoUrl={blankPhotoUrl}
+        colorName={selectedColor}
+        sizes="96px"
+      />
+    );
+  }
+
+  return (
+    <Image
+      src={product.mockupUrl}
+      alt={product.title}
+      fill
+      sizes="96px"
+      className="object-cover"
+      unoptimized
+    />
   );
 }
