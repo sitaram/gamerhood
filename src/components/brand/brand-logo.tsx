@@ -8,7 +8,7 @@ const NAV_LOGO = "/brand/logo-nav-v2.png";
 /** Large above-the-fold lockup on Home hero (`public/brand/logo-hero.png`). */
 const HERO_LOGO = "/brand/logo-hero.png";
 /** Illustrated hero scene with the `GamerHood.GG` wordmark baked into the artwork. */
-const HERO_SCENE = "/brand/home-hero-scene-v2.jpg";
+const HERO_SCENE = "/brand/home-hero-scene-graffiti.jpg";
 /** Square mark — SVG is path-only (no `<text>`); renders reliably as `img`. */
 const MARK = "/brand/logo-mark.svg";
 
@@ -22,7 +22,7 @@ const HERO_LOGO_H = 268;
 
 /** Hero scene illustration intrinsic dimensions (source asset — wordmark is baked into the artwork). */
 const HERO_SCENE_W = 1024;
-const HERO_SCENE_H = 434;
+const HERO_SCENE_H = 571;
 
 type Props = { className?: string; priority?: boolean };
 
@@ -101,7 +101,7 @@ export function BrandHeroScene({ className, priority }: Props) {
     >
       <Image
         src={HERO_SCENE}
-        alt="GamerHood.GG — friendly axolotl mascots gaming on a castle in the clouds"
+        alt="GamerHood graffiti mural — kids designing and selling their own merch."
         fill
         sizes="(max-width: 640px) 100vw, (max-width: 1280px) 95vw, 1280px"
         priority={priority}
