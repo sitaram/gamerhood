@@ -118,7 +118,7 @@ export default async function DashboardPage() {
       </div>
 
       <div className="mt-8">
-        <StripeConnectCard />
+        <StripeConnectCard siteOrigin={siteUrl()} />
       </div>
 
       <div className="mt-8">
