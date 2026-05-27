@@ -38,6 +38,10 @@ import { CategoryProductPicker } from "@/components/create/category-product-pick
 import { PRODUCT_TYPE_LABELS } from "@/components/storefront/product-card";
 import { TransparencyBadge } from "@/components/design/transparency-badge";
 import {
+  GenerationProgress,
+  type GenerationStep,
+} from "@/components/create/generation-progress";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -75,6 +79,101 @@ const PROMPTS = [
 
 type AuthState = "unknown" | "anon" | "signed-in";
 
+/**
+ * Shape of the `event: done` payload from /api/designs/generate. Mirrors the
+ * old JSON response so the preview step doesn't need to know we switched
+ * transports.
+ */
+type GenerateResult = {
+  imageUrl: string;
+  prompt: string;
+  style: string;
+  designId: string | null;
+  hasTransparency: boolean | null;
+  placeholder?: boolean;
+  placeholderReason?: string;
+};
+
+/**
+ * Parse the streaming SSE response from /api/designs/generate, invoking
+ * `onStatus` whenever a `status` event lands so the progress UI can advance.
+ * Resolves with the `done` payload, or rejects with the message from an
+ * `error` event (or a generic message if the stream ends without either).
+ */
+async function consumeGenerateStream(
+  res: Response,
+  onStatus: (step: GenerationStep) => void,
+): Promise<GenerateResult> {
+  if (!res.body) throw new Error("Generation stream was empty");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let result: GenerateResult | null = null;
+  let streamError: string | null = null;
+
+  outer: while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE event boundaries are blank lines. Use a regex so we handle both
+    // \n\n and \r\n\r\n (some proxies normalize line endings).
+    let match = buffer.match(/\r?\n\r?\n/);
+    while (match && match.index !== undefined) {
+      const raw = buffer.slice(0, match.index);
+      buffer = buffer.slice(match.index + match[0].length);
+
+      let eventType = "message";
+      const dataLines: string[] = [];
+      for (const line of raw.split(/\r?\n/)) {
+        if (line.startsWith("event:")) {
+          eventType = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+          dataLines.push(line.slice(5).trim());
+        }
+      }
+      if (dataLines.length === 0) {
+        match = buffer.match(/\r?\n\r?\n/);
+        continue;
+      }
+      let payload: unknown = null;
+      try {
+        payload = JSON.parse(dataLines.join("\n"));
+      } catch {
+        // Malformed event — skip it rather than tearing down the stream.
+        match = buffer.match(/\r?\n\r?\n/);
+        continue;
+      }
+
+      if (eventType === "status") {
+        const stepValue = (payload as { step?: string } | null)?.step;
+        if (
+          stepValue === "generating" ||
+          stepValue === "moderation" ||
+          stepValue === "analyzing" ||
+          stepValue === "saving"
+        ) {
+          onStatus(stepValue);
+        }
+      } else if (eventType === "done") {
+        result = payload as GenerateResult;
+        break outer;
+      } else if (eventType === "error") {
+        const errMsg = (payload as { error?: string } | null)?.error;
+        streamError = errMsg || "Generation failed";
+        break outer;
+      }
+
+      match = buffer.match(/\r?\n\r?\n/);
+    }
+  }
+
+  if (streamError) throw new Error(streamError);
+  if (!result) throw new Error("Generation ended without a result. Please try again.");
+  return result;
+}
+
 export default function CreatePage() {
   return (
     <Suspense fallback={null}>
@@ -99,6 +198,19 @@ function CreatePageInner() {
   const [step, setStep] = useState<
     "prompt" | "generating" | "preview" | "placement" | "products"
   >("prompt");
+  /**
+   * Latest SSE `status` step from /api/designs/generate. `null` means the
+   * request is in flight but the first event hasn't landed yet (the progress
+   * UI treats that as "step 1 active" so the spinner row lights up
+   * immediately).
+   */
+  const [generationStep, setGenerationStep] = useState<GenerationStep | null>(null);
+  /**
+   * Lives as long as a generate request is in flight so the Cancel button on
+   * `<GenerationProgress />` can actually abort the fetch (Network tab
+   * shows the request as cancelled rather than just hidden in the UI).
+   */
+  const generateAbortRef = useRef<AbortController | null>(null);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   // "ai" → image came from /api/designs/generate (already moderated server-side).
   // "upload" → user picked a file from disk; needs server-side moderation on publish.
@@ -176,6 +288,14 @@ function CreatePageInner() {
 
   const refreshAnonCount = useCallback(() => {
     setAnonRemaining(Math.max(0, MAX_FREE_GENERATIONS - getAnonDesigns().length));
+  }, []);
+
+  // Abort any in-flight generate stream if the page unmounts (e.g. user
+  // navigates away mid-generate) so we don't keep holding a connection open.
+  useEffect(() => {
+    return () => {
+      generateAbortRef.current?.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -316,38 +436,76 @@ function CreatePageInner() {
     if (!prompt.trim()) return;
     if (authState === "anon" && anonRemaining <= 0) return;
 
+    // Tear down any leftover request (e.g. user clicked Recreate while a
+    // previous attempt was still streaming).
+    generateAbortRef.current?.abort();
+    const controller = new AbortController();
+    generateAbortRef.current = controller;
+
     setStep("generating");
+    setGenerationStep(null);
     setError(null);
 
     try {
       const res = await fetch("/api/designs/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
         body: JSON.stringify({ prompt: prompt.trim(), style }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
+        // Pre-stream rejection (prompt-moderation, invalid body). The route
+        // returns plain JSON in that case so we don't have to parse SSE.
         const data = await res.json().catch(() => ({ error: "Generation failed" }));
         throw new Error(data.error || `Server error ${res.status}`);
       }
 
-      const data = await res.json();
-      setGeneratedImage(data.imageUrl);
+      const result = await consumeGenerateStream(res, (next) => {
+        setGenerationStep(next);
+      });
+
+      setGeneratedImage(result.imageUrl);
       setImageSource("ai");
       setHasTransparency(
-        typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
+        typeof result.hasTransparency === "boolean" ? result.hasTransparency : null,
       );
-      setPlaceholderNotice(data.placeholder ? (data.placeholderReason ?? "") : null);
+      setPlaceholderNotice(
+        result.placeholder ? (result.placeholderReason ?? "") : null,
+      );
       setStep("preview");
 
       if (authState === "anon") {
-        addAnonDesign({ prompt: prompt.trim(), style, imageUrl: data.imageUrl });
+        addAnonDesign({ prompt: prompt.trim(), style, imageUrl: result.imageUrl });
         refreshAnonCount();
       }
     } catch (err) {
+      // User-initiated cancel — silently return to the prompt screen
+      // without flashing a scary error. AbortError is what fetch throws
+      // when controller.abort() runs while the request/stream is open.
+      if (
+        (err instanceof DOMException && err.name === "AbortError") ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        setStep("prompt");
+        setGenerationStep(null);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Something went wrong");
       setStep("prompt");
+      setGenerationStep(null);
+    } finally {
+      if (generateAbortRef.current === controller) {
+        generateAbortRef.current = null;
+      }
     }
+  }
+
+  function handleCancelGenerate() {
+    generateAbortRef.current?.abort();
   }
 
   function handleRandomPrompt() {
@@ -680,20 +838,16 @@ function CreatePageInner() {
           {step === "generating" && (
             <motion.div
               key="generating"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="flex flex-col items-center py-20"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="py-10"
             >
-              <div className="relative">
-                <div className="h-32 w-32 animate-spin rounded-full border-4 border-primary/20 border-t-primary" />
-                <Wand2 className="absolute left-1/2 top-1/2 h-10 w-10 -translate-x-1/2 -translate-y-1/2 text-primary" />
-              </div>
-              <p className="mt-8 text-xl font-semibold">Creating your design...</p>
-              <p className="mt-2 text-muted-foreground">{`"${prompt}"`}</p>
-              <div className="mt-4 flex gap-2">
-                <Badge variant="outline" className="border-primary/30 text-primary">{style}</Badge>
-              </div>
+              <GenerationProgress
+                prompt={prompt}
+                activeStep={generationStep}
+                onCancel={handleCancelGenerate}
+              />
             </motion.div>
           )}
 
