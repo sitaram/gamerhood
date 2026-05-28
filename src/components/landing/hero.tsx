@@ -51,6 +51,9 @@ export function Hero() {
               Sell it on{" "}
               <RotatingWord words={WORDS} />
             </span>
+            <span className="mt-2 block text-3xl font-bold text-foreground/80 sm:text-4xl lg:text-5xl">
+              Buy clothes for less money.
+            </span>
           </motion.h1>
 
           <motion.p
