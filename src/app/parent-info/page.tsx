@@ -100,7 +100,9 @@ export default async function ParentInfoPage({
           </div>
           <p className="mt-2 text-sm text-muted-foreground">
             Print-on-demand merch — T-shirts, hoodies, mugs, stickers — designed
-            by kids and teens. Powered by{" "}
+            by kids and teens. GamerHood.GG is operated by{" "}
+            <span className="font-medium text-foreground">GamerHood LLC</span>.
+            Powered by{" "}
             <span className="font-medium text-foreground">Printful</span>, who
             handles the actual printing and shipping. Family-friendly content
             moderation on every design.

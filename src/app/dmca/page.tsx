@@ -297,7 +297,13 @@ export default function DMCAPage() {
 
       <div className="text-center text-sm text-muted-foreground">
         <p>
-          DMCA Agent: <strong className="text-foreground">dmca@gamerhood.gg</strong>
+          DMCA Agent: <strong className="text-foreground">GamerHood LLC</strong>
+        </p>
+        <p className="mt-1">
+          Email: <strong className="text-foreground">dmca@gamerhood.gg</strong>
+        </p>
+        <p className="mt-1">
+          Federal EIN: 42-2832129 &middot; California Entity No. B20260245578
         </p>
         <p className="mt-2">
           See also:{" "}

@@ -147,7 +147,7 @@ export async function POST(request: NextRequest) {
       const businessProfile: Stripe.AccountCreateParams.BusinessProfile = {
         mcc: "5945",
         product_description:
-          "Custom merchandise (apparel, prints, accessories) sold via the Gamerhood creator marketplace at gamerhood.gg",
+          "Custom merchandise (apparel, prints, accessories) sold via the GamerHood.GG creator marketplace at gamerhood.gg",
         support_email: "support@gamerhood.gg",
         support_url: `${siteOrigin}/faq`,
         url: storefrontUrl,

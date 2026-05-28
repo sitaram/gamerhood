@@ -3,13 +3,14 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollText } from "lucide-react";
 
 const EFFECTIVE_DATE = "April 22, 2026";
+const LAST_UPDATED = "May 28, 2026";
 
 const SECTIONS = [
   {
     title: "1. Acceptance of Terms",
     content: `By accessing or using GamerHood.GG ("the Platform," "we," "us," or "our"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not use the Platform.
 
-The Platform is operated by GamerHood LLC, a California limited liability company (California Entity No. B20260245578), and is intended for use by parents/guardians and their children. If you are creating an account, you represent that you are at least 18 years of age and the legal parent or guardian of any child who will use the Platform under your account.`,
+The Platform is operated by GamerHood LLC, a California single-member limited liability company (Federal EIN: 42-2832129; California Entity No. B20260245578), and is intended for use by parents/guardians and their children. If you are creating an account, you represent that you are at least 18 years of age and the legal parent or guardian of any child who will use the Platform under your account.`,
   },
   {
     title: "2. Account Structure",
@@ -41,7 +42,7 @@ You may revoke consent and request deletion of your child's profile and associat
   },
   {
     title: "5. Payments and Earnings",
-    content: `**Payment Processing.** All payments are processed through Stripe. By using the Platform, you agree to Stripe's Terms of Service.
+    content: `**Payment Processing.** All payments are processed through Stripe. By using the Platform, you agree to Stripe's Terms of Service. GamerHood.GG is operated by GamerHood LLC, a California single-member limited liability company; platform fees are collected by GamerHood LLC as the marketplace operator.
 
 **Revenue Split.** When a product is sold, revenue is distributed as follows: (1) the print provider's production and shipping cost; (2) a platform fee of 8%, which covers payment processing, AI design tools, content moderation, and hosting — roughly half of what comparable marketplaces like Etsy charge once all of their transaction, payment, and listing fees are combined; (3) the remainder goes to the creator's parent-managed Stripe Connect account.
 
@@ -104,6 +105,7 @@ The Platform is provided "as is" without warranties of any kind, express or impl
 
 **GamerHood LLC**
 Email: legal@gamerhood.gg
+Federal EIN: 42-2832129
 California Entity No. B20260245578`,
   },
 ];
@@ -119,7 +121,7 @@ export default function TermsPage() {
           Terms of <span className="gradient-text">Service</span>
         </h1>
         <p className="mt-4 text-sm text-muted-foreground">
-          Effective: {EFFECTIVE_DATE} &bull; Last updated: {EFFECTIVE_DATE}
+          Effective: {EFFECTIVE_DATE} &bull; Last updated: {LAST_UPDATED}
         </p>
       </div>
 

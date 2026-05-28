@@ -40,8 +40,18 @@ const FAQ_SECTIONS: FAQSection[] = [
     items: [
       {
         question: "What is Gamerhood?",
-        answer:
-          "Gamerhood is a marketplace where young creators design their own merch — hoodies, tees, mugs, posters, and more — using AI-powered design tools. Designs are printed on demand and shipped directly to buyers. Creators earn money from every sale.",
+        answer: (
+          <>
+            GamerHood.GG is a marketplace where young creators design their own merch — hoodies,
+            tees, mugs, posters, and more — using AI-powered design tools. Designs are printed on
+            demand and shipped directly to buyers. Creators earn money from every sale. The
+            platform is operated by GamerHood LLC, a California company. See our{" "}
+            <Link href="/terms" className="underline">
+              Terms of Service
+            </Link>{" "}
+            for legal details.
+          </>
+        ),
       },
       {
         question: "Who is Gamerhood for?",

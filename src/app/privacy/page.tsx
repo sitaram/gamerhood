@@ -4,11 +4,12 @@ import { Card } from "@/components/ui/card";
 import { Lock } from "lucide-react";
 
 const EFFECTIVE_DATE = "April 22, 2026";
+const LAST_UPDATED = "May 28, 2026";
 
 const SECTIONS = [
   {
     title: "1. Overview",
-    content: `This Privacy Policy explains how GamerHood LLC, a California limited liability company ("GamerHood.GG," "we," "us," or "our"), collects, uses, discloses, and protects information when you use the GamerHood.GG platform ("the Platform"). This policy applies to all users, including parents, guardians, and children who use the Platform through parent-managed accounts.
+    content: `This Privacy Policy explains how GamerHood LLC, a California single-member limited liability company and the data controller for the Platform (Federal EIN: 42-2832129; California Entity No. B20260245578) ("GamerHood.GG," "we," "us," or "our"), collects, uses, discloses, and protects information when you use the GamerHood.GG platform ("the Platform"). This policy applies to all users, including parents, guardians, and children who use the Platform through parent-managed accounts.
 
 We are committed to protecting the privacy of all users, with special attention to children under 13 as required by the Children's Online Privacy Protection Act (COPPA).`,
   },
@@ -151,6 +152,7 @@ When we expand internationally, we will update this policy to address applicable
 
 **GamerHood LLC**
 Email: privacy@gamerhood.gg
+Federal EIN: 42-2832129
 California Entity No. B20260245578
 
 For COPPA-related inquiries, you may also contact the Federal Trade Commission at ftc.gov/coppa.`,
@@ -168,7 +170,7 @@ export default function PrivacyPage() {
           Privacy <span className="gradient-text">Policy</span>
         </h1>
         <p className="mt-4 text-sm text-muted-foreground">
-          Effective: {EFFECTIVE_DATE} &bull; Last updated: {EFFECTIVE_DATE}
+          Effective: {EFFECTIVE_DATE} &bull; Last updated: {LAST_UPDATED}
         </p>
       </div>
 
