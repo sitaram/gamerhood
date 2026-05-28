@@ -52,8 +52,12 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="mt-10 border-t border-border/50 pt-6 text-center text-xs text-muted-foreground">
-          &copy; {new Date().getFullYear()} Gamerhood. Made with love for young creators everywhere.
+        <div className="mt-10 border-t border-border/50 pt-6 text-center text-xs text-muted-foreground space-y-1">
+          <p>
+            &copy; {new Date().getFullYear()} GamerHood.GG &middot; GamerHood LLC
+          </p>
+          <p>California Entity No. B20260245578</p>
+          <p className="pt-1">Made with love for young creators everywhere.</p>
         </div>
       </div>
     </footer>

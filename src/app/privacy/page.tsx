@@ -8,7 +8,7 @@ const EFFECTIVE_DATE = "April 22, 2026";
 const SECTIONS = [
   {
     title: "1. Overview",
-    content: `This Privacy Policy explains how Gamerhood, Inc. ("Gamerhood," "we," "us," or "our") collects, uses, discloses, and protects information when you use the Gamerhood platform ("the Platform"). This policy applies to all users, including parents, guardians, and children who use the Platform through parent-managed accounts.
+    content: `This Privacy Policy explains how GamerHood LLC, a California limited liability company ("GamerHood.GG," "we," "us," or "our"), collects, uses, discloses, and protects information when you use the GamerHood.GG platform ("the Platform"). This policy applies to all users, including parents, guardians, and children who use the Platform through parent-managed accounts.
 
 We are committed to protecting the privacy of all users, with special attention to children under 13 as required by the Children's Online Privacy Protection Act (COPPA).`,
   },
@@ -149,8 +149,9 @@ When we expand internationally, we will update this policy to address applicable
     title: "13. Contact Us",
     content: `If you have questions or concerns about this Privacy Policy or our data practices, contact us at:
 
-**Gamerhood, Inc.**
+**GamerHood LLC**
 Email: privacy@gamerhood.gg
+California Entity No. B20260245578
 
 For COPPA-related inquiries, you may also contact the Federal Trade Commission at ftc.gov/coppa.`,
   },

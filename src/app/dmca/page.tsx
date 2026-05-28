@@ -61,7 +61,7 @@ export default function DMCAPage() {
         <h2 className="text-lg font-bold">Our Copyright Policy</h2>
         <div className="mt-4 space-y-4 text-sm text-muted-foreground leading-relaxed">
           <p>
-            Gamerhood operates in accordance with the Digital Millennium Copyright Act (DMCA).
+            GamerHood LLC operates GamerHood.GG in accordance with the Digital Millennium Copyright Act (DMCA).
             We respond promptly to valid takedown notices and maintain a repeat infringer policy.
           </p>
 

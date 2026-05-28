@@ -7,9 +7,9 @@ const EFFECTIVE_DATE = "April 22, 2026";
 const SECTIONS = [
   {
     title: "1. Acceptance of Terms",
-    content: `By accessing or using Gamerhood ("the Platform," "we," "us," or "our"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not use the Platform.
+    content: `By accessing or using GamerHood.GG ("the Platform," "we," "us," or "our"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not use the Platform.
 
-The Platform is operated by Gamerhood, Inc. and is intended for use by parents/guardians and their children. If you are creating an account, you represent that you are at least 18 years of age and the legal parent or guardian of any child who will use the Platform under your account.`,
+The Platform is operated by GamerHood LLC, a California limited liability company (California Entity No. B20260245578), and is intended for use by parents/guardians and their children. If you are creating an account, you represent that you are at least 18 years of age and the legal parent or guardian of any child who will use the Platform under your account.`,
   },
   {
     title: "2. Account Structure",
@@ -53,7 +53,7 @@ You may revoke consent and request deletion of your child's profile and associat
     title: "6. Intellectual Property",
     content: `**Your Content.** You retain all rights to designs you create or upload. You are solely responsible for ensuring your designs do not infringe third-party intellectual property.
 
-**Our Content.** The Gamerhood platform, including its design, code, branding, and documentation, is owned by Gamerhood, Inc. and protected by copyright and trademark law.
+**Our Content.** The GamerHood.GG platform, including its design, code, branding, and documentation, is owned by GamerHood LLC and protected by copyright and trademark law.
 
 **Copyright Infringement.** We comply with the Digital Millennium Copyright Act (DMCA). If you believe content on the Platform infringes your copyright, please see our DMCA Policy.
 
@@ -84,7 +84,7 @@ We reserve the right to remove any content and suspend any account that violates
   },
   {
     title: "9. Limitation of Liability",
-    content: `To the maximum extent permitted by law, Gamerhood shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Platform. Our total liability shall not exceed the amounts paid to or by you through the Platform in the twelve (12) months preceding the claim.
+    content: `To the maximum extent permitted by law, GamerHood LLC shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Platform. Our total liability shall not exceed the amounts paid to or by you through the Platform in the twelve (12) months preceding the claim.
 
 The Platform is provided "as is" without warranties of any kind, express or implied.`,
   },
@@ -102,8 +102,9 @@ The Platform is provided "as is" without warranties of any kind, express or impl
     title: "12. Contact",
     content: `If you have questions about these Terms, contact us at:
 
-**Gamerhood, Inc.**
-Email: legal@gamerhood.gg`,
+**GamerHood LLC**
+Email: legal@gamerhood.gg
+California Entity No. B20260245578`,
   },
 ];
 
