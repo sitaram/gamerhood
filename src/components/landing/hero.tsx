@@ -48,11 +48,11 @@ export function Hero() {
             <span className="block text-foreground">Imagine it.</span>
             <span className="block gradient-text">Create it.</span>
             <span className="block text-foreground">
-              Sell it on{" "}
+              Make money on{" "}
               <RotatingWord words={WORDS} />
             </span>
-            <span className="mt-2 block text-3xl font-bold text-foreground/80 sm:text-4xl lg:text-5xl">
-              Buy clothes for less money.
+            <span className="mt-2 block text-3xl font-bold italic text-foreground/80 sm:text-4xl lg:text-5xl">
+              Start buying your drip for less.
             </span>
           </motion.h1>
 
