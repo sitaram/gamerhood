@@ -17,7 +17,7 @@ import { ListingDangerZone } from "@/components/dashboard/listing-danger-zone";
 import {
   hasRenderableListingMockup,
   PRODUCT_TYPE_LABELS,
-} from "@/components/storefront/product-card";
+} from "@/components/storefront/product-card-utils";
 import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
 import { TransparencyBadge } from "@/components/design/transparency-badge";
 import { Badge } from "@/components/ui/badge";

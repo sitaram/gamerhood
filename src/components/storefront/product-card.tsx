@@ -7,58 +7,24 @@ import { ShoppingCart } from "lucide-react";
 import { Product } from "@/lib/types";
 import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
 import { DEFAULT_STORED } from "@/lib/print/placement";
+import {
+  hasRenderableListingMockup,
+  PRODUCT_TYPE_LABELS,
+} from "@/components/storefront/product-card-utils";
 
 interface ProductCardProps {
   product: Product;
 }
 
-export const PRODUCT_TYPE_LABELS: Record<string, string> = {
-  hoodie: "Hoodie",
-  "kids-hoodie": "Kids hoodie",
-  "kids-tshirt": "Kids tee",
-  "kids-heavyweight-tee": "Kids heavyweight tee",
-  "kids-long-sleeve": "Kids long sleeve",
-  "kids-sports-tee": "Kids sports tee",
-  tshirt: "Tee",
-  joggers: "Joggers",
-  mug: "Mug",
-  poster: "Poster",
-  backpack: "Backpack",
-  "phone-case": "Phone Case",
-  sticker: "Sticker",
-  pillow: "Shaped pillow",
-  blanket: "Sherpa blanket",
-  "pet-sweater": "Pet sweater",
-  "tote-bag": "Eco tote",
-  ornament: "Metal ornament",
-  puzzle: "Jigsaw puzzle",
-  "embroidered-patch": "Embroidered patch",
-  "hardcover-journal": "Hardcover journal",
-};
-
 /**
- * `mockup_url` is "renderable as the listing photo" when the publish flow (or
- * a creator's custom upload) actually wrote a real image — i.e. it's not
- * empty, not a `data:` blob, and not the fallback where the publish route
- * stamped the bare design URL because Printful mockup-tasks failed/was unset.
- *
- * When this returns true we render `<Image src={mockup_url}>` directly: that's
- * either a Printful-CDN photo of the design composited on the actual garment,
- * or a creator-uploaded custom listing photo from Supabase Storage. Otherwise
- * we fall back to the in-browser `MerchPlacementPreview` (design composited
- * on the blank Printful flat photo + dashed print-area markers).
+ * Re-exported here so existing client-side importers keep working while
+ * we migrate to the no-directive utils module. New server-component
+ * callers MUST import directly from `product-card-utils` — a re-export
+ * from this `"use client"` module is still a client reference and would
+ * trip the same "Attempted to call X from the server" runtime error
+ * that this split was created to fix.
  */
-export function hasRenderableListingMockup(
-  mockupUrl: string | null | undefined,
-  designImageUrl: string | null | undefined,
-): boolean {
-  const m = mockupUrl?.trim();
-  if (!m) return false;
-  if (m.startsWith("data:")) return false;
-  const d = designImageUrl?.trim();
-  if (d && m === d) return false;
-  return true;
-}
+export { hasRenderableListingMockup, PRODUCT_TYPE_LABELS };
 
 export function ProductCard({ product }: ProductCardProps) {
   const showRealMockup = hasRenderableListingMockup(
