@@ -128,6 +128,43 @@ export function computeBaseCost(input: CostInputs): BaseCostResult {
 }
 
 /**
+ * Solve for the listing price that puts the seller at `markupRatio` above
+ * base cost — the publish-flow slider's "10% over what it costs to make
+ * this thing" interpretation.
+ *
+ * `markupRatio` is the multiplier on the break-even price, so 0.10 means
+ * "charge 10% more than base cost" → seller takes home roughly 10% of base
+ * cost per sale (modulo the platform + Stripe percentages that scale with
+ * the higher price). Clamped to [0, 10] so a runaway slider can't produce
+ * a nonsense price.
+ *
+ * Rounds to the nearest whole cent. The caller is responsible for showing
+ * a "near $0 take-home" warning at `markupRatio === 0`, and for snapping
+ * the slider to integer percents.
+ */
+export function computePriceForMarkup(
+  input: CostInputs & { markupRatio: number },
+): number {
+  const { baseCostCents } = computeBaseCost(input);
+  if (!Number.isFinite(baseCostCents)) return baseCostCents;
+  const ratio = Math.max(0, Math.min(10, input.markupRatio));
+  return Math.round(baseCostCents * (1 + ratio));
+}
+
+/**
+ * Inverse of `computePriceForMarkup` — given a listing price, what markup
+ * ratio above base cost does the seller end up at? Used by the "type a
+ * price directly" advanced toggle so the slider tracks the typed value.
+ */
+export function computeMarkupForPrice(
+  input: CostInputs & { priceCents: number },
+): number {
+  const { baseCostCents } = computeBaseCost(input);
+  if (!Number.isFinite(baseCostCents) || baseCostCents <= 0) return 0;
+  return Math.max(0, (input.priceCents - baseCostCents) / baseCostCents);
+}
+
+/**
  * Take-home at a specific entered listing price. Negative values mean the
  * creator would lose money — surface this in the UI and refuse on the server.
  */

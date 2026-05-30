@@ -286,6 +286,20 @@ function CreatePageInner() {
     null,
   );
 
+  // Listing-details pre-fill plumbing. We track per-field interaction
+  // so switching storefronts mid-flow can refill empty fields without
+  // wiping anything the seller already typed; the "source" string
+  // drives the small badge that tells them where the pre-filled copy
+  // came from.
+  const [prefilledSource, setPrefilledSource] = useState<
+    "storefront-defaults" | "last-listing" | "none"
+  >("none");
+  const descriptionTouchedRef = useRef(false);
+  const tagsTouchedRef = useRef(false);
+  const categoryTouchedRef = useRef(false);
+  /** Last storefront whose defaults we successfully applied — guards against re-applying on every render. */
+  const lastPrefilledStorefrontIdRef = useRef<string | null>(null);
+
   const refreshAnonCount = useCallback(() => {
     setAnonRemaining(Math.max(0, MAX_FREE_GENERATIONS - getAnonDesigns().length));
   }, []);
@@ -368,6 +382,113 @@ function CreatePageInner() {
       cancelled = true;
     };
   }, [authState]);
+
+  // Fetch and apply the chosen storefront's listing defaults whenever
+  // the picker selection changes. We only fill empty + untouched fields
+  // so a seller who already typed something won't be overwritten when
+  // they later flip the storefront radio. If they HAVE typed and we
+  // have fresh defaults that would otherwise be discarded, we surface a
+  // toast offering a one-tap apply.
+  useEffect(() => {
+    if (authState !== "signed-in") return;
+    if (!selectedStorefrontId) return;
+    if (lastPrefilledStorefrontIdRef.current === selectedStorefrontId) return;
+
+    const storefrontId = selectedStorefrontId;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/storefronts/${storefrontId}/listing-defaults`,
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          defaults?: {
+            description?: string;
+            tags?: string[];
+            categorySlug?: string;
+            source?: "storefront-defaults" | "last-listing" | "none";
+          };
+        };
+        if (cancelled) return;
+
+        const defaults = data.defaults ?? {};
+        const source = defaults.source ?? "none";
+        const description = (defaults.description ?? "").trim();
+        const tagsJoined = Array.isArray(defaults.tags)
+          ? defaults.tags.join(", ")
+          : "";
+        const categorySlug = (defaults.categorySlug ?? "").trim();
+
+        const wasInitialFill = lastPrefilledStorefrontIdRef.current === null;
+        lastPrefilledStorefrontIdRef.current = storefrontId;
+
+        if (source === "none") {
+          setPrefilledSource("none");
+          return;
+        }
+
+        let appliedAny = false;
+        if (description && !descriptionTouchedRef.current) {
+          setListingDescription((prev) => {
+            if (prev.trim()) return prev;
+            appliedAny = true;
+            return description;
+          });
+        }
+        if (tagsJoined && !tagsTouchedRef.current) {
+          setProductTags((prev) => {
+            if (prev.trim()) return prev;
+            appliedAny = true;
+            return tagsJoined;
+          });
+        }
+        if (categorySlug && !categoryTouchedRef.current) {
+          setProductCategory((prev) => {
+            if (prev.trim()) return prev;
+            appliedAny = true;
+            return categorySlug;
+          });
+        }
+
+        if (appliedAny) {
+          setPrefilledSource(source);
+        } else if (!wasInitialFill) {
+          // Seller switched storefronts but every relevant field is
+          // already filled with their own input. Surface the option to
+          // pull the new store's defaults instead of silently dropping
+          // them.
+          const sfName =
+            ownedStorefronts.find((s) => s.id === storefrontId)?.display_name ??
+            "this storefront";
+          toast(`Switched to “${sfName}”.`, {
+            description:
+              "Defaults for that store are available — apply them?",
+            action: {
+              label: "Use defaults",
+              onClick: () => {
+                if (description) setListingDescription(description);
+                if (tagsJoined) setProductTags(tagsJoined);
+                if (categorySlug) setProductCategory(categorySlug);
+                descriptionTouchedRef.current = false;
+                tagsTouchedRef.current = false;
+                categoryTouchedRef.current = false;
+                setPrefilledSource(source);
+              },
+            },
+          });
+        }
+      } catch {
+        // Network blip — leave the form blank rather than crashing the
+        // page. Source stays "none" so no badge renders.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authState, selectedStorefrontId, ownedStorefronts]);
 
   useEffect(() => {
     if (
@@ -1079,6 +1200,18 @@ function CreatePageInner() {
                     </span>
                   </div>
 
+                  {prefilledSource !== "none" && (
+                    <p
+                      className="inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs text-foreground"
+                      role="status"
+                    >
+                      <Sparkles className="h-3.5 w-3.5 text-primary" />
+                      {prefilledSource === "storefront-defaults"
+                        ? "Pre-filled from your store defaults — edit anytime"
+                        : "Pre-filled from your last listing — edit anytime"}
+                    </p>
+                  )}
+
                   <div className="space-y-2">
                     <Label
                       htmlFor="create-listing-description"
@@ -1093,7 +1226,10 @@ function CreatePageInner() {
                     <Textarea
                       id="create-listing-description"
                       value={listingDescription}
-                      onChange={(e) => setListingDescription(e.target.value)}
+                      onChange={(e) => {
+                        descriptionTouchedRef.current = true;
+                        setListingDescription(e.target.value);
+                      }}
                       placeholder="Type a short description shoppers will see..."
                       rows={3}
                       className="resize-none bg-background text-sm shadow-sm md:text-sm"
@@ -1119,7 +1255,10 @@ function CreatePageInner() {
                       <Input
                         id="create-product-tags"
                         value={productTags}
-                        onChange={(e) => setProductTags(e.target.value)}
+                        onChange={(e) => {
+                          tagsTouchedRef.current = true;
+                          setProductTags(e.target.value);
+                        }}
                         placeholder="Type tags: gaming, retro, kids..."
                         className="h-9 bg-background text-sm shadow-sm"
                         aria-describedby="create-product-tags-hint"
@@ -1138,11 +1277,12 @@ function CreatePageInner() {
                         id="create-product-category"
                         list="browse-seo-categories"
                         value={productCategory}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          categoryTouchedRef.current = true;
                           setProductCategory(
                             sanitizeSlugInput(e.target.value, MAX_PRODUCT_CATEGORY_SLUG_LEN),
-                          )
-                        }
+                          );
+                        }}
                         placeholder="Type a category, e.g. streetwear-style"
                         className="h-9 bg-background text-sm shadow-sm"
                         aria-describedby="create-product-category-hint"

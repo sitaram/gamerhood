@@ -23,6 +23,7 @@ import {
   MERCH_SIZED_TYPES,
 } from "@/lib/merch/product-options";
 import { getDefaultProductCostBasis } from "@/lib/pricing/product-costs";
+import { computeBaseCost } from "@/lib/pricing/take-home";
 import {
   bytesToBase64DataUrl,
   capRasterIfHuge,
@@ -117,6 +118,14 @@ export async function POST(request: NextRequest) {
      * users never see the picker, so this comes through unset for them.
      */
     storefrontId?: string | null;
+    /**
+     * Per–product-type listing price in cents from the inline pricing
+     * step on `/create` (the "Set your price" slider). Each value is
+     * validated against the per-type cost basis below; missing or invalid
+     * entries fall back to the legacy 30%-markup default so older clients
+     * still publish cleanly.
+     */
+    pricesByType?: Record<string, unknown>;
   };
 
   try {
@@ -356,9 +365,46 @@ export async function POST(request: NextRequest) {
 
     const publishFailures: { productType: string; message: string }[] = [];
 
+    const clientPrices =
+      body.pricesByType && typeof body.pricesByType === "object"
+        ? (body.pricesByType as Record<string, unknown>)
+        : {};
+
     for (const productType of body.productTypes) {
-      const basePrice = BASE_PRICES_CENTS[productType] ?? 2000;
-      const markup = Math.round(basePrice * 0.3);
+      // The /create publish flow now ships the slider's selected price in
+      // `pricesByType`. We trust the math but re-check the floor server-
+      // side so a hand-crafted POST can't sell below break-even. Legacy
+      // clients (no `pricesByType`) get the previous 30%-markup default.
+      const clientPriceRaw = clientPrices[productType];
+      const clientPrice =
+        typeof clientPriceRaw === "number" &&
+        Number.isFinite(clientPriceRaw) &&
+        Number.isInteger(clientPriceRaw) &&
+        clientPriceRaw > 0
+          ? clientPriceRaw
+          : null;
+
+      let basePrice: number;
+      let markup: number;
+      if (clientPrice !== null) {
+        const costBasisForFloor = getDefaultProductCostBasis(productType);
+        const { baseCostCents: floor } = computeBaseCost({
+          itemWholesaleCents: costBasisForFloor.wholesaleCents,
+          shippingCents: costBasisForFloor.shippingCents,
+        });
+        if (clientPrice < floor) {
+          publishFailures.push({
+            productType,
+            message: `price ${clientPrice}¢ is below the break-even floor (${floor}¢)`,
+          });
+          continue;
+        }
+        basePrice = clientPrice;
+        markup = 0;
+      } else {
+        basePrice = BASE_PRICES_CENTS[productType] ?? 2000;
+        markup = Math.round(basePrice * 0.3);
+      }
       const sellingPrice = basePrice + markup;
 
       // Resolve the Printful catalog SKU for this product type. With Printful

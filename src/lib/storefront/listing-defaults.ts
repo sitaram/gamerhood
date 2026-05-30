@@ -1,0 +1,141 @@
+import { getServiceClient } from "@/lib/supabase/admin";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * Defaults pre-filled into the /create publish form for the chosen
+ * storefront. Source tells the UI which copy to show next to the
+ * fields ("Pre-filled from your store defaults" vs. "from your last
+ * listing") so sellers know where the text came from.
+ */
+export type ListingDefaults = {
+  description: string;
+  tags: string[];
+  categorySlug: string;
+  source: "storefront-defaults" | "last-listing" | "none";
+};
+
+const EMPTY: ListingDefaults = {
+  description: "",
+  tags: [],
+  categorySlug: "",
+  source: "none",
+};
+
+/**
+ * Resolve the values that pre-fill the publish form. Fallback chain:
+ *
+ *   1. Explicit per-storefront defaults (set in /dashboard/settings).
+ *      Any single one of {description, tags, category_slug} being set
+ *      is enough to short-circuit — we don't dilute with last-listing
+ *      data because the seller has signaled intent on this storefront.
+ *   2. The most recent published product on the same storefront. Read
+ *      with the service client so legacy rows attached only via
+ *      `profile_id` (storefront_id NULL — backfilled lazily in the 029
+ *      migration) still surface and we don't return blank for sellers
+ *      whose first multi-storefront publish predates the link.
+ *   3. Nothing — first-time seller. The fields stay blank.
+ *
+ * Soft-fails to EMPTY on any read error: a transient supabase blip
+ * shouldn't break the publish form. The caller treats source="none"
+ * as "show no badge, don't pre-fill" so an error path is visually
+ * indistinguishable from a brand-new seller.
+ */
+export async function getListingDefaultsForStorefront(
+  supabase: SupabaseClient,
+  storefrontId: string,
+): Promise<ListingDefaults> {
+  if (!storefrontId) return EMPTY;
+
+  let admin: SupabaseClient;
+  try {
+    admin = getServiceClient();
+  } catch {
+    // Service role isn't configured (local dev sans env). Fall back to
+    // the caller's client — RLS will still let the owner read their
+    // own storefront + products.
+    admin = supabase;
+  }
+
+  const { data: storefront, error: sfErr } = await admin
+    .from("storefronts")
+    .select(
+      "id, owner_profile_id, is_default, default_description, default_tags, default_category_slug",
+    )
+    .eq("id", storefrontId)
+    .maybeSingle();
+
+  if (sfErr || !storefront) return EMPTY;
+
+  const explicitDescription =
+    typeof storefront.default_description === "string"
+      ? storefront.default_description.trim()
+      : "";
+  const explicitTags = Array.isArray(storefront.default_tags)
+    ? (storefront.default_tags as unknown[]).filter(
+        (t): t is string => typeof t === "string" && t.length > 0,
+      )
+    : [];
+  const explicitCategory =
+    typeof storefront.default_category_slug === "string"
+      ? storefront.default_category_slug.trim()
+      : "";
+
+  if (explicitDescription || explicitTags.length > 0 || explicitCategory) {
+    return {
+      description: explicitDescription,
+      tags: explicitTags,
+      categorySlug: explicitCategory,
+      source: "storefront-defaults",
+    };
+  }
+
+  // Most recent published listing on this storefront. We also accept
+  // legacy rows on the owner's default storefront where storefront_id
+  // was never backfilled — same union the public shop reader uses in
+  // queries.ts so the UX stays consistent.
+  const ownerProfileId = storefront.owner_profile_id as string | null;
+  const isDefault = Boolean(storefront.is_default);
+
+  const { data: linked } = await admin
+    .from("products")
+    .select("description, tags, category, created_at")
+    .eq("storefront_id", storefrontId)
+    .eq("is_published", true)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  let candidate = (linked ?? [])[0] ?? null;
+
+  if (!candidate && isDefault && ownerProfileId) {
+    const { data: legacy } = await admin
+      .from("products")
+      .select("description, tags, category, created_at")
+      .eq("profile_id", ownerProfileId)
+      .is("storefront_id", null)
+      .eq("is_published", true)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    candidate = (legacy ?? [])[0] ?? null;
+  }
+
+  if (!candidate) return EMPTY;
+
+  const description =
+    typeof candidate.description === "string" ? candidate.description.trim() : "";
+  const tags = Array.isArray(candidate.tags)
+    ? (candidate.tags as unknown[]).filter(
+        (t): t is string => typeof t === "string" && t.length > 0,
+      )
+    : [];
+  const categorySlug =
+    typeof candidate.category === "string" ? candidate.category.trim() : "";
+
+  if (!description && tags.length === 0 && !categorySlug) return EMPTY;
+
+  return {
+    description,
+    tags,
+    categorySlug,
+    source: "last-listing",
+  };
+}
