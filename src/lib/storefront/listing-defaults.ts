@@ -11,13 +11,22 @@ export type ListingDefaults = {
   description: string;
   tags: string[];
   categorySlug: string;
+  /** Whole percent (0–100) for /create pricing slider seed. */
+  defaultMarkupPercent: number;
   source: "storefront-defaults" | "last-listing" | "none";
 };
+
+
+function readDefaultMarkupPercent(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw)) return 10;
+  return Math.min(100, Math.max(0, Math.round(raw)));
+}
 
 const EMPTY: ListingDefaults = {
   description: "",
   tags: [],
   categorySlug: "",
+  defaultMarkupPercent: 10,
   source: "none",
 };
 
@@ -59,12 +68,16 @@ export async function getListingDefaultsForStorefront(
   const { data: storefront, error: sfErr } = await admin
     .from("storefronts")
     .select(
-      "id, owner_profile_id, is_default, default_description, default_tags, default_category_slug",
+      "id, owner_profile_id, is_default, default_description, default_tags, default_category_slug, default_markup_percent",
     )
     .eq("id", storefrontId)
     .maybeSingle();
 
   if (sfErr || !storefront) return EMPTY;
+
+  const defaultMarkupPercent = readDefaultMarkupPercent(
+    (storefront as { default_markup_percent?: unknown }).default_markup_percent,
+  );
 
   const explicitDescription =
     typeof storefront.default_description === "string"
@@ -85,6 +98,7 @@ export async function getListingDefaultsForStorefront(
       description: explicitDescription,
       tags: explicitTags,
       categorySlug: explicitCategory,
+      defaultMarkupPercent,
       source: "storefront-defaults",
     };
   }
@@ -136,6 +150,7 @@ export async function getListingDefaultsForStorefront(
     description,
     tags,
     categorySlug,
+    defaultMarkupPercent,
     source: "last-listing",
   };
 }

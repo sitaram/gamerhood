@@ -48,6 +48,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DEFAULT_STORED } from "@/lib/print/placement";
+import { MerchPricingStep, type MerchPricingRow } from "@/components/create/merch-pricing-step";
 import type { StoredPrintPlacement } from "@/lib/print/placement";
 import { XpBadge } from "@/components/xp/xp-badge";
 import { showXpToasts } from "@/components/xp/show-xp-toasts";
@@ -294,6 +295,9 @@ function CreatePageInner() {
   const [prefilledSource, setPrefilledSource] = useState<
     "storefront-defaults" | "last-listing" | "none"
   >("none");
+  const [merchPricing, setMerchPricing] = useState<Record<string, MerchPricingRow>>({});
+  const [storefrontDefaultMarkupPercent, setStorefrontDefaultMarkupPercent] =
+    useState<number | undefined>(undefined);
   const descriptionTouchedRef = useRef(false);
   const tagsTouchedRef = useRef(false);
   const categoryTouchedRef = useRef(false);
@@ -408,12 +412,21 @@ function CreatePageInner() {
             description?: string;
             tags?: string[];
             categorySlug?: string;
+            defaultMarkupPercent?: number;
             source?: "storefront-defaults" | "last-listing" | "none";
           };
         };
         if (cancelled) return;
 
         const defaults = data.defaults ?? {};
+        if (
+          typeof defaults.defaultMarkupPercent === "number" &&
+          Number.isFinite(defaults.defaultMarkupPercent)
+        ) {
+          setStorefrontDefaultMarkupPercent(
+            Math.min(100, Math.max(0, Math.round(defaults.defaultMarkupPercent))),
+          );
+        }
         const source = defaults.source ?? "none";
         const description = (defaults.description ?? "").trim();
         const tagsJoined = Array.isArray(defaults.tags)
@@ -755,6 +768,15 @@ function CreatePageInner() {
             : {}),
           ...(selectedStorefrontId
             ? { storefrontId: selectedStorefrontId }
+            : {}),
+          ...(Object.keys(merchPricing).length > 0
+            ? {
+                pricesByType: Object.fromEntries(
+                  [...selectedProducts]
+                    .map((pt) => [pt, merchPricing[pt]?.priceCents] as const)
+                    .filter(([, cents]) => typeof cents === "number" && cents > 0),
+                ),
+              }
             : {}),
         }),
       });
@@ -1169,6 +1191,15 @@ function CreatePageInner() {
                 </DialogContent>
               </Dialog>
 
+              {!isAnon && selectedProducts.size > 0 && (
+                <MerchPricingStep
+                  productTypes={[...selectedProducts]}
+                  pricing={merchPricing}
+                  onPricingChange={setMerchPricing}
+                  defaultMarkupPercent={storefrontDefaultMarkupPercent}
+                />
+              )}
+
               <Card className="border-border/50 bg-card p-6 text-left">
                 <h3 className="text-base font-semibold tracking-tight">Listing details</h3>
                 <div
@@ -1369,7 +1400,13 @@ function CreatePageInner() {
                   </Button>
                   <div className="flex items-center gap-2">
                     <Button
-                      disabled={selectedProducts.size === 0 || publishing}
+                      disabled={
+                      selectedProducts.size === 0 ||
+                      publishing ||
+                      [...selectedProducts].some(
+                        (pt) => (merchPricing[pt]?.markupPercent ?? 0) === 0,
+                      )
+                    }
                       onClick={handlePublish}
                       className="gap-2 bg-primary px-8 hover:bg-primary/90"
                     >
