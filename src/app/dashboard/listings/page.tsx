@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
 import { redirect } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import {
   getDefaultProfileForAuthUser,
@@ -51,6 +53,12 @@ export default async function DashboardListingsPage() {
             shops.
           </p>
         </div>
+        <Link href="/create" className="shrink-0">
+          <Button className="gap-2 bg-primary hover:bg-primary/90">
+            <Plus className="h-4 w-4" />
+            Add an item
+          </Button>
+        </Link>
       </div>
 
       <div className="mt-10">
