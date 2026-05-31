@@ -377,6 +377,19 @@ const FAQ_SECTIONS: FAQSection[] = [
     ],
   },
   {
+    id: "fastest-money",
+    title: "Making your first sale",
+    tag: "Money",
+    tagColor: "border-neon-cyan/30 text-neon-cyan",
+    items: [
+      {
+        question: "What's the fastest way to make money?",
+        answer:
+          "Sell stuff to an audience you know well — people who will actually want to buy what you make. Family members, friends, or grandparents may be especially interested in certain hobbies. Design for them, then send a link to a specific storefront or item and see if they'll buy. If not, ask what they'd change — then tweak your design until they'd want it.",
+      },
+    ],
+  },
+  {
     id: "multiple-storefronts",
     title: "Can I have more than one storefront?",
     tag: "Storefronts",

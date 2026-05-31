@@ -148,15 +148,26 @@ export function MerchPricingStep({
               How much will you charge — and how much will you make?
             </p>
           </div>
-          <Link
-            href="/faq#pricing-tips"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 self-start rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground"
-          >
-            <Lightbulb className="h-3 w-3" />
-            Help me price this!
-          </Link>
+          <div className="flex flex-col items-end gap-1.5 self-start">
+            <Link
+              href="/faq#pricing-tips"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+            >
+              <Lightbulb className="h-3 w-3" />
+              Help me price this!
+            </Link>
+            <Link
+              href="/faq#fastest-money"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+            >
+              <Lightbulb className="h-3 w-3" />
+              Fastest way to make money?
+            </Link>
+          </div>
         </div>
 
         <div className="mt-5 space-y-4">

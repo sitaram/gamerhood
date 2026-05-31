@@ -28,17 +28,6 @@ export function Hero() {
             <BrandHeroScene className="-mx-0.5 w-[calc(100%+0.25rem)] max-w-none sm:mx-auto sm:w-full" priority />
           </motion.div>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-sm font-medium text-primary">
-              <Sparkles className="h-3.5 w-3.5" />
-              AI-Powered Design Studio
-            </span>
-          </motion.div>
-
           <motion.h1
             className="mt-8 text-5xl font-black tracking-tight sm:text-6xl lg:text-7xl"
             initial={{ opacity: 0, y: 20 }}
@@ -47,12 +36,14 @@ export function Hero() {
           >
             <span className="block text-foreground">Imagine it.</span>
             <span className="block gradient-text">Create it.</span>
-            <span className="block text-foreground">
-              Make money on{" "}
+            <span className="block">
+              <span className="gradient-text">Make money on</span>{" "}
               <RotatingWord words={WORDS} />
             </span>
-            <span className="mt-2 block text-3xl font-bold italic text-foreground/80 sm:text-4xl lg:text-5xl">
-              Start buying your drip for less.
+            <span className="mt-2 block text-3xl font-bold sm:text-4xl lg:text-5xl">
+              <span className="text-foreground/90 italic">Start buying your </span>
+              <span className="gradient-text-warm not-italic">drip </span>
+              <span className="gradient-text not-italic">for less.</span>
             </span>
           </motion.h1>
 

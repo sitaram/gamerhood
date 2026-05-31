@@ -210,6 +210,9 @@ export default async function EditListingPage({ params }: Props) {
       wholesaleCents: basis.wholesaleCents,
       shippingCents: basis.shippingCents,
       costBasisSource: basis.source,
+      mockupUrl: product.mockup_url ?? null,
+      designImageUrl,
+      printPlacement: placement,
     },
   ];
 
