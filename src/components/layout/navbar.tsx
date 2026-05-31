@@ -42,7 +42,7 @@ function buildStorefrontNavItems(shopSlug: string | null): { href: string; label
     items.push({ href: `/shop/${shopSlug}`, label: "View my shop (public view)", icon: ExternalLink });
   }
   items.push(
-    { href: "/dashboard/listings", label: "Edit Listings", icon: LayoutGrid },
+    { href: "/dashboard/listings", label: "Manage listings", icon: LayoutGrid },
     { href: "/dashboard/storefront", label: "Storefront settings", icon: Store },
     { href: "/dashboard/categories", label: "SEO categories", icon: Tags },
   );

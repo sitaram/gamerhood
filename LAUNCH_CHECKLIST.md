@@ -8,23 +8,33 @@
 ## 🏢 Once LLC paperwork is approved
 
 ### Stripe migration (personal → LLC)
-- [ ] Get **EIN** from IRS (free, 5 min online at https://irs.gov/businesses/employer-identification-number — needs the LLC to exist first)
+- [x] Get **EIN** from IRS — **42-2832129** (GamerHood LLC; CA SOS B20260245578)
 - [ ] Open **business bank account** under LLC name + EIN (Mercury, Relay, Bluevine = online; or any local bank)
-- [ ] In Stripe Dashboard → Settings → Business details:
-  - [ ] Change **Legal business name** from your personal name → LLC name (e.g., "Gamerhood LLC")
-  - [ ] Change **Business type** from "Individual / sole proprietorship" → "Single-member LLC" (or whichever fits)
-  - [ ] Change **Tax ID** from SSN → EIN
-  - [ ] Change **Business address** to LLC's registered address (can still be home address, but match what's on the LLC filing)
+- [ ] **Stripe Live business details + EIN configured** (Dashboard-only — API cannot update the platform account; verified 2026-05-28):
+  - **Current Live account state** (via `stripe.accounts.retrieve()`): `business_type: individual`, legal name still **Maile Ohye** — needs Dashboard update.
+  - **API limitation:** `stripe.accounts.update()` on the platform account returns *"You cannot use this method on your own account: you may only use it on connected accounts."* Standard platform accounts must change business/tax identity in the Dashboard.
+  - **Dashboard click-path (Live mode toggle ON):**
+    1. [Stripe Dashboard](https://dashboard.stripe.com/settings/account) → **Settings** → **Business** → **Business details**
+    2. **Legal business name:** `GamerHood LLC`
+    3. **Business type:** Company → **Single-member LLC** (California)
+    4. **EIN / Tax ID:** `42-2832129` (enter digits only if prompted: `422832129`)
+    5. **Business address:** match LLC filing (currently tax head office: Oakland, CA 94611)
+    6. Save → complete any **re-verification** Stripe triggers (1–3 business days; payouts may pause)
+  - **Also review (Live):**
+    - **Settings → Public details** — customer-facing name `GamerHood.GG`, support `support@gamerhood.gg`, URL `https://gamerhood.gg`
+    - **Settings → Connect → Platform profile** — platform name `GamerHood LLC` / `GamerHood.GG`; confirm liability & fee settings unchanged
+    - **Settings → Tax** (1099) — confirm filings go to LLC EIN after switch
+    - **Settings → Branding** — statement descriptor already `GAMERHOOD.GG` ✓
+  - **Live webhook verified active:** `https://www.gamerhood.gg/api/webhooks/stripe` (`checkout.session.completed`, status `enabled`)
+  - **Creator Connect accounts:** code does **not** pre-fill the platform EIN (`src/app/api/stripe/connect/route.ts` — creators onboard as `individual` with their own tax ID)
 - [ ] Update **Stripe payout bank** to the new business bank account (Settings → Payouts)
-- [ ] Stripe will trigger **re-verification** — usually 1–3 business days. Payouts may pause until verified.
-- [ ] Update Connect platform settings if needed (Settings → Connect → Platform profile)
 - [ ] **Reconcile 1099s**: any 1099-Ks issued to you personally before the switch stay tied to your SSN; after switch they go to the EIN. Keep clean records of the switch date for taxes.
 
 ### Legal docs to update
 - [ ] **LLC Operating Agreement** drafted and signed (even for single-member LLC — proves you're treating it as a real entity, critical for liability shield). Free template at https://www.northwestregisteredagent.com/llc/operating-agreement
-- [ ] **Terms of Service** updated to name the LLC as the operating entity (search the page for any "Gamerhood" and add ", LLC" where it refers to the company)
-- [ ] **Privacy Policy** updated to name the LLC as the data controller
-- [ ] **FAQ** updated similarly
+- [x] **Terms of Service** — GamerHood LLC + EIN (commit `073eb36`)
+- [x] **Privacy Policy** — GamerHood LLC data controller + EIN (commit `073eb36`)
+- [x] **FAQ / DMCA / footer** — GamerHood LLC named (commit `073eb36`)
 
 ### Bank/Finance separation (critical for liability shield)
 - [ ] Use business bank for ALL business income + expenses, no commingling
@@ -127,12 +137,12 @@ Get 3 quotes. Expect $500–$2,500/yr total for a small e-commerce kids' platfor
 - [ ] **Run regression script before every prod deploy** — `node scripts/check-print-area-consistency.mjs` iterates every product type, pulls a sample published listing, re-verifies its cached print area vs. Printful's live `placement_dimensions`, and asserts the unified `computeDesignOverlayBox` helper returns consistent inches. Exits non-zero on drift. Run manually as part of the deploy ritual.
 - [ ] **photoBand stays a fallback only** — `src/lib/create/merch-preview-layout.ts` holds hand-tuned framing for the *garment-on-photo* position; print area in inches comes from `printful_blank_mockups` (migration 023) via `usePrintfulBlankPhoto().area`. Every preview surface (`PrintPlacementEditor`, `MerchPlacementPreview`, `PhotographicColorMockup`, cart thumb, listing edit thumb) flows through `computeDesignOverlayBox` so the design size always reflects the live print area. Do not re-introduce per-surface arithmetic against `printMaxWidthPct`.
 - [ ] **Cyan frame position uses Printful's authoritative pixel coords** — `printful_blank_mockups.print_area_*_px` + `mockup_*_px` (migration 033) carry the print-area rect on the rendered flat mockup, derived from Printful's v1 `/mockup-generator/templates/{product_id}` endpoint (`fetchVariantPrintAreaPx`). `computeDesignOverlayBox` prefers these when present and falls back to photoBand only for variants without a v1 template (some embroidery / cut-sew / knitwear SKUs). The pre-033 hand-tuned photoBand drifted ~16 % vertically on the Gildan 18500 hoodie — pushing the cyan frame down into the kangaroo pocket. To refresh a single product line: `node scripts/printful-backfill-pixel-coords.mjs --product=hoodie --force`.
-- [ ] **Stripe Live mode** fully configured (separate from Sandbox — needs its own Connect setup, separate keys, separate webhook)
+- [ ] **Stripe Live mode** fully configured — `.env.local` uses `sk_live_*` ✓; Vercel Production should match (user pushed live keys). **Still pending:** Dashboard business details migration (individual → SMLLC + EIN) — see LLC section above.
 - [ ] **End-to-end real purchase test** in Live mode with a small $1 product, your own card
 - [ ] **Email deliverability**: confirm Resend domain green (SPF/DKIM/DMARC on Cloudflare), send to Gmail/Yahoo/Hotmail and confirm inbox (not spam)
 - [ ] **`support@gamerhood.gg` inbox**: set up Cloudflare Email Routing or ImprovMX (free, 5 min) to forward to your real inbox
 - [ ] **`GOOGLE_CLOUD_VISION_API_KEY`** pushed to Vercel Production (currently missing — image moderation silently no-op'd)
-- [ ] **Stripe webhook secret** regenerated for the new Stripe account (currently stale — webhook signature verification silently failing)
+- [ ] **Stripe webhook secret** on Vercel matches Live endpoint `we_1TamyJBt6BADXrFprbtEp1fq` — Live webhook is **enabled**; confirm `STRIPE_WEBHOOK_SECRET` in Vercel Production matches the signing secret shown in Dashboard → Developers → Webhooks for that endpoint
 - [ ] **Test creator onboarding** end-to-end as a fresh user (not admin)
 - [ ] **Mobile testing** on a real phone — iOS Safari + Android Chrome
 - [ ] **Page speed audit** via https://pagespeed.web.dev — LCP under 2.5s
@@ -182,4 +192,20 @@ Get 3 quotes. Expect $500–$2,500/yr total for a small e-commerce kids' platfor
 
 ---
 
-*Last updated: 2026-05-25. Add to this as new things come up.*
+---
+
+## 🏢 External services — business entity / EIN (manual)
+
+These surfaces do **not** need the EIN in code or env vars. Update in each vendor's dashboard where a legal entity name or tax ID is collected.
+
+| Service | EIN in code/env? | Action |
+|---------|------------------|--------|
+| **Stripe Live** (platform) | No — Dashboard only | See **Stripe migration** section above. Current Live account still `individual` / Maile Ohye until Dashboard update. |
+| **Vercel** | No EIN var | No change. Confirm Production env uses `sk_live_*` + matching `STRIPE_WEBHOOK_SECRET` (not test keys). |
+| **Printful** | No | Dashboard → **Stores** → store **Gamerhood** (id `18162201`) → update billing/legal entity to **GamerHood LLC** if Printful collects W-9 or business name for payouts/invoices. API v2 `/stores` returns name only — no tax fields via API. |
+| **Resend** | No | Dashboard → **Domains** → `gamerhood.gg` — sender is `Gamerhood <noreply@gamerhood.gg>` in code; optional: add LLC name in Resend account/billing profile for invoices. No EIN field required for sending. |
+| **Google Cloud** (Vision API) | No | Cloud Console → **Billing** → billing account display name can note **GamerHood LLC** (cosmetic). No EIN needed for API key usage. |
+| **Supabase** | No | No EIN needed. |
+| **Domain / WHOIS** | Out of scope | — |
+
+*Last updated: 2026-05-28. Add to this as new things come up.*

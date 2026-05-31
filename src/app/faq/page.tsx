@@ -88,7 +88,7 @@ const FAQ_SECTIONS: FAQSection[] = [
       {
         question: "How does my child get paid?",
         answer:
-          "Earnings accumulate in your parent-managed Stripe Connect account. When a product sells, the revenue splits: Printful's production cost is covered, GamerHood.GG takes an 8% platform fee — about half of what marketplaces like Etsy charge once you add up their transaction, payment processing, and listing fees — and the rest goes to your account. That 8% covers payment processing, AI design tools, content moderation, and hosting. Payouts are on a regular schedule to your bank account.",
+          "Earnings accumulate in your parent-managed Stripe Connect account. When a product sells, the revenue splits: Printful's production cost is covered, GamerHood.GG takes an 8% platform fee — about half of what marketplaces like Etsy charge once you add up their transaction, payment processing, and listing fees — and the rest goes to your account. That 8% includes the AI tokens kids use to create designs on the site, plus content moderation and hosting. Stripe's credit-card processing is charged separately at their standard rate. Payouts are on a regular schedule to your bank account.",
       },
       {
         question: "Can I review designs before they go public?",
@@ -272,8 +272,10 @@ const FAQ_SECTIONS: FAQSection[] = [
               </li>
               <li>
                 <strong>Gamerhood platform fee</strong> — {PLATFORM_FEE_PERCENT}% of
-                the listing price. That&apos;s about half of what Etsy charges once
-                you add up their transaction, payment-processing, and listing fees.
+                the listing price. That includes the AI tokens kids use to create
+                designs on the site, plus content moderation, hosting, and running
+                the marketplace — about half of what Etsy charges once you add up
+                their transaction, payment-processing, and listing fees.
               </li>
             </ul>
             <p className="mt-2">Whatever&apos;s left is the creator&apos;s take-home.</p>

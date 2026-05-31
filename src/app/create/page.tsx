@@ -37,6 +37,7 @@ import { PrintPlacementEditor } from "@/components/create/print-placement-editor
 import { CategoryProductPicker } from "@/components/create/category-product-picker";
 import { PRODUCT_TYPE_LABELS } from "@/components/storefront/product-card";
 import { TransparencyBadge } from "@/components/design/transparency-badge";
+import { isSvgDataUrl } from "@/lib/design/source-format";
 import {
   GenerationProgress,
   type GenerationStep,
@@ -223,6 +224,7 @@ function CreatePageInner() {
    * until it lands.
    */
   const [hasTransparency, setHasTransparency] = useState<boolean | null>(null);
+  const [uploadedAsSvg, setUploadedAsSvg] = useState(false);
   /** Set when `/api/designs/generate` falls back to a placeholder (no GEMINI_API_KEY). */
   const [placeholderNotice, setPlaceholderNotice] = useState<string | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Set<ProductType>>(new Set(["hoodie", "tshirt"]));
@@ -518,6 +520,7 @@ function CreatePageInner() {
     );
     setGeneratedImage(DEV_DEMO_HOODIE_ART_URL);
     setImageSource("ai");
+    setUploadedAsSvg(false);
     setStep(demoHoodieProducts ? "products" : "preview");
   }, [demoHoodieDev, demoHoodieProducts, searchParams]);
 
@@ -539,6 +542,7 @@ function CreatePageInner() {
         setHasTransparency(
           typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
         );
+        setUploadedAsSvg(Boolean(data.uploadedAsSvg));
         setEditingPublishedDesign(Boolean(data.hasPublishedProducts));
         setStep("preview");
       } catch {
@@ -604,6 +608,7 @@ function CreatePageInner() {
 
       setGeneratedImage(result.imageUrl);
       setImageSource("ai");
+      setUploadedAsSvg(false);
       setHasTransparency(
         typeof result.hasTransparency === "boolean" ? result.hasTransparency : null,
       );
@@ -677,9 +682,10 @@ function CreatePageInner() {
       }
       setGeneratedImage(dataUrl);
       setImageSource("upload");
+      setUploadedAsSvg(
+        file.type === "image/svg+xml" || isSvgDataUrl(dataUrl),
+      );
       // Local-file uploads don't carry a pre-computed transparency check.
-      // Reset to "unknown" so the badge falls back to neutral until publish
-      // (or the dashboard's edit view) runs the server-side sharp check.
       setHasTransparency(null);
       setStep("preview");
       setError(null);
@@ -716,6 +722,7 @@ function CreatePageInner() {
     setGeneratedImage(null);
     setImageSource("ai");
     setHasTransparency(null);
+    setUploadedAsSvg(false);
     setSelectedProducts(
       new Set([
         "hoodie",
@@ -1038,13 +1045,13 @@ function CreatePageInner() {
                         {prompt ? "AI Generated" : "Uploaded"}
                       </Badge>
                       {/**
-                       * Surfaces the alpha-channel check. The checkered
-                       * preview some image tools show is purely a visual
-                       * "this area is transparent" hint — it does NOT
-                       * print. The badge tells the creator what Printful
-                       * will actually see (alpha vs. opaque rectangle).
+                       * Only surfaces transparent SVG uploads — the one case
+                       * where the screen preview may diverge from print.
                        */}
-                      <TransparencyBadge hasTransparency={hasTransparency} />
+                      <TransparencyBadge
+                        hasTransparency={hasTransparency}
+                        uploadedAsSvg={uploadedAsSvg}
+                      />
                     </div>
                   </div>
 

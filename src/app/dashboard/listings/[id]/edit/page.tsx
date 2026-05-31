@@ -82,7 +82,7 @@ export default async function EditListingPage({ params }: Props) {
   // initial render without a follow-up request.
   const { data, error: productErr } = await supabase
     .from("products")
-    .select("*, designs ( id, image_url, has_transparency )")
+    .select("*, designs ( id, image_url, has_transparency, uploaded_as_svg )")
     .eq("id", id)
     .maybeSingle();
 
@@ -139,6 +139,7 @@ export default async function EditListingPage({ params }: Props) {
    * effort and uses the service-role client so the WRITE bypasses the
    * read-only RLS policy when needed; rendering never blocks on it.
    */
+  const uploadedAsSvg = Boolean(product.designs?.uploaded_as_svg);
   const persistedTransparency = product.designs?.has_transparency;
   let hasTransparency: boolean | null =
     typeof persistedTransparency === "boolean" ? persistedTransparency : null;
@@ -244,7 +245,11 @@ export default async function EditListingPage({ params }: Props) {
         Back to listings
       </Link>
 
-      <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-border/50 bg-card/50 p-5 sm:flex-row sm:items-center">
+      <section className="mt-6">
+        <ListingPriceEditor listings={priceListings} />
+      </section>
+
+      <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-border/50 bg-card/50 p-5 sm:flex-row sm:items-center">
         <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-secondary">
           {showRealMockup && product.mockup_url ? (
             <Image
@@ -282,11 +287,13 @@ export default async function EditListingPage({ params }: Props) {
               </Badge>
             )}
             {/**
-             * Reads the alpha-channel result from `designs.has_transparency`.
-             * The check is what Printful actually sees — not whatever
-             * checker pattern an image tool draws as a preview hint.
+             * Warn only for transparent SVG uploads — solid backgrounds and
+             * AI PNGs stay silent.
              */}
-            <TransparencyBadge hasTransparency={hasTransparency} />
+            <TransparencyBadge
+              hasTransparency={hasTransparency}
+              uploadedAsSvg={uploadedAsSvg}
+            />
           </div>
           <h1 className="text-2xl font-bold leading-tight tracking-tight">
             {product.title}
@@ -311,15 +318,6 @@ export default async function EditListingPage({ params }: Props) {
           Tune how shoppers find and recognise this listing.
         </p>
         <ListingSeoEditor listings={seoListings} hideDestructiveActions />
-      </section>
-
-      <section className="mt-12 border-t border-border/50 pt-10">
-        <h2 className="text-lg font-semibold">Pricing</h2>
-        <p className="mt-1 mb-4 text-sm text-muted-foreground">
-          We&apos;ll show your take-home after item cost, shipping, the platform
-          fee, and credit-card processing.
-        </p>
-        <ListingPriceEditor listings={priceListings} />
       </section>
 
       <section className="mt-12 border-t border-border/50 pt-10">

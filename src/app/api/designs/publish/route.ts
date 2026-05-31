@@ -190,6 +190,7 @@ export async function POST(request: NextRequest) {
     // vector has alpha, Vision moderates raster pixels instead of bogus XML,
     // and oversized PNG/JPEG gets capped (never upscaled).
     let imageForPersist = body.imageUrl;
+    let uploadedAsSvg = false;
 
     if (body.imageSource === "upload") {
       if (!body.imageUrl.startsWith("data:")) {
@@ -224,6 +225,7 @@ export async function POST(request: NextRequest) {
 
       try {
         if (isSvgMime(uploadMime)) {
+          uploadedAsSvg = true;
           uploadBytes = await rasterizeSvgForPrinting(uploadBytes);
           uploadMime = "image/png";
         } else {
@@ -290,6 +292,7 @@ export async function POST(request: NextRequest) {
         status: "approved",
         content_safe: true,
         has_transparency: transparency ? transparency.transparent : null,
+        uploaded_as_svg: uploadedAsSvg,
       });
 
       if (designErr || !design) {

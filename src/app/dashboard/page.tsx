@@ -8,9 +8,17 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getDefaultProfileForAuthUser,
   getDesignsByProfile,
+  getProductsByProfile,
+  listStorefrontsByOwner,
+  type ProductRow,
 } from "@/lib/supabase/queries";
 import { StripeConnectCard } from "@/components/dashboard/stripe-connect-card";
 import { DashboardDesignsGrid } from "@/components/dashboard/dashboard-designs-grid";
+import { ListingsManager } from "@/components/dashboard/listings-manager";
+import {
+  toManagedListings,
+  toManagedStorefrontOptions,
+} from "@/lib/dashboard/managed-listings";
 import { XpRewardsPanel } from "@/components/dashboard/xp-rewards-panel";
 import { TierBadge } from "@/components/xp/tier-badge";
 import { DashboardQrCard } from "@/components/qr/dashboard-qr-card";
@@ -43,11 +51,22 @@ export default async function DashboardPage() {
   });
   const initials = profileInitials(displayName);
 
-  const { data: designs } = profile
-    ? await getDesignsByProfile(supabase, profile.id)
-    : { data: [] };
+  const [{ data: designs }, productsRes, storefronts] = profile
+    ? await Promise.all([
+        getDesignsByProfile(supabase, profile.id),
+        getProductsByProfile(supabase, profile.id),
+        listStorefrontsByOwner(supabase, profile.id),
+      ])
+    : [{ data: [] }, { data: null }, []];
 
   const designList = (designs ?? []).map(toDashboardDesignCard);
+
+  const listingRows = profile
+    ? toManagedListings((productsRes.data ?? []) as ProductRow[], storefronts)
+    : [];
+  const storefrontOptions = profile
+    ? toManagedStorefrontOptions(storefronts)
+    : [];
 
   const xp = profile?.xp ?? 0;
   const earnedXpRuleKeys = profile?.id
@@ -183,6 +202,32 @@ export default async function DashboardPage() {
           <DashboardDesignsGrid designs={designList} />
         )}
       </div>
+
+      {profile && (
+        <div className="mt-12">
+          <div className="mb-6 flex items-center justify-between">
+            <h2 className="text-xl font-semibold">
+              Your Listings
+              {listingRows.length > 0 && (
+                <span className="ml-3 text-sm font-normal text-muted-foreground">
+                  {listingRows.length}
+                </span>
+              )}
+            </h2>
+            <Link
+              href="/dashboard/listings"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Manage all
+            </Link>
+          </div>
+
+          <ListingsManager
+            listings={listingRows}
+            storefronts={storefrontOptions}
+          />
+        </div>
+      )}
     </div>
   );
 }

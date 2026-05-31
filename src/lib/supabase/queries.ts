@@ -147,6 +147,8 @@ export interface DesignRow {
    * back-filled lazily by the edit screen for legacy rows.
    */
   has_transparency: boolean | null;
+  /** True when the creator originally uploaded SVG (stored raster is PNG). */
+  uploaded_as_svg?: boolean | null;
 }
 
 export async function insertDesign(
@@ -166,6 +168,7 @@ export async function insertDesign(
      * lazy-fill from the public URL the first time it sees a null.
      */
     has_transparency?: boolean | null;
+    uploaded_as_svg?: boolean | null;
   },
 ) {
   return supabase.from("designs").insert(data).select().single();
@@ -227,6 +230,7 @@ export interface ProductRow {
     id?: string;
     image_url: string;
     has_transparency?: boolean | null;
+    uploaded_as_svg?: boolean | null;
   } | null;
 }
 

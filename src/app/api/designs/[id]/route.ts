@@ -68,6 +68,7 @@ export async function GET(
     title: data.title,
     hasPublishedProducts: (publishedProductCount ?? 0) > 0,
     hasTransparency,
+    uploadedAsSvg: Boolean(data.uploaded_as_svg),
   });
 }
 

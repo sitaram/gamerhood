@@ -40,16 +40,23 @@ async function readRequestedMode(
 }
 
 /**
- * Stripe rejects `account_update` for accounts where the platform isn't
- * responsible for collecting requirements (most hosted Express setups).
- * The hosted onboarding flow handles "edit mode" gracefully when nothing
- * is missing, so we fall back to it transparently.
+ * Stripe rejects `account_update` when onboarding isn't finished, when the
+ * platform isn't responsible for collecting requirements (most hosted
+ * Express setups), or when the account type doesn't support it. Wording
+ * varies — e.g. "not supported", "You cannot create … account_update",
+ * "Valid types for this account are [\"account_onboarding\"]". The hosted
+ * onboarding flow handles "edit mode" gracefully when nothing is missing,
+ * so we fall back to it transparently.
  */
 function isAccountUpdateUnsupported(err: unknown): boolean {
   if (!(err instanceof Stripe.errors.StripeError)) return false;
   const raw = err.raw as { message?: unknown } | undefined;
-  const msg = (typeof raw?.message === "string" ? raw.message : err.message) ?? "";
-  return /account_update/i.test(msg) && /not supported|not allowed|invalid/i.test(msg);
+  const msg =
+    (typeof raw?.message === "string" ? raw.message : err.message) ?? "";
+  if (!/account_update/i.test(msg)) return false;
+  return (
+    /cannot create|not supported|not allowed|invalid|valid types/i.test(msg)
+  );
 }
 
 /**
@@ -185,16 +192,20 @@ export async function POST(request: NextRequest) {
     // Fully-onboarded accounts get an `account_update` link (edit profile);
     // anything else (incomplete requirements, brand-new) stays on
     // `account_onboarding`. We skip the extra retrieve for accounts we
-    // just created in this request and when the caller is explicit.
+    // just created in this request and when the caller is explicit about
+    // onboarding — but "update" still verifies live Stripe state first
+    // because the client can be stale and Stripe rejects account_update
+    // until charges + payouts are enabled.
     let linkType: AccountLinkType = "account_onboarding";
     if (!justCreated) {
+      const account = await stripe.accounts.retrieve(accountId);
+      const fullyOnboarded = Boolean(
+        account.charges_enabled && account.payouts_enabled,
+      );
       if (requestedMode === "update") {
+        linkType = fullyOnboarded ? "account_update" : "account_onboarding";
+      } else if (requestedMode !== "onboarding" && fullyOnboarded) {
         linkType = "account_update";
-      } else if (requestedMode !== "onboarding") {
-        const account = await stripe.accounts.retrieve(accountId);
-        if (account.charges_enabled && account.payouts_enabled) {
-          linkType = "account_update";
-        }
       }
     }
 
