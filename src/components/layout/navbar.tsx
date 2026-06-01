@@ -24,32 +24,21 @@ import {
   UserRound,
   Images,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { useCartStore } from "@/lib/store";
 import { createBrowserClient } from "@supabase/ssr";
 import { toast } from "sonner";
 import { getAnonDesigns, clearAnonDesigns } from "@/lib/anon-designs";
 import { cn } from "@/lib/utils";
 import { profileInitials } from "@/lib/profile-avatar";
+import {
+  buildStorefrontNavItems,
+  sellerNavItemActive,
+} from "@/lib/dashboard/seller-nav";
 
 const NAV_LINKS = [
   { href: "/shop", label: "Browse", icon: Gamepad2 },
   { href: "/create", label: "Create", icon: Sparkles },
 ];
-
-function buildStorefrontNavItems(shopSlug: string | null): { href: string; label: string; icon: LucideIcon }[] {
-  const items: { href: string; label: string; icon: LucideIcon }[] = [];
-  if (shopSlug) {
-    items.push({ href: `/shop/${shopSlug}`, label: "View my shop (public view)", icon: ExternalLink });
-  }
-  items.push(
-    { href: "/dashboard/designs", label: "My Images & Uploads", icon: Images },
-    { href: "/dashboard/listings", label: "Manage listings", icon: LayoutGrid },
-    { href: "/dashboard/storefront", label: "Storefront settings", icon: Store },
-    { href: "/dashboard/categories", label: "SEO categories", icon: Tags },
-  );
-  return items;
-}
 
 function isUnderStorefrontNav(pathname: string, shopSlug: string | null): boolean {
   if (pathname === "/dashboard") return false;
@@ -59,8 +48,7 @@ function isUnderStorefrontNav(pathname: string, shopSlug: string | null): boolea
 }
 
 function storefrontNavItemActive(pathname: string, href: string): boolean {
-  if (pathname === href) return true;
-  return pathname.startsWith(`${href}/`);
+  return sellerNavItemActive(pathname, href);
 }
 
 function sellerDashboardNavActive(pathname: string): boolean {
@@ -422,6 +410,17 @@ export function Navbar({
                       }}
                     />
                     <MenuLink
+                      icon={<Images className="h-4 w-4" />}
+                      label="My Images & Uploads"
+                      subtitle="Every design and upload you've saved"
+                      href="/dashboard/designs"
+                      active={sellerNavItemActive(pathname, "/dashboard/designs")}
+                      onNavigate={(href) => {
+                        setMenuOpen(false);
+                        router.push(href);
+                      }}
+                    />
+                    <MenuLink
                       icon={<Sparkles className="h-4 w-4" />}
                       label="Start Creating"
                       href="/create"
@@ -532,6 +531,22 @@ export function Navbar({
                       </p>
                     )}
                   </div>
+                )}
+                {user && (
+                  <Link href="/dashboard/designs" onClick={() => setOpen(false)}>
+                    <Button
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-start gap-3",
+                        sellerNavItemActive(pathname, "/dashboard/designs")
+                          ? "bg-primary/5 text-foreground"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      <Images className="h-5 w-5 shrink-0" />
+                      My Images &amp; Uploads
+                    </Button>
+                  </Link>
                 )}
                 {user && (
                   <div className="mt-4 border-t border-border/40 pt-4">

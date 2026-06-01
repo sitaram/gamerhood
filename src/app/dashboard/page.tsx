@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Sparkles, Wand2, ImageOff, Store, ExternalLink, LayoutGrid, Plus } from "lucide-react";
+import { Sparkles, Wand2, ImageOff, Store, ExternalLink, LayoutGrid, Plus, Images } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -14,6 +14,7 @@ import {
 } from "@/lib/supabase/queries";
 import { StripeConnectCard } from "@/components/dashboard/stripe-connect-card";
 import { DashboardDesignsGrid } from "@/components/dashboard/dashboard-designs-grid";
+import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
 import { ListingsManager } from "@/components/dashboard/listings-manager";
 import {
   toManagedListings,
@@ -106,6 +107,12 @@ export default async function DashboardPage() {
         </Link>
       </div>
 
+      {profile && (
+        <div className="mt-8">
+          <DashboardSellerNav />
+        </div>
+      )}
+
       <div className="mt-8 flex flex-wrap gap-3">
         {profile && (
           <>
@@ -113,6 +120,12 @@ export default async function DashboardPage() {
               <Button variant="outline" className="gap-2" size="lg">
                 <ExternalLink className="h-4 w-4" />
                 View my shop
+              </Button>
+            </Link>
+            <Link href="/dashboard/designs">
+              <Button variant="secondary" className="gap-2" size="lg">
+                <Images className="h-4 w-4" />
+                My Images &amp; Uploads
               </Button>
             </Link>
             <Link href="/dashboard/listings">

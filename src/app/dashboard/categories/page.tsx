@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listBrowseCategories } from "@/lib/supabase/queries";
 import { BrowseCategoriesPanel } from "@/components/dashboard/browse-categories-panel";
+import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export default async function BrowseCategoriesDashboardPage() {
       <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
         ← Dashboard
       </Link>
+      <div className="mt-4">
+        <DashboardSellerNav />
+      </div>
       <h1 className="mt-4 text-3xl font-bold tracking-tight">Browse SEO categories</h1>
       <p className="mt-2 text-muted-foreground">
         Define slugs that power <code className="rounded bg-muted px-1 py-0.5 text-xs">/category/product-type</code>{" "}

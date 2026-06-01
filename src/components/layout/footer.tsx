@@ -6,6 +6,7 @@ const LINKS = {
     { href: "/create", label: "Design Studio" },
     { href: "/shop", label: "Browse Merch" },
     { href: "/dashboard", label: "Creator Dashboard" },
+    { href: "/dashboard/designs", label: "My Images & Uploads" },
   ],
   Company: [
     { href: "/about", label: "About Us" },

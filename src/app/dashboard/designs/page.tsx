@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { DesignLibraryInfiniteGrid } from "@/components/designs/design-library-infinite-grid";
+import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,16 @@ export default async function MyDesignsPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <Link
+        href="/dashboard"
+        className="text-sm text-muted-foreground hover:text-foreground"
+      >
+        ← Dashboard
+      </Link>
+      <div className="mt-4">
+        <DashboardSellerNav />
+      </div>
+      <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2 text-primary">
             <Images className="h-5 w-5" />

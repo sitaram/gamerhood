@@ -10,6 +10,7 @@ import {
   StorefrontsManager,
   type StorefrontSummary,
 } from "@/components/dashboard/storefronts-manager";
+import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +63,9 @@ export default async function AccountSettingsPage() {
       <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
         ← Dashboard
       </Link>
+      <div className="mt-4">
+        <DashboardSellerNav />
+      </div>
       <h1 className="mt-4 text-3xl font-bold tracking-tight">Account settings</h1>
       <p className="mt-2 text-muted-foreground">
         Personalize how you show up across Gamerhood — photo, name, catchphrase, and the

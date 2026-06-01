@@ -14,6 +14,7 @@ import {
   toManagedListings,
   toManagedStorefrontOptions,
 } from "@/lib/dashboard/managed-listings";
+import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,9 @@ export default async function DashboardListingsPage() {
       >
         ← Dashboard
       </Link>
+      <div className="mt-4">
+        <DashboardSellerNav />
+      </div>
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Your listings</h1>

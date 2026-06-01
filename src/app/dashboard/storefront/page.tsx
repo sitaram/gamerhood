@@ -7,6 +7,7 @@ import {
   type ProfileRow,
 } from "@/lib/supabase/queries";
 import { StorefrontSettingsForm } from "@/components/dashboard/storefront-settings-form";
+import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -27,6 +28,9 @@ export default async function StorefrontDashboardPage() {
       <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
         ← Dashboard
       </Link>
+      <div className="mt-4">
+        <DashboardSellerNav />
+      </div>
       <h1 className="mt-4 text-3xl font-bold tracking-tight">Your storefront</h1>
       <p className="mt-2 text-muted-foreground">
         Customize your public shop URL, homepage banner, and how you appear in
