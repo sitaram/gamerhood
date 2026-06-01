@@ -11,6 +11,7 @@ import {
 } from "@/lib/supabase/queries";
 import { ListingsManager } from "@/components/dashboard/listings-manager";
 import {
+  toCreatorStorefrontNav,
   toManagedListings,
   toManagedStorefrontOptions,
 } from "@/lib/dashboard/managed-listings";
@@ -35,6 +36,7 @@ export default async function DashboardListingsPage() {
 
   const rows = (productsRes.data ?? []) as ProductRow[];
   const storefrontOptions = toManagedStorefrontOptions(storefronts);
+  const storefrontNav = toCreatorStorefrontNav(storefronts);
   const listings = toManagedListings(rows, storefronts);
 
   return (
@@ -46,7 +48,7 @@ export default async function DashboardListingsPage() {
         ← Dashboard
       </Link>
       <div className="mt-4">
-        <DashboardSellerNav />
+        <DashboardSellerNav storefronts={storefrontNav} />
       </div>
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>

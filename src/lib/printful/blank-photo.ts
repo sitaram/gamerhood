@@ -1,9 +1,9 @@
 import { isPrintfulConfigured } from "@/lib/printful/client";
 import { getServiceClient } from "@/lib/supabase/admin";
 import {
-  generateFlatBlankMockup,
   getOrGenerateBlankForVariantId,
   getOrGenerateFlatBlankMockup,
+  isTemplateAlignedBlankRow,
   listColorVariantsForCatalogProduct,
 } from "@/lib/printful/blank-mockup";
 import { getCatalogConfig } from "@/lib/printful/catalog";
@@ -51,6 +51,8 @@ export interface BlankPhotoResult {
     wPx: number;
     hPx: number;
   } | null;
+  /** mockup-templates `background_color` when source is `template_backdrop`. */
+  backdropColor: string | null;
 }
 
 interface MemoEntry {
@@ -91,7 +93,7 @@ async function readCachedBlank(
     let query = supabase
       .from("printful_blank_mockups")
       .select(
-        "mockup_url, print_area_width_in, print_area_height_in, mockup_width_px, mockup_height_px, print_area_x_px, print_area_y_px, print_area_w_px, print_area_h_px, source",
+        "mockup_url, print_area_width_in, print_area_height_in, mockup_width_px, mockup_height_px, print_area_x_px, print_area_y_px, print_area_w_px, print_area_h_px, source, color_hex, mockup_style_id, catalog_product_id, catalog_variant_id",
       )
       .eq("product_type", productType);
     if (colorName) {
@@ -133,6 +135,34 @@ async function readCachedBlank(
         ? { width: w, height: h }
         : null;
     const printAreaPixelRect = extractRowPixelRect(data);
+    const aligned = await isTemplateAlignedBlankRow(
+      {
+        product_type: productType,
+        mockup_url: url,
+        catalog_product_id: data.catalog_product_id ?? null,
+        catalog_variant_id: data.catalog_variant_id ?? null,
+        mockup_style_id: data.mockup_style_id ?? null,
+        technique: null,
+        placement: null,
+        print_area_width_in: data.print_area_width_in ?? null,
+        print_area_height_in: data.print_area_height_in ?? null,
+        source: data.source ?? null,
+        generated_at: "",
+      },
+      productType,
+    );
+    if (!aligned) {
+      console.warn("[blank-mockup] DB cache row uses stale mockup style — invalidating", {
+        productType,
+        colorName,
+        mockupStyleId: data.mockup_style_id,
+      });
+      await supabase
+        .from("printful_blank_mockups")
+        .delete()
+        .eq("catalog_variant_id", data.catalog_variant_id);
+      return null;
+    }
     console.log("[blank-mockup] DB cache hit", {
       productType,
       colorName,
@@ -140,7 +170,13 @@ async function readCachedBlank(
       printArea,
       hasPixelRect: !!printAreaPixelRect,
     });
-    return { url, status: "ready", printArea, printAreaPixelRect };
+    return {
+      url,
+      status: "ready",
+      printArea,
+      printAreaPixelRect,
+      backdropColor: extractRowBackdropColor(data),
+    };
   } catch (err) {
     console.warn("[blank-mockup] DB cache read threw", {
       productType,
@@ -252,6 +288,7 @@ function startBackgroundGeneration(
           status: "unavailable",
           printArea: null,
           printAreaPixelRect: null,
+          backdropColor: null,
         };
         memo.set(key, { result });
         return result;
@@ -273,6 +310,7 @@ function startBackgroundGeneration(
           status: "unavailable",
           printArea: null,
           printAreaPixelRect: null,
+          backdropColor: null,
         };
         memo.set(key, { result });
         return result;
@@ -282,57 +320,37 @@ function startBackgroundGeneration(
         status: "ready",
         printArea: extractRowPrintArea(row),
         printAreaPixelRect: extractRowPixelRect(row),
+        backdropColor: extractRowBackdropColor(row),
       };
       memo.set(key, { result });
       return result;
     }
 
-    /** Legacy default-color path keeps the existing mockup-tasks behavior. */
-    const generated = await generateFlatBlankMockup(productType).catch((err) => {
+    /** Default-color path: template backdrop (fast) with mockup-tasks fallback. */
+    const row = await getOrGenerateFlatBlankMockup(productType).catch((err) => {
       console.warn("[blank-mockup] background generation threw", {
         productType,
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
     });
-    if (!generated) {
+    if (!row?.mockup_url) {
       const result: BlankPhotoResult = {
         url: null,
         status: "unavailable",
         printArea: null,
         printAreaPixelRect: null,
+        backdropColor: null,
       };
       memo.set(key, { result });
       return result;
     }
-    const row = await getOrGenerateFlatBlankMockup(productType).catch((err) => {
-      console.warn("[blank-mockup] persisting to DB cache threw", {
-        productType,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return null;
-    });
-    /**
-     * `generated.printAreaPx` from the live mockup-tasks run carries a
-     * `templateId` field we don't surface to clients; strip it (and drop
-     * height-rounding it never had) so the wire format matches the
-     * cache-hit path exactly.
-     */
-    const livePixelRect = generated.printAreaPx
-      ? {
-          mockupWidthPx: generated.printAreaPx.mockupWidthPx,
-          mockupHeightPx: generated.printAreaPx.mockupHeightPx,
-          xPx: generated.printAreaPx.xPx,
-          yPx: generated.printAreaPx.yPx,
-          wPx: generated.printAreaPx.wPx,
-          hPx: generated.printAreaPx.hPx,
-        }
-      : null;
     const result: BlankPhotoResult = {
-      url: row?.mockup_url ?? generated.url,
+      url: row.mockup_url,
       status: "ready",
-      printArea: extractRowPrintArea(row) ?? generated.printArea,
-      printAreaPixelRect: extractRowPixelRect(row) ?? livePixelRect,
+      printArea: extractRowPrintArea(row),
+      printAreaPixelRect: extractRowPixelRect(row),
+      backdropColor: extractRowBackdropColor(row),
     };
     memo.set(key, { result });
     return result;
@@ -344,11 +362,20 @@ function startBackgroundGeneration(
       status: "generating",
       printArea: null,
       printAreaPixelRect: null,
+      backdropColor: null,
     },
     pending: p,
   });
 
   return p;
+}
+
+function extractRowBackdropColor(
+  row: { color_hex?: string | null; source?: string | null } | null,
+): string | null {
+  if (!row || row.source !== "template_backdrop") return null;
+  const hex = row.color_hex;
+  return typeof hex === "string" && hex.trim() ? hex.trim() : null;
 }
 
 function extractRowPrintArea(
@@ -365,10 +392,10 @@ function extractRowPrintArea(
 /**
  * Pull the mockup/print pixel rect from a cache row, when all six values
  * are present and positive. The `source` filter keeps us from handing
- * back template-derived coords for a `catalog_image` mockup (the Track A
- * studio photo is framed differently than the mockup-tasks rendering the
- * v1 template coords were calibrated to). For per-color catalog photos
- * the caller will fall back to photoBand.
+ * back template-derived coords for anything except `template_backdrop`
+ * (the mockup-templates image + print_area share one coordinate frame).
+ * Per-color catalog photos and legacy mockup-tasks rows fall back to
+ * photoBand.
  */
 function extractRowPixelRect(
   row: {
@@ -382,7 +409,7 @@ function extractRowPixelRect(
   } | null,
 ): BlankPhotoResult["printAreaPixelRect"] {
   if (!row) return null;
-  if (row.source && row.source !== "mockup_task") return null;
+  if (row.source !== "template_backdrop") return null;
   const mw = row.mockup_width_px;
   const mh = row.mockup_height_px;
   const xPx = row.print_area_x_px;
@@ -424,16 +451,6 @@ export async function getBlankPhotoForProductType(
   console.log("[blank-mockup] resolve start", { productType, colorName });
   const key = memoKey(productType, colorName);
 
-  const memoEntry = memo.get(key);
-  if (memoEntry && memoEntry.result.status === "ready") {
-    console.log("[blank-mockup] process memo hit (ready)", {
-      productType,
-      colorName,
-      url: memoEntry.result.url,
-    });
-    return memoEntry.result;
-  }
-
   if (!isPrintfulConfigured()) {
     console.warn("[blank-mockup] PRINTFUL_API_TOKEN not set — returning unavailable", {
       productType,
@@ -443,6 +460,7 @@ export async function getBlankPhotoForProductType(
       status: "unavailable",
       printArea: null,
       printAreaPixelRect: null,
+      backdropColor: null,
     };
     memo.set(key, { result });
     return result;
@@ -454,6 +472,10 @@ export async function getBlankPhotoForProductType(
     return cached;
   }
 
+  const memoEntry = memo.get(key);
+  if (memoEntry?.result?.status === "ready") {
+    memo.delete(key);
+  }
   if (memoEntry?.pending) {
     console.log("[blank-mockup] generation already in flight — returning generating", {
       productType,
@@ -464,6 +486,7 @@ export async function getBlankPhotoForProductType(
       status: "generating",
       printArea: null,
       printAreaPixelRect: null,
+      backdropColor: null,
     };
   }
 
@@ -478,5 +501,6 @@ export async function getBlankPhotoForProductType(
     status: "generating",
     printArea: null,
     printAreaPixelRect: null,
+    backdropColor: null,
   };
 }

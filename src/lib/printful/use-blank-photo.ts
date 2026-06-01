@@ -25,18 +25,16 @@ export interface BlankPrintRect {
 interface CacheEntry {
   status: Status;
   url: string | null;
-  /** Real Printful print area in inches from the DB cache, when populated. */
   area: { width: number; height: number } | null;
-  /**
-   * Authoritative pixel-space print-area rectangle on the rendered mockup.
-   * When non-null the placement editor / preview surfaces draw the cyan
-   * frame from these exact coords; null falls back to the hand-tuned
-   * photoBand in `merch-preview-layout.ts`.
-   */
   pixelRect: BlankPrintRect | null;
+  /** mockup-templates `background_color` for template_backdrop rows. */
+  backdropColor: string | null;
 }
 
-/** Shared across all components mounted in the same browser tab. Keyed by `productType[::color]`. */
+/** Bump when the server-side backdrop strategy changes ( busts in-tab cache ). */
+const BACKDROP_CACHE_VERSION = "template-v2";
+
+/** Shared across all components mounted in the same browser tab. Keyed by version + productType[::color]. */
 const browserCache = new Map<string, CacheEntry>();
 const pending = new Map<string, Promise<void>>();
 
@@ -56,10 +54,12 @@ interface FetchOnceResult {
   status: string;
   area: { width: number; height: number } | null;
   pixelRect: BlankPrintRect | null;
+  backdropColor: string | null;
 }
 
 function cacheKey(productType: ProductType, color?: string | null): string {
-  return color ? `${productType}::${color.toLowerCase()}` : productType;
+  const base = color ? `${productType}::${color.toLowerCase()}` : productType;
+  return `${BACKDROP_CACHE_VERSION}:${base}`;
 }
 
 function parsePixelRect(raw: unknown): BlankPrintRect | null {
@@ -91,7 +91,7 @@ async function fetchOnce(
 ): Promise<FetchOnceResult | null> {
   console.log("[blank-mockup-client] fetch start", { productType, color });
   try {
-    const qs = new URLSearchParams({ type: productType });
+    const qs = new URLSearchParams({ type: productType, _bd: BACKDROP_CACHE_VERSION });
     if (color) qs.set("color", color);
     const res = await fetch(`/api/printful/blank-photo?${qs.toString()}`, { cache: "no-store" });
     if (!res.ok) {
@@ -107,6 +107,7 @@ async function fetchOnce(
       status?: string;
       printArea?: { width?: number; height?: number } | null;
       printAreaPixelRect?: unknown;
+      backdropColor?: string | null;
     };
     const w = j.printArea?.width;
     const h = j.printArea?.height;
@@ -119,6 +120,10 @@ async function fetchOnce(
       status: typeof j.status === "string" ? j.status : "unavailable",
       area,
       pixelRect: parsePixelRect(j.printAreaPixelRect),
+      backdropColor:
+        typeof j.backdropColor === "string" && j.backdropColor.trim()
+          ? j.backdropColor.trim()
+          : null,
     };
     console.log("[blank-mockup-client] fetch result", {
       productType,
@@ -169,6 +174,7 @@ function ensureFetch(
           url: null,
           area: null,
           pixelRect: null,
+          backdropColor: null,
         });
         onChange();
         return;
@@ -185,6 +191,7 @@ function ensureFetch(
           url: r.url,
           area: r.area,
           pixelRect: r.pixelRect,
+          backdropColor: r.backdropColor,
         });
         onChange();
         return;
@@ -200,6 +207,7 @@ function ensureFetch(
           url: null,
           area: r.area,
           pixelRect: r.pixelRect,
+          backdropColor: r.backdropColor,
         });
         onChange();
         return;
@@ -212,6 +220,7 @@ function ensureFetch(
           url: null,
           area: r.area,
           pixelRect: r.pixelRect,
+          backdropColor: r.backdropColor,
         });
         onChange();
       }
@@ -235,6 +244,7 @@ function ensureFetch(
           url: null,
           area: null,
           pixelRect: null,
+          backdropColor: null,
         });
         onChange();
         return;
@@ -279,6 +289,8 @@ export function usePrintfulBlankPhoto(
    * tasks framing.
    */
   pixelRect: BlankPrintRect | null;
+  /** Background tint behind the template image (template_backdrop rows). */
+  backdropColor: string | null;
 } {
   const [, setTick] = useState(0);
   const key = cacheKey(productType, color);
@@ -303,5 +315,6 @@ export function usePrintfulBlankPhoto(
     loading: !entry || entry.status === "loading",
     area: entry?.area ?? null,
     pixelRect: entry?.pixelRect ?? null,
+    backdropColor: entry?.backdropColor ?? null,
   };
 }

@@ -24,6 +24,7 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
+import { ListingStorefrontSelect } from "@/components/dashboard/listing-storefront-select";
 import {
   hasRenderableListingMockup,
   PRODUCT_TYPE_LABELS,
@@ -200,6 +201,8 @@ export function ListingsManager({
             <ListingCard
               key={row.id}
               row={row}
+              storefronts={storefronts}
+              showStorefrontPicker={storefronts.length > 0}
               showStorefrontBadge={hasMultipleStorefronts}
             />
           ))}
@@ -280,9 +283,13 @@ function StorefrontFilterDropdown({
 
 function ListingCard({
   row,
+  storefronts,
+  showStorefrontPicker,
   showStorefrontBadge,
 }: {
   row: ManagedListingRow;
+  storefronts: ManagedStorefrontOption[];
+  showStorefrontPicker: boolean;
   showStorefrontBadge: boolean;
 }) {
   const showRealMockup = hasRenderableListingMockup(
@@ -324,7 +331,17 @@ function ListingCard({
       </div>
       <div className="flex flex-1 flex-col gap-2 p-4">
         <h3 className="line-clamp-2 text-sm font-semibold">{row.title}</h3>
-        {showStorefrontBadge && row.storefrontDisplayName && (
+        {showStorefrontPicker && storefronts.length > 1 && (
+          <ListingStorefrontSelect
+            productId={row.id}
+            storefronts={storefronts}
+            currentStorefrontId={row.storefrontId}
+            compact
+          />
+        )}
+        {showStorefrontBadge &&
+          row.storefrontDisplayName &&
+          storefronts.length <= 1 && (
           <p className="text-xs text-muted-foreground">
             on{" "}
             <span className="font-medium text-foreground">

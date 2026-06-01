@@ -2,6 +2,7 @@ import type {
   ManagedListingRow,
   ManagedStorefrontOption,
 } from "@/components/dashboard/listings-manager";
+import type { CreatorStorefrontNav } from "@/lib/dashboard/storefront-nav";
 import { parseStoredPlacement } from "@/lib/print/placement";
 import type { ProductRow, StorefrontRow } from "@/lib/supabase/queries";
 import type { ProductType } from "@/lib/types";
@@ -9,6 +10,17 @@ import type { ProductType } from "@/lib/types";
 export function toManagedStorefrontOptions(
   storefronts: StorefrontRow[],
 ): ManagedStorefrontOption[] {
+  return storefronts.map((s) => ({
+    id: s.id,
+    slug: s.slug,
+    displayName: s.display_name,
+    isDefault: s.is_default,
+  }));
+}
+
+export function toCreatorStorefrontNav(
+  storefronts: StorefrontRow[],
+): CreatorStorefrontNav[] {
   return storefronts.map((s) => ({
     id: s.id,
     slug: s.slug,

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   ExternalLink,
@@ -63,10 +63,18 @@ export function StorefrontsManager({
   initialStorefronts: StorefrontSummary[];
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [storefronts, setStorefronts] = useState(initialStorefronts);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editing, setEditing] = useState<StorefrontSummary | null>(null);
   const [creating, setCreating] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("newStorefront") === "1") {
+      setEditing(null);
+      setCreating(true);
+    }
+  }, [searchParams]);
 
   // Confirmation modal for delete is handled inline below the row to
   // keep the surface flat and avoid layering two dialogs.

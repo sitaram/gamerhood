@@ -78,10 +78,8 @@ export async function GET(request: NextRequest) {
     printArea: result.printArea,
     hasPixelRect: Boolean(result.printAreaPixelRect),
   });
-  /** Short cache only when ready — `generating` must re-poll. */
-  const cacheControl =
-    result.status === "ready" ? "public, max-age=600, s-maxage=3600" : "no-store";
+  /** Never HTTP-cache — stale flat-mockup JSON survived hard refreshes for 10 min. */
   return NextResponse.json(result, {
-    headers: { "Cache-Control": cacheControl },
+    headers: { "Cache-Control": "no-store" },
   });
 }

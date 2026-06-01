@@ -4,8 +4,15 @@ import { ArrowRight, LayoutGrid } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
   getDefaultProfileForAuthUser,
+  listStorefrontsByOwner,
   type ProfileRow,
 } from "@/lib/supabase/queries";
+import { toCreatorStorefrontNav } from "@/lib/dashboard/managed-listings";
+import {
+  StorefrontsManager,
+  type StorefrontSummary,
+} from "@/components/dashboard/storefronts-manager";
+import { Suspense } from "react";
 import { StorefrontSettingsForm } from "@/components/dashboard/storefront-settings-form";
 import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
 import { Card } from "@/components/ui/card";
@@ -23,20 +30,39 @@ export default async function StorefrontDashboardPage() {
   const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
   if (!profile) redirect("/dashboard");
 
+  const storefrontRows = await listStorefrontsByOwner(supabase, profile.id);
+  const storefrontNav = toCreatorStorefrontNav(storefrontRows);
+  const storefrontSummaries: StorefrontSummary[] = storefrontRows.map((s) => ({
+    id: s.id,
+    slug: s.slug,
+    display_name: s.display_name,
+    catchphrase: s.catchphrase,
+    avatar_url: s.avatar_url,
+    banner_url: s.banner_url,
+    hero_image_url: s.hero_image_url,
+    is_default: s.is_default,
+  }));
+
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
       <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
         ← Dashboard
       </Link>
       <div className="mt-4">
-        <DashboardSellerNav />
+        <DashboardSellerNav storefronts={storefrontNav} />
       </div>
       <h1 className="mt-4 text-3xl font-bold tracking-tight">Your storefront</h1>
       <p className="mt-2 text-muted-foreground">
         Customize your public shop URL, homepage banner, and how you appear in
-        search results. Per-listing edits (price, photo, tags, placement) live
-        on the listings page.
+        search results. Run multiple shops from one account — pick which storefront
+        you&apos;re editing below. Per-listing edits live on the listings page.
       </p>
+
+      <div className="mt-8">
+        <Suspense fallback={null}>
+          <StorefrontsManager initialStorefronts={storefrontSummaries} />
+        </Suspense>
+      </div>
 
       <div className="mt-10">
         <StorefrontSettingsForm initial={profile as ProfileRow} shopPath={`/shop/${profile.slug}`} />

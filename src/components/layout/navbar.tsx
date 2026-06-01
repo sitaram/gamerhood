@@ -23,33 +23,26 @@ import {
   Pencil,
   UserRound,
   Images,
+  Plus,
 } from "lucide-react";
+import { CREATE_STOREFRONT_HREF } from "@/components/dashboard/storefront-dropdown-menu";
 import { useCartStore } from "@/lib/store";
 import { createBrowserClient } from "@supabase/ssr";
 import { toast } from "sonner";
 import { getAnonDesigns, clearAnonDesigns } from "@/lib/anon-designs";
 import { cn } from "@/lib/utils";
 import { profileInitials } from "@/lib/profile-avatar";
+import { sellerNavItemActive } from "@/lib/dashboard/seller-nav";
 import {
-  buildStorefrontNavItems,
-  sellerNavItemActive,
-} from "@/lib/dashboard/seller-nav";
+  type CreatorStorefrontNav,
+  isUnderCreatorStorefrontArea,
+} from "@/lib/dashboard/storefront-nav";
+import { StorefrontDropdownMenu } from "@/components/dashboard/storefront-dropdown-menu";
 
 const NAV_LINKS = [
   { href: "/shop", label: "Browse", icon: Gamepad2 },
   { href: "/create", label: "Create", icon: Sparkles },
 ];
-
-function isUnderStorefrontNav(pathname: string, shopSlug: string | null): boolean {
-  if (pathname === "/dashboard") return false;
-  if (pathname.startsWith("/dashboard/")) return true;
-  if (shopSlug && pathname.startsWith(`/shop/${shopSlug}`)) return true;
-  return false;
-}
-
-function storefrontNavItemActive(pathname: string, href: string): boolean {
-  return sellerNavItemActive(pathname, href);
-}
 
 function sellerDashboardNavActive(pathname: string): boolean {
   return pathname === "/dashboard";
@@ -70,11 +63,14 @@ export type NavUser = {
 export function Navbar({
   initialUser,
   creatorShopSlug,
+  creatorStorefronts = [],
   stripeOnboarded: initialStripeOnboarded = null,
 }: {
   initialUser: NavUser | null;
-  /** Default profile slug — powers “View my shop (public view)” in the Storefront menu. */
+  /** Default profile slug — fallback when storefront rows are not loaded yet. */
   creatorShopSlug?: string | null;
+  /** All owned storefronts — powers the multi-shop section in the Storefront menu. */
+  creatorStorefronts?: CreatorStorefrontNav[];
   /**
    * Server-resolved Stripe Connect onboarding status. `false` triggers the
    * amber "finish payouts" nudge in the seller-dashboard surfaces; `true`
@@ -271,10 +267,10 @@ export function Navbar({
                   "inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground",
                   storefrontOpen && "bg-accent text-accent-foreground",
                   !storefrontOpen &&
-                    isUnderStorefrontNav(pathname, creatorShopSlug ?? null) &&
+                    isUnderCreatorStorefrontArea(pathname, creatorStorefronts) &&
                     "text-foreground",
                   !storefrontOpen &&
-                    !isUnderStorefrontNav(pathname, creatorShopSlug ?? null) &&
+                    !isUnderCreatorStorefrontArea(pathname, creatorStorefronts) &&
                     "text-muted-foreground",
                 )}
               >
@@ -288,36 +284,17 @@ export function Navbar({
               {storefrontOpen && (
                 <div
                   role="menu"
-                  className="absolute left-1/2 top-full z-50 mt-1 min-w-[14rem] -translate-x-1/2 rounded-lg border border-border/50 bg-popover py-1 text-popover-foreground shadow-lg md:left-0 md:translate-x-0"
+                  className="absolute left-1/2 top-full z-50 mt-1 min-w-[17rem] -translate-x-1/2 overflow-hidden rounded-lg border border-border/50 bg-popover text-popover-foreground shadow-lg md:left-0 md:translate-x-0"
                 >
-                  {buildStorefrontNavItems(creatorShopSlug ?? null).map((item) => {
-                    const active = storefrontNavItemActive(pathname, item.href);
-                    const Icon = item.icon;
-                    return (
-                      <button
-                        key={item.href}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setStorefrontOpen(false);
-                          router.push(item.href);
-                        }}
-                        className={cn(
-                          "relative flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
-                          active && "bg-primary/5 text-foreground",
-                        )}
-                      >
-                        {active && (
-                          <span
-                            aria-hidden
-                            className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r-full bg-primary"
-                          />
-                        )}
-                        <Icon className="h-4 w-4 shrink-0 opacity-80" aria-hidden />
-                        {item.label}
-                      </button>
-                    );
-                  })}
+                  <StorefrontDropdownMenu
+                    storefronts={creatorStorefronts}
+                    pathname={pathname}
+                    legacyShopSlug={creatorShopSlug ?? null}
+                    onNavigate={(href) => {
+                      setStorefrontOpen(false);
+                      router.push(href);
+                    }}
+                  />
                 </div>
               )}
             </div>
@@ -415,6 +392,28 @@ export function Navbar({
                       subtitle="Every design and upload you've saved"
                       href="/dashboard/designs"
                       active={sellerNavItemActive(pathname, "/dashboard/designs")}
+                      onNavigate={(href) => {
+                        setMenuOpen(false);
+                        router.push(href);
+                      }}
+                    />
+                    <MenuLink
+                      icon={<Store className="h-4 w-4" />}
+                      label="Storefront settings"
+                      subtitle="Shop URL, banner, and your storefronts"
+                      href="/dashboard/storefront"
+                      active={sellerNavItemActive(pathname, "/dashboard/storefront")}
+                      onNavigate={(href) => {
+                        setMenuOpen(false);
+                        router.push(href);
+                      }}
+                    />
+                    <MenuLink
+                      icon={<Plus className="h-4 w-4" />}
+                      label="Create another storefront"
+                      subtitle="Family shop, fandom store, and more"
+                      href={CREATE_STOREFRONT_HREF}
+                      active={false}
                       onNavigate={(href) => {
                         setMenuOpen(false);
                         router.push(href);
@@ -549,29 +548,35 @@ export function Navbar({
                   </Link>
                 )}
                 {user && (
+                  <Link
+                    href={CREATE_STOREFRONT_HREF}
+                    onClick={() => setOpen(false)}
+                    className="mt-2 block"
+                  >
+                    <Button
+                      variant="outline"
+                      className="w-full justify-start gap-3 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10"
+                    >
+                      <Plus className="h-5 w-5 shrink-0" />
+                      Create another storefront
+                    </Button>
+                  </Link>
+                )}
+                {user && (
                   <div className="mt-4 border-t border-border/40 pt-4">
                     <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       Storefront
                     </p>
-                    <div className="flex flex-col gap-1">
-                      {buildStorefrontNavItems(creatorShopSlug ?? null).map((item) => {
-                        const Icon = item.icon;
-                        const active = storefrontNavItemActive(pathname, item.href);
-                        return (
-                          <Link key={item.href} href={item.href} onClick={() => setOpen(false)}>
-                            <Button
-                              variant="ghost"
-                              className={cn(
-                                "w-full justify-start gap-3",
-                                active ? "bg-primary/5 text-foreground" : "text-muted-foreground",
-                              )}
-                            >
-                              <Icon className="h-5 w-5 shrink-0" />
-                              {item.label}
-                            </Button>
-                          </Link>
-                        );
-                      })}
+                    <div className="max-h-[min(50vh,20rem)] overflow-hidden rounded-lg border border-border/40 bg-muted/20">
+                      <StorefrontDropdownMenu
+                        storefronts={creatorStorefronts}
+                        pathname={pathname}
+                        legacyShopSlug={creatorShopSlug ?? null}
+                        onNavigate={(href) => {
+                          setOpen(false);
+                          router.push(href);
+                        }}
+                      />
                     </div>
                   </div>
                 )}

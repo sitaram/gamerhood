@@ -385,7 +385,7 @@ const FAQ_SECTIONS: FAQSection[] = [
       {
         question: "What's the fastest way to make money?",
         answer:
-          "Sell stuff to an audience you know well — people who will actually want to buy what you make. Family members, friends, or grandparents may be especially interested in certain hobbies. Design for them, then send a link to a specific storefront or item and see if they'll buy. If not, ask what they'd change — then tweak your design until they'd want it.",
+          "Sell stuff to an audience you know well — people who will really want to buy what you make. Family members, friends, or grandparents may be especially interested in certain hobbies. Design for them, then send a link to a specific storefront or item and see if they'll buy. If not, ask what they'd change — then tweak your design until they'd want it.",
       },
     ],
   },

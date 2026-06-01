@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -11,6 +12,7 @@ import {
   type StorefrontSummary,
 } from "@/components/dashboard/storefronts-manager";
 import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
+import { toCreatorStorefrontNav } from "@/lib/dashboard/managed-listings";
 
 export const dynamic = "force-dynamic";
 
@@ -45,8 +47,13 @@ export default async function AccountSettingsPage() {
 
   const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
 
+  const storefrontRows = profile
+    ? await listStorefrontsByOwner(supabase, profile.id)
+    : [];
+  const storefrontNav = toCreatorStorefrontNav(storefrontRows);
+
   const storefronts: StorefrontSummary[] = profile
-    ? (await listStorefrontsByOwner(supabase, profile.id)).map((s) => ({
+    ? storefrontRows.map((s) => ({
         id: s.id,
         slug: s.slug,
         display_name: s.display_name,
@@ -64,7 +71,7 @@ export default async function AccountSettingsPage() {
         ← Dashboard
       </Link>
       <div className="mt-4">
-        <DashboardSellerNav />
+        <DashboardSellerNav storefronts={storefrontNav} />
       </div>
       <h1 className="mt-4 text-3xl font-bold tracking-tight">Account settings</h1>
       <p className="mt-2 text-muted-foreground">
@@ -85,7 +92,9 @@ export default async function AccountSettingsPage() {
         />
 
         {profile && (
-          <StorefrontsManager initialStorefronts={storefronts} />
+          <Suspense fallback={null}>
+            <StorefrontsManager initialStorefronts={storefronts} />
+          </Suspense>
         )}
       </div>
     </div>

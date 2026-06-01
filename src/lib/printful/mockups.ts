@@ -218,6 +218,70 @@ export function pickFlatMockupStyleForVariant(
 }
 
 /**
+ * Score mockup styles for the placement editor / print-frame overlay.
+ *
+ * The cyan printable-area rectangle MUST share the same coordinate frame as
+ * Printful's `/v2/catalog-products/{id}/mockup-templates` `print_area_*`
+ * fields — that is what `layer.position` is composited against at
+ * fulfillment time. Ghost mannequin styles use that template image; Flat /
+ * Flat 2 / hanger / lifestyle styles re-frame the garment and MUST NOT be
+ * paired with template-derived pixel coords.
+ */
+function templateBackdropScore(cat: string): number {
+  if (/^ghost\b/.test(cat)) return 100;
+  if (/^flat\s*2$/.test(cat)) return -100;
+  if (/^flat$/.test(cat)) return -80;
+  if (/^on hanger$/.test(cat)) return -60;
+  return -40;
+}
+
+/**
+ * Pick a Ghost (template-aligned) mockup style for the placement editor
+ * backdrop. Falls back to `pickFlatMockupStyleForVariant` when no Ghost
+ * style exists for this SKU (some accessories only ship lifestyle styles).
+ */
+export function pickTemplateAlignedMockupStyleForVariant(
+  groups: CatalogMockupStyleGroup[],
+  placement: string,
+  technique: string,
+  variantId: number,
+): { styleId: number; printAreaType: string; usesTemplateCoords: boolean } | null {
+  const candidateGroups = collectGroupsForPlacement(groups, placement, technique);
+  if (!candidateGroups.length) return null;
+
+  type Scored = {
+    style: CatalogMockupStyle;
+    printAreaType: string;
+    score: number;
+  };
+  const scored: Scored[] = [];
+  for (const g of candidateGroups) {
+    const printAreaType = pickPrintAreaType(g);
+    for (const s of g.mockup_styles ?? []) {
+      if (!isStyleEligibleForVariant(s, variantId)) continue;
+      const cat = styleCategory(s);
+      const view = styleView(s);
+      const catScore = templateBackdropScore(cat);
+      if (catScore < 0) continue;
+      const viewScore = viewOrientationScore(placement, view);
+      scored.push({ style: s, printAreaType, score: catScore + viewScore });
+    }
+  }
+  if (scored.length) {
+    scored.sort((a, b) => b.score - a.score);
+    const top = scored[0];
+    return {
+      styleId: top.style.id,
+      printAreaType: top.printAreaType,
+      usesTemplateCoords: true,
+    };
+  }
+  const fallback = pickFlatMockupStyleForVariant(groups, placement, technique, variantId);
+  if (!fallback) return null;
+  return { ...fallback, usesTemplateCoords: false };
+}
+
+/**
  * Return every group whose placement matches; prefer matching technique but
  * fall back to placement-only when none match (some apparel SKUs list a
  * shared placement under multiple techniques and only one group has real

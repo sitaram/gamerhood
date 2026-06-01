@@ -8,7 +8,10 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getDefaultProfileForAuthUser,
   getParentByAuthUserId,
+  listStorefrontsByOwner,
 } from "@/lib/supabase/queries";
+import { toCreatorStorefrontNav } from "@/lib/dashboard/managed-listings";
+import type { CreatorStorefrontNav } from "@/lib/dashboard/storefront-nav";
 import { getDisplayAvatar } from "@/lib/profile-avatar";
 import "./globals.css";
 
@@ -58,6 +61,7 @@ export default async function RootLayout({
   const { data: { user } } = await supabase.auth.getUser();
 
   let creatorShopSlug: string | null = null;
+  let creatorStorefronts: CreatorStorefrontNav[] = [];
   let profileAvatarUrl: string | null = null;
   let profileId: string | null = null;
   // `null` = unknown (not signed in, no parent row yet, or fetch failed).
@@ -73,6 +77,13 @@ export default async function RootLayout({
     creatorShopSlug = profile?.slug ?? null;
     profileAvatarUrl = profile?.avatar_url ?? null;
     profileId = profile?.id ?? null;
+    if (profile?.id) {
+      const storefrontRows = await listStorefrontsByOwner(supabase, profile.id);
+      creatorStorefronts = toCreatorStorefrontNav(storefrontRows);
+      if (!creatorShopSlug && creatorStorefronts[0]) {
+        creatorShopSlug = creatorStorefronts[0].slug;
+      }
+    }
     if (parent) {
       stripeOnboarded = Boolean(parent.stripe_onboarding_complete);
     }
@@ -119,6 +130,7 @@ export default async function RootLayout({
           <Navbar
             initialUser={initialUser}
             creatorShopSlug={creatorShopSlug}
+            creatorStorefronts={creatorStorefronts}
             stripeOnboarded={stripeOnboarded}
           />
           <main className="flex-1">{children}</main>

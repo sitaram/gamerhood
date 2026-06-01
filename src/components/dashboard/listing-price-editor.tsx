@@ -231,8 +231,8 @@ function ListingPriceCard({
               Your earnings
             </h2>
             <p className="mt-1 max-w-md text-sm text-muted-foreground">
-              Slide to set your price — watch your take-home grow. We save
-              automatically when you stop.
+              Slide to set your price — watch your take-home grow. We&apos;ll
+              list the price where you leave the slider.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">

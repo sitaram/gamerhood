@@ -14,6 +14,8 @@ import { ListingPriceEditor } from "@/components/dashboard/listing-price-editor"
 import { ListingPlacementPanel } from "@/components/dashboard/listing-placement-panel";
 import { ListingStorefrontMover } from "@/components/dashboard/listing-storefront-mover";
 import { ListingDangerZone } from "@/components/dashboard/listing-danger-zone";
+import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
+import { toCreatorStorefrontNav } from "@/lib/dashboard/managed-listings";
 import {
   hasRenderableListingMockup,
   PRODUCT_TYPE_LABELS,
@@ -237,6 +239,7 @@ export default async function EditListingPage({ params }: Props) {
     displayName: s.display_name,
     isDefault: s.is_default,
   }));
+  const storefrontNav = toCreatorStorefrontNav(storefronts);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
@@ -247,6 +250,10 @@ export default async function EditListingPage({ params }: Props) {
         <ChevronLeft className="h-4 w-4" />
         Back to listings
       </Link>
+
+      <div className="mt-4">
+        <DashboardSellerNav storefronts={storefrontNav} />
+      </div>
 
       <section className="mt-6">
         <ListingPriceEditor listings={priceListings} />
@@ -335,12 +342,12 @@ export default async function EditListingPage({ params }: Props) {
         />
       </section>
 
-      {storefronts.length > 1 && (
+      {storefronts.length > 0 && (
         <section className="mt-12 border-t border-border/50 pt-10">
-          <h2 className="text-lg font-semibold">Move between storefronts</h2>
+          <h2 className="text-lg font-semibold">Storefront</h2>
           <p className="mt-1 mb-4 text-sm text-muted-foreground">
-            Reassign this listing to another shop you own. Buyers see it on
-            that shop&apos;s URL only.
+            Choose which shop URL this listing appears on. Buyers only see it
+            on that storefront.
           </p>
           <ListingStorefrontMover
             productId={product.id}

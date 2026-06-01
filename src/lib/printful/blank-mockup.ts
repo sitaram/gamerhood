@@ -11,7 +11,11 @@
  * Flow:
  *   1. Ensure a 1x1 transparent PNG exists in the public `design-images`
  *      bucket so Printful has a fetchable layer URL.
- *   2. Pick a Flat (or Ghost mannequin) style from `/v2/catalog-products/{id}/mockup-styles`.
+ *   2. Pick a Ghost mockup style from `/v2/catalog-products/{id}/mockup-styles`.
+ *      Ghost shares the same coordinate frame as Printful's mockup-templates
+ *      `print_area_*` fields — what `layer.position` is composited against.
+ *      (Flat / Flat 2 styles re-frame the garment and must not be paired with
+ *      template-derived pixel coords.)
  *   3. Submit a `/v2/mockup-tasks` job with that style + the dummy layer
  *      sized to the full print area (so the layer is "centered" but invisible).
  *   4. Poll until the task completes, then re-host the rendered JPEG into our
@@ -43,10 +47,10 @@ import {
   buildCatalogMockupProductPayload,
   createMockupGeneratorTask,
   fetchCatalogMockupStyles,
-  pickFlatMockupStyleForVariant,
+  pickTemplateAlignedMockupStyleForVariant,
   waitForMockupTaskMockupUrl,
 } from "@/lib/printful/mockups";
-import { printfulRequest, printfulRequestV1 } from "@/lib/printful/client";
+import { printfulRequest } from "@/lib/printful/client";
 import type { ProductType } from "@/lib/types";
 
 const BUCKET = "design-images";
@@ -384,49 +388,116 @@ export interface BlankMockupResult {
   url: string;
   catalogProductId: number;
   catalogVariantId: number;
-  mockupStyleId: number;
+  mockupStyleId: number | null;
   /** Print area in inches for the configured placement, when Printful reports it. */
   printArea: { width: number; height: number } | null;
-  /** Pixel coords of the cyan frame on the rendered mockup, when v1 templates ship one. */
+  /** Pixel coords of the cyan frame on the rendered mockup, when templates ship one. */
   printAreaPx: VariantPrintAreaPx | null;
+  /** From mockup-templates `background_color` — tint behind the template image. */
+  backdropColor?: string | null;
+  source: "template_backdrop" | "catalog_image" | "mockup_task";
 }
 
-interface MockupTemplateRow {
-  template_id?: number;
+interface CatalogMockupTemplateRow {
+  catalog_variant_ids?: number[];
   placement?: string;
+  technique?: string;
+  image_url?: string;
+  background_color?: string | null;
   template_width?: number;
   template_height?: number;
   print_area_width?: number;
   print_area_height?: number;
   print_area_top?: number;
   print_area_left?: number;
+  printfile_id?: number;
+  role?: string;
 }
 
-interface MockupTemplatesResponse {
-  result?: {
-    variant_mapping?: Array<{
-      variant_id?: number;
-      templates?: Array<{ placement?: string; template_id?: number }>;
-    }>;
-    templates?: MockupTemplateRow[];
+async function fetchCatalogMockupTemplateForVariant(input: {
+  catalogProductId: number;
+  catalogVariantId: number;
+  placement: string;
+}): Promise<CatalogMockupTemplateRow | null> {
+  try {
+    const res = await printfulRequest<{ data?: CatalogMockupTemplateRow[] }>(
+      `/catalog-products/${input.catalogProductId}/mockup-templates?placements=${encodeURIComponent(
+        input.placement,
+      )}`,
+    );
+    const rows = Array.isArray(res.data) ? res.data : [];
+    const forVariant = rows.filter((r) =>
+      r.catalog_variant_ids?.includes(input.catalogVariantId),
+    );
+    return (
+      forVariant.find(
+        (r) =>
+          r.placement === input.placement &&
+          r.role === "primary" &&
+          r.print_area_width &&
+          r.print_area_height &&
+          r.image_url,
+      ) ??
+      forVariant.find(
+        (r) =>
+          r.placement === input.placement &&
+          r.print_area_width &&
+          r.print_area_height &&
+          r.image_url,
+      ) ??
+      null
+    );
+  } catch (err) {
+    console.warn("[blank-mockup] mockup-templates v2 fetch failed", {
+      catalogProductId: input.catalogProductId,
+      catalogVariantId: input.catalogVariantId,
+      placement: input.placement,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+function scaleTemplatePrintAreaPx(
+  tmpl: CatalogMockupTemplateRow,
+  templateId: number,
+  outputWidthPx: number,
+): VariantPrintAreaPx | null {
+  if (
+    !tmpl.template_width ||
+    !tmpl.template_height ||
+    !tmpl.print_area_width ||
+    !tmpl.print_area_height ||
+    tmpl.print_area_top == null ||
+    tmpl.print_area_left == null
+  ) {
+    return null;
+  }
+  const scale = outputWidthPx / tmpl.template_width;
+  return {
+    templateId,
+    mockupWidthPx: outputWidthPx,
+    mockupHeightPx: tmpl.template_height * scale,
+    xPx: tmpl.print_area_left * scale,
+    yPx: tmpl.print_area_top * scale,
+    wPx: tmpl.print_area_width * scale,
+    hPx: tmpl.print_area_height * scale,
   };
 }
 
 /**
  * Fetch the pixel-space print-area rectangle for `(variantId, placement)`
- * from Printful's v1 `/mockup-generator/templates/{catalogProductId}`
- * endpoint and scale it to the mockup-tasks output we serve
- * (`outputWidthPx`, default 1200 — matches `mockup_width_px` in
- * `generateFlatBlankMockup`'s payload).
+ * from Printful's v2 `/catalog-products/{id}/mockup-templates` endpoint
+ * and scale it to the mockup-tasks output we serve (`outputWidthPx`,
+ * default 1200 — matches `mockup_width_px` in `generateFlatBlankMockup`).
  *
- * Returns `null` when:
- *   - the request fails (network, 4xx);
- *   - the variant has no template for the placement (some embroidery /
- *     cut-sew / knitwear SKUs);
- *   - the template's `print_area_*` fields are missing (zero/undefined).
+ * These coords describe where Printful composites `layer.position` on the
+ * Ghost/template backdrop — the same frame used at fulfillment time. They
+ * MUST NOT be overlaid on Flat / Flat 2 / lifestyle mockup styles.
  *
- * Callers (`getOrGenerateBlankForVariantId`, the backfill script) treat a
- * null return as "fall back to hand-tuned photoBand" — no error path.
+ * Returns `null` when the request fails or the variant has no template row
+ * (some embroidery / cut-sew / knitwear SKUs). Callers fall back to
+ * `photoBand` — no error path.
  */
 export async function fetchVariantPrintAreaPx(input: {
   catalogProductId: number;
@@ -435,76 +506,95 @@ export async function fetchVariantPrintAreaPx(input: {
   outputWidthPx?: number;
 }): Promise<VariantPrintAreaPx | null> {
   const outputWidthPx = input.outputWidthPx ?? 1200;
-  let res: MockupTemplatesResponse;
-  try {
-    res = await printfulRequestV1<MockupTemplatesResponse>(
-      `/mockup-generator/templates/${input.catalogProductId}?placements=${encodeURIComponent(
-        input.placement,
-      )}`,
-    );
-  } catch (err) {
-    console.warn("[blank-mockup] templates v1 fetch failed", {
+  const tmpl = await fetchCatalogMockupTemplateForVariant(input);
+  if (!tmpl) {
+    console.warn("[blank-mockup] mockup-templates v2: no row for variant/placement", {
       catalogProductId: input.catalogProductId,
       catalogVariantId: input.catalogVariantId,
       placement: input.placement,
+    });
+    return null;
+  }
+  const templateId = tmpl.printfile_id ?? 0;
+  return scaleTemplatePrintAreaPx(tmpl, templateId, outputWidthPx);
+}
+
+/**
+ * Placement-editor backdrop sourced directly from Printful's
+ * `/mockup-templates` row: the `image_url` and `print_area_*` fields share
+ * one coordinate frame (what Printful uses when compositing `layer.position`).
+ * Fast (~1 s) and avoids mockup-style / template drift from Flat mockups.
+ */
+export async function generateTemplateBackdropMockup(
+  productType: ProductType,
+): Promise<BlankMockupResult | null> {
+  console.log("[blank-mockup] template-backdrop: start", { productType });
+  if (!isPrintfulConfigured()) return null;
+
+  const cfg = getCatalogConfig(productType);
+  if (!cfg) return null;
+
+  const summary = await fetchCatalogVariantSummary(cfg.catalogVariantId);
+  const catalogProductId = summary.catalogProductId;
+  if (!catalogProductId) return null;
+
+  const tmpl = await fetchCatalogMockupTemplateForVariant({
+    catalogProductId,
+    catalogVariantId: cfg.catalogVariantId,
+    placement: cfg.placement,
+  });
+  if (!tmpl?.image_url) {
+    console.warn("[blank-mockup] template-backdrop: no template image", { productType });
+    return null;
+  }
+
+  const printArea = pickPrintAreaForPlacement(summary.placementDims, cfg.placement);
+  const printAreaPx = scaleTemplatePrintAreaPx(
+    tmpl,
+    tmpl.printfile_id ?? 0,
+    1200,
+  );
+
+  const rehosted = await rehostImageToStorage(
+    `tpl-${cfg.catalogVariantId}`,
+    tmpl.image_url,
+  ).catch((err) => {
+    console.warn("[blank-mockup] template-backdrop: rehost failed", {
+      productType,
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
-  }
+  });
+  if (!rehosted) return null;
 
-  const variantMap = res.result?.variant_mapping ?? [];
-  const variantEntry = variantMap.find((v) => v.variant_id === input.catalogVariantId);
-  const templateId = variantEntry?.templates?.find(
-    (t) => t.placement === input.placement,
-  )?.template_id;
-  if (!templateId) {
-    console.warn("[blank-mockup] templates v1: no template id for variant/placement", {
-      catalogProductId: input.catalogProductId,
-      catalogVariantId: input.catalogVariantId,
-      placement: input.placement,
-    });
-    return null;
-  }
-
-  const tmpl = (res.result?.templates ?? []).find((t) => t.template_id === templateId);
-  if (
-    !tmpl ||
-    !tmpl.template_width ||
-    !tmpl.template_height ||
-    !tmpl.print_area_width ||
-    !tmpl.print_area_height ||
-    tmpl.print_area_top == null ||
-    tmpl.print_area_left == null
-  ) {
-    console.warn("[blank-mockup] templates v1: template row missing print_area_* fields", {
-      catalogProductId: input.catalogProductId,
-      templateId,
-    });
-    return null;
-  }
-
-  /**
-   * Mockup-tasks renders the same template at our requested output width
-   * (and the height proportionally — both axes share the template scale).
-   * We scale the template-native print-area pixels into mockup-px space
-   * so consumers don't have to remember which reference frame this is in.
-   */
-  const scale = outputWidthPx / tmpl.template_width;
-  const mockupHeightPx = tmpl.template_height * scale;
-  const xPx = tmpl.print_area_left * scale;
-  const yPx = tmpl.print_area_top * scale;
-  const wPx = tmpl.print_area_width * scale;
-  const hPx = tmpl.print_area_height * scale;
+  console.log("[blank-mockup] template-backdrop: ready", {
+    productType,
+    url: rehosted,
+    hasPixelRect: !!printAreaPx,
+  });
 
   return {
-    templateId,
-    mockupWidthPx: outputWidthPx,
-    mockupHeightPx,
-    xPx,
-    yPx,
-    wPx,
-    hPx,
+    url: rehosted,
+    catalogProductId,
+    catalogVariantId: cfg.catalogVariantId,
+    mockupStyleId: null,
+    printArea,
+    printAreaPx,
+    backdropColor: tmpl.background_color ?? summary.colorHex,
+    source: "template_backdrop",
   };
+}
+
+/** True when a cached row is safe to serve for the placement editor. */
+export async function isTemplateAlignedBlankRow(
+  row: BlankMockupRow,
+  _productType: ProductType,
+): Promise<boolean> {
+  if (row.source === "template_backdrop") return true;
+  /** Per-color studio shots — no template pixel overlay (photoBand fallback). */
+  if (row.source === "catalog_image") return true;
+  /** mockup_task, null source, or any other legacy row — regenerate. */
+  return false;
 }
 
 /**
@@ -556,7 +646,13 @@ export async function generateFlatBlankMockup(
   const groups = await fetchCatalogMockupStyles(catalogProductId, cfg.placement, {
     includeAll: true,
   });
-  const picked = pickFlatMockupStyleForVariant(
+  /**
+   * Ghost mannequin styles share Printful's `/mockup-templates` coordinate
+   * frame — the same one `layer.position` is composited against at
+   * fulfillment. Flat / Flat 2 styles re-frame the garment and MUST NOT be
+   * paired with template-derived `print_area_*_px` overlays.
+   */
+  const picked = pickTemplateAlignedMockupStyleForVariant(
     groups,
     cfg.placement,
     cfg.technique,
@@ -661,12 +757,7 @@ export async function generateFlatBlankMockup(
     });
   }
 
-  const printAreaPx = await fetchVariantPrintAreaPx({
-    catalogProductId,
-    catalogVariantId: cfg.catalogVariantId,
-    placement: cfg.placement,
-    outputWidthPx: 1200,
-  });
+  const printAreaPx = null;
 
   return {
     url: rehosted ?? printfulUrl,
@@ -675,6 +766,7 @@ export async function generateFlatBlankMockup(
     mockupStyleId: picked.styleId,
     printArea,
     printAreaPx,
+    source: "mockup_task",
   };
 }
 
@@ -789,36 +881,18 @@ async function generateBlankFromCatalogPhoto(
   });
 
   /**
-   * Track A photos come from `/catalog-variants/{id}.image` (the per-
-   * color studio shot), not the mockup-tasks output. Printful's v1
-   * `/mockup-generator/templates` coordinates are calibrated to the
-   * mockup-tasks rendering (ghost mannequin), so they may NOT line up
-   * exactly with the catalog studio photo. We still cache them — the
-   * editor / preview surfaces will only use them when the
-   * `mockup_url` actually came from the mockup-tasks pipeline
-   * (`source = 'mockup_task'`); per-color catalog photos continue to
-   * use the photoBand fallback until we render their own coords. This
-   * keeps the slow path (placement editor + default-color backdrop)
-   * pixel-accurate while leaving the color-swap thumbnails on the
-   * existing approximation.
+   * Catalog studio photos use a different frame than mockup-templates — never
+   * attach template pixel coords (placement editor falls back to photoBand).
    */
-  const printAreaPx = cfg
-    ? await fetchVariantPrintAreaPx({
-        catalogProductId: summary.catalogProductId,
-        catalogVariantId: variantId,
-        placement: cfg.placement,
-        outputWidthPx: 1200,
-      })
-    : null;
-
   return {
     result: {
       url: rehosted,
       catalogProductId: summary.catalogProductId,
       catalogVariantId: variantId,
-      mockupStyleId: 0,
+      mockupStyleId: null,
       printArea,
-      printAreaPx,
+      printAreaPx: null,
+      source: "catalog_image",
     },
     colorName: summary.colorName,
     colorHex: summary.colorHex,
@@ -830,11 +904,9 @@ async function generateBlankFromCatalogPhoto(
  *
  * Look-up order:
  *   1. DB cache row (`catalog_variant_id` PK).
- *   2. Track A — Printful catalog photo for the variant (fast, ~1 s).
- *   3. Track B — `mockup-tasks` job (~10–30 s, requires the variant to be
- *      the env-configured default for its product type so we have a valid
- *      `getCatalogConfig()` for technique/placement metadata). Skipped for
- *      non-default variants today since per-color photos are sufficient.
+ *   2. Env-default variant → mockup-templates backdrop (placement editor).
+ *   3. Other variants → per-color catalog photo (Track A).
+ *   4. Fallback → mockup-tasks (~10–30 s) when template + catalog both fail.
  *
  * Returns the persisted row (so callers can read back the cached print area
  * and color metadata in one shot) or `null` on full failure.
@@ -869,50 +941,70 @@ export async function getOrGenerateBlankForVariantId(
     });
   }
   if (cached?.mockup_url) {
-    console.log("[blank-mockup] per-variant: cache hit", {
+    const aligned = await isTemplateAlignedBlankRow(cached as BlankMockupRow, productType);
+    if (aligned) {
+      console.log("[blank-mockup] per-variant: cache hit", {
+        variantId,
+        productType,
+        url: cached.mockup_url,
+      });
+      return cached as BlankMockupRow;
+    }
+    console.warn("[blank-mockup] per-variant: stale mockup style — regenerating", {
       variantId,
       productType,
-      url: cached.mockup_url,
+      mockupStyleId: cached.mockup_style_id,
     });
-    return cached as BlankMockupRow;
+    await supabase.from("printful_blank_mockups").delete().eq("catalog_variant_id", variantId);
   }
 
   const cfg = getCatalogConfig(productType);
   const isDefaultVariant = cfg?.catalogVariantId === variantId;
 
-  /** Track A: per-color catalog photo. Works for any variant. */
-  let trackA = await generateBlankFromCatalogPhoto(variantId, productType).catch((err) => {
-    console.warn("[blank-mockup] per-variant: Track A threw", {
-      variantId,
-      productType,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  });
+  type TrackPack = {
+    result: BlankMockupResult;
+    colorName: string | null;
+    colorHex: string | null;
+  };
+  let trackA: TrackPack | null = null;
 
-  /**
-   * Track B fallback. Only attempted for the env-default variant (where we
-   * have a guaranteed-valid catalog config for the mockup-tasks job). Non-
-   * default variants without a catalog photo stay uncached and fall back to
-   * the SVG silhouette client-side — better than spamming mockup-tasks for
-   * every missing color.
-   */
-  if (!trackA && isDefaultVariant) {
-    const trackB = await generateFlatBlankMockup(productType).catch((err) => {
-      console.warn("[blank-mockup] per-variant: Track B threw", {
+  if (isDefaultVariant) {
+    /** Default variant: mockup-templates image + print_area (placement editor). */
+    const templateB = await generateTemplateBackdropMockup(productType).catch((err) => {
+      console.warn("[blank-mockup] per-variant: template backdrop threw", {
         variantId,
         productType,
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
     });
+    const trackB =
+      templateB ??
+      (await generateFlatBlankMockup(productType).catch((err) => {
+        console.warn("[blank-mockup] per-variant: mockup-tasks fallback threw", {
+          variantId,
+          productType,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      }));
     if (trackB) {
       trackA = {
         result: trackB,
         colorName: opts?.colorName ?? null,
-        colorHex: opts?.colorHex ?? null,
+        colorHex: trackB.backdropColor ?? opts?.colorHex ?? null,
       };
     }
+  } else {
+    /** Non-default colors: fast catalog studio photo (no template pixel overlay). */
+    trackA = await generateBlankFromCatalogPhoto(variantId, productType).catch((err) => {
+      console.warn("[blank-mockup] per-variant: Track A threw", {
+        variantId,
+        productType,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    });
   }
 
   if (!trackA) return null;
@@ -929,8 +1021,12 @@ export async function getOrGenerateBlankForVariantId(
     print_area_width_in: trackA.result.printArea?.width ?? null,
     print_area_height_in: trackA.result.printArea?.height ?? null,
     color_name: opts?.colorName ?? trackA.colorName ?? null,
-    color_hex: opts?.colorHex ?? trackA.colorHex ?? null,
-    source: trackA.result.mockupStyleId ? "mockup_task" : "catalog_image",
+    color_hex:
+      opts?.colorHex ??
+      trackA.colorHex ??
+      trackA.result.backdropColor ??
+      null,
+    source: trackA.result.source,
     mockup_width_px: px?.mockupWidthPx ?? null,
     mockup_height_px: px ? Math.round(px.mockupHeightPx) : null,
     print_area_x_px: px ? Math.round(px.xPx) : null,

@@ -17,6 +17,7 @@ import { DashboardDesignsGrid } from "@/components/dashboard/dashboard-designs-g
 import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
 import { ListingsManager } from "@/components/dashboard/listings-manager";
 import {
+  toCreatorStorefrontNav,
   toManagedListings,
   toManagedStorefrontOptions,
 } from "@/lib/dashboard/managed-listings";
@@ -68,6 +69,7 @@ export default async function DashboardPage() {
   const storefrontOptions = profile
     ? toManagedStorefrontOptions(storefronts)
     : [];
+  const storefrontNav = profile ? toCreatorStorefrontNav(storefronts) : [];
 
   const xp = profile?.xp ?? 0;
   const earnedXpRuleKeys = profile?.id
@@ -109,7 +111,7 @@ export default async function DashboardPage() {
 
       {profile && (
         <div className="mt-8">
-          <DashboardSellerNav />
+          <DashboardSellerNav storefronts={storefrontNav} />
         </div>
       )}
 

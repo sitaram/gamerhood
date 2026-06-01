@@ -103,11 +103,12 @@ export function PrintPlacementEditor({
     loading: blankPhotoLoading,
     area: liveArea,
     pixelRect: blankPixelRect,
+    backdropColor: blankBackdropColor,
   } = usePrintfulBlankPhoto(previewType);
 
   useEffect(() => {
     if (blankPhotoUrl) {
-      console.log("[placement-editor] rendering Printful flat mockup backdrop", {
+      console.log("[placement-editor] rendering Printful backdrop", {
         productType: previewType,
         url: blankPhotoUrl,
       });
@@ -131,10 +132,10 @@ export function PrintPlacementEditor({
    * caption) always match what Printful will print.
    *
    * When Printful has provided pixel-space coordinates for this variant's
-   * mockup (`blankPixelRect`), we forward them — `computeDesignOverlayBox`
-   * then pins the band to those exact coords instead of the hand-tuned
-   * photoBand. The earlier hoodie audit showed photoBand was ~16 % too
-   * low and ~6 % too narrow; the pixel-rect path eliminates that drift.
+   * Ghost mockup (`blankPixelRect`), we forward them — `computeDesignOverlayBox`
+   * pins the cyan frame to Printful's `/mockup-templates` print area, the
+   * same coordinate frame `layer.position` uses at fulfillment. The backdrop
+   * must be a Ghost mockup style (not Flat 2) or the overlay will drift.
    */
   const overlay = computeDesignOverlayBox({
     productType: previewType,
@@ -305,9 +306,11 @@ export function PrintPlacementEditor({
               {PRODUCT_TYPE_LABELS[previewType] ?? previewType.replace(/-/g, " ")}
             </span>
             {blankPhotoUrl
-              ? " · Printful flat mockup"
+              ? blankPixelRect
+                ? " · Printful print template"
+                : " · Printful mockup"
               : layout.showGarment
-                ? " · placement sketch (flat mockup rendering…)"
+                ? " · placement sketch (template loading…)"
                 : null}
           </span>
         </div>
@@ -328,139 +331,145 @@ export function PrintPlacementEditor({
             <div className="relative h-full w-full">{renderArtwork(1)}</div>
           </div>
         ) : (
-          <div
-            className="relative w-full cursor-grab touch-none overflow-hidden rounded-xl border border-border/60 bg-gradient-to-b from-secondary/80 via-muted/90 to-muted pb-8 shadow-inner outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-primary active:cursor-grabbing"
-            style={{ aspectRatio: `${layout.garmentAspect}` }}
-            tabIndex={0}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-            onKeyDown={onKeyDown}
-            role="application"
-            aria-label="Adjust design position — drag, or focus and use arrow keys (hold Shift for bigger steps)"
-          >
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-2 sm:p-4">
-              {blankPhotoUrl ? (
-                /** Printful flat mockup as backdrop — generated once per ProductType, cached in `printful_blank_mockups`. */
-                <div className="relative h-full w-full overflow-hidden rounded-xl bg-white/[0.03]">
-                  <Image
-                    src={blankPhotoUrl}
-                    alt=""
-                    fill
-                    sizes="512px"
-                    className="object-contain"
-                    unoptimized
-                    draggable={false}
-                    onLoad={() =>
-                      console.log("[placement-editor] mockup img loaded", {
-                        productType: previewType,
-                        url: blankPhotoUrl,
-                      })
-                    }
-                    onError={(e) =>
-                      console.error("[placement-editor] mockup img FAILED to load", {
-                        productType: previewType,
-                        url: blankPhotoUrl,
-                        // SyntheticEvent has no useful detail; surface what we can
-                        type: e.type,
-                      })
-                    }
-                  />
-                </div>
-              ) : (
+          <div className="overflow-hidden rounded-xl border border-border/60 bg-gradient-to-b from-secondary/80 via-muted/90 to-muted shadow-inner">
+            <div
+              className="relative w-full cursor-grab touch-none outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-primary active:cursor-grabbing"
+              style={{ aspectRatio: `${layout.garmentAspect}` }}
+              tabIndex={0}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+              onKeyDown={onKeyDown}
+              role="application"
+              aria-label="Adjust design position — drag, or focus and use arrow keys (hold Shift for bigger steps)"
+            >
+              <div className="pointer-events-none absolute inset-0">
+                {blankPhotoUrl ? (
+                  /** Printful mockup-templates backdrop — image + print_area share one coordinate frame. */
+                  <div
+                    className="relative h-full w-full overflow-hidden"
+                    style={{ backgroundColor: blankBackdropColor ?? "#ffffff" }}
+                  >
+                    <Image
+                      src={blankPhotoUrl}
+                      alt=""
+                      fill
+                      sizes="512px"
+                      className="object-contain"
+                      unoptimized
+                      draggable={false}
+                      onLoad={() =>
+                        console.log("[placement-editor] mockup img loaded", {
+                          productType: previewType,
+                          url: blankPhotoUrl,
+                        })
+                      }
+                      onError={(e) =>
+                        console.error("[placement-editor] mockup img FAILED to load", {
+                          productType: previewType,
+                          url: blankPhotoUrl,
+                          type: e.type,
+                        })
+                      }
+                    />
+                  </div>
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center p-2 sm:p-4">
+                    <div
+                      className="rounded-xl bg-background/25 p-2 ring-1 ring-inset ring-border/50"
+                      style={{
+                        width: "min(88%, 380px)",
+                        aspectRatio: `${layout.garmentAspect}`,
+                        maxHeight: "94%",
+                      }}
+                    >
+                      <MerchGarmentSilhouette
+                        type={previewType}
+                        className="block h-full w-full text-foreground"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div
-                  className="rounded-xl bg-background/25 p-2 ring-1 ring-inset ring-border/50"
+                  className={
+                    overlay.band.leftPct != null
+                      ? "pointer-events-none absolute flex items-center justify-center"
+                      : "pointer-events-none absolute left-2 right-2 flex items-center justify-center sm:left-4 sm:right-4"
+                  }
                   style={{
-                    width: "min(88%, 380px)",
-                    aspectRatio: `${layout.garmentAspect}`,
-                    maxHeight: "94%",
+                    top: `${overlay.band.topPct}%`,
+                    bottom: `${overlay.band.bottomPct}%`,
+                    ...(overlay.band.leftPct != null
+                      ? {
+                          left: `${overlay.band.leftPct}%`,
+                          width: `${overlay.band.widthPct}%`,
+                        }
+                      : {}),
                   }}
                 >
-                  <MerchGarmentSilhouette
-                    type={previewType}
-                    className="block h-full w-full text-foreground"
-                  />
-                </div>
-              )}
-            </div>
+                  {/**
+                    * Print boundary: a dashed cyan outline marks the printable
+                    * area. The artwork is rendered twice in the same position
+                    * relative to the box — once dimmed (30 %) without
+                    * clipping, so any overhang past the cyan frame is visible
+                    * but clearly "this will be cropped"; and again at full
+                    * opacity clipped to the box, showing exactly what gets
+                    * printed. The frame itself has no fill so the design's
+                    * transparent pixels reveal the real garment color from
+                    * the Printful flat mockup underneath. Cyan corner dots +
+                    * mid-edge handles render on top, matching Printful's
+                    * selection-state affordance.
+                    */}
+                  <div
+                    className="relative max-h-full overflow-visible rounded-sm border border-dashed border-cyan-400/80 ring-1 ring-cyan-300/20"
+                    style={{
+                      aspectRatio: overlay.band.aspectRatio,
+                      width:
+                        overlay.band.leftPct != null
+                          ? "100%"
+                          : `${overlay.band.widthPct}%`,
+                    }}
+                  >
+                    <div className="pointer-events-none absolute inset-0">
+                      {renderArtwork(0.3)}
+                    </div>
+                    <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-sm">
+                      {renderArtwork(1)}
+                    </div>
 
-            <div
-              className={
-                overlay.band.leftPct != null
-                  ? "pointer-events-none absolute flex items-center justify-center"
-                  : "pointer-events-none absolute left-2 right-2 flex items-center justify-center sm:left-4 sm:right-4"
-              }
-              style={{
-                top: `${overlay.band.topPct}%`,
-                bottom: `${overlay.band.bottomPct}%`,
-                ...(overlay.band.leftPct != null
-                  ? {
-                      left: `${overlay.band.leftPct}%`,
-                      width: `${overlay.band.widthPct}%`,
-                    }
-                  : {}),
-              }}
-            >
-              {/**
-                * Print boundary: a dashed cyan outline marks the printable
-                * area. The artwork is rendered twice in the same position
-                * relative to the box — once dimmed (30 %) without
-                * clipping, so any overhang past the cyan frame is visible
-                * but clearly "this will be cropped"; and again at full
-                * opacity clipped to the box, showing exactly what gets
-                * printed. The frame itself has no fill so the design's
-                * transparent pixels reveal the real garment color from
-                * the Printful flat mockup underneath. Cyan corner dots +
-                * mid-edge handles render on top, matching Printful's
-                * selection-state affordance.
-                */}
-              <div
-                className="relative max-h-full overflow-visible rounded-sm border border-dashed border-cyan-400/80 ring-1 ring-cyan-300/20"
-                style={{
-                  aspectRatio: overlay.band.aspectRatio,
-                  width:
-                    overlay.band.leftPct != null
-                      ? "100%"
-                      : `${overlay.band.widthPct}%`,
-                }}
-              >
-                <div className="pointer-events-none absolute inset-0">
-                  {renderArtwork(0.3)}
+                    {/** Four cyan corner handles + 4 mid-edge dots, Printful-style. */}
+                    {[
+                      { className: "-top-1 -left-1" },
+                      { className: "-top-1 -right-1" },
+                      { className: "-bottom-1 -left-1" },
+                      { className: "-bottom-1 -right-1" },
+                    ].map((p) => (
+                      <span
+                        key={p.className}
+                        aria-hidden
+                        className={`pointer-events-none absolute h-2 w-2 rounded-full bg-cyan-400 ring-1 ring-white ${p.className}`}
+                      />
+                    ))}
+                    {[
+                      { className: "left-1/2 -top-[3px] -translate-x-1/2" },
+                      { className: "left-1/2 -bottom-[3px] -translate-x-1/2" },
+                      { className: "top-1/2 -left-[3px] -translate-y-1/2" },
+                      { className: "top-1/2 -right-[3px] -translate-y-1/2" },
+                    ].map((p) => (
+                      <span
+                        key={p.className}
+                        aria-hidden
+                        className={`pointer-events-none absolute h-1.5 w-1.5 rounded-full bg-cyan-300/90 ${p.className}`}
+                      />
+                    ))}
+                  </div>
                 </div>
-                <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-sm">
-                  {renderArtwork(1)}
-                </div>
-
-                {/** Four cyan corner handles + 4 mid-edge dots, Printful-style. */}
-                {[
-                  { className: "-top-1 -left-1" },
-                  { className: "-top-1 -right-1" },
-                  { className: "-bottom-1 -left-1" },
-                  { className: "-bottom-1 -right-1" },
-                ].map((p) => (
-                  <span
-                    key={p.className}
-                    aria-hidden
-                    className={`pointer-events-none absolute h-2 w-2 rounded-full bg-cyan-400 ring-1 ring-white ${p.className}`}
-                  />
-                ))}
-                {[
-                  { className: "left-1/2 -top-[3px] -translate-x-1/2" },
-                  { className: "left-1/2 -bottom-[3px] -translate-x-1/2" },
-                  { className: "top-1/2 -left-[3px] -translate-y-1/2" },
-                  { className: "top-1/2 -right-[3px] -translate-y-1/2" },
-                ].map((p) => (
-                  <span
-                    key={p.className}
-                    aria-hidden
-                    className={`pointer-events-none absolute h-1.5 w-1.5 rounded-full bg-cyan-300/90 ${p.className}`}
-                  />
-                ))}
               </div>
             </div>
 
-            <p className="pointer-events-none absolute bottom-2 left-0 right-0 px-2 text-center text-[10px] leading-snug text-muted-foreground/90">
+            <p className="px-2 py-2 text-center text-[10px] leading-snug text-muted-foreground/90">
               Drag or use arrow keys (Shift = bigger step) • Zoom out for whitespace, in to crop • Cyan frame = printable area • Drag partially outside the frame to intentionally crop the print
             </p>
           </div>

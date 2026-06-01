@@ -2,6 +2,11 @@ import Link from "next/link";
 import { Images, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/server";
+import {
+  getDefaultProfileForAuthUser,
+  listStorefrontsByOwner,
+} from "@/lib/supabase/queries";
+import { toCreatorStorefrontNav } from "@/lib/dashboard/managed-listings";
 import { redirect } from "next/navigation";
 import { DesignLibraryInfiniteGrid } from "@/components/designs/design-library-infinite-grid";
 import { DashboardSellerNav } from "@/components/dashboard/dashboard-seller-nav";
@@ -16,6 +21,13 @@ export default async function MyDesignsPage() {
 
   if (!user) redirect("/auth/login?next=/dashboard/designs");
 
+  const { data: profile } = await getDefaultProfileForAuthUser(supabase, user.id);
+  const storefrontNav = profile
+    ? toCreatorStorefrontNav(
+        await listStorefrontsByOwner(supabase, profile.id),
+      )
+    : [];
+
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
       <Link
@@ -25,7 +37,7 @@ export default async function MyDesignsPage() {
         ← Dashboard
       </Link>
       <div className="mt-4">
-        <DashboardSellerNav />
+        <DashboardSellerNav storefronts={storefrontNav} />
       </div>
       <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>

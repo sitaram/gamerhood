@@ -71,16 +71,10 @@ export function getMerchPreviewLayout(productType: ProductType): MerchPreviewLay
         printBandBottomPct: 22,
         printMaxWidthPct: 25,
         /**
-         * Flat Printful mockup (1200×1200, Gildan 18500, mockup style 1563
-         * "Flat 2" = sleeves spread outward / T-pose). Tuned to mirror what
-         * Printful's own design maker draws on top of this same photo:
-         *   - Hood/yoke seam lands around y ≈ 38 %; pocket top around y ≈ 70 %.
-         *   - Garment body (sleeves excluded) ≈ 52 % of frame width;
-         *     Gildan 18500 `front` print area = 14×14" on a ~22" chest =
-         *     ~64 % of body = ~33 % of frame.
-         * Print area is now square (was 12×15), so we widen the band and
-         * pull the bottom up — the box sits right under the yoke and stops
-         * above the kangaroo pocket, matching the reference Printful UI.
+         * Ghost mockup (1200×1200, Gildan 18500, mockup style 1645).
+         * Fallback only — used when Printful has not yet returned
+         * `print_area_*_px` for this variant. Do not hand-tune to "look
+         * nice"; authoritative coords come from mockup-templates.
          */
         photoBand: {
           garmentAspect: 1,

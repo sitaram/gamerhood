@@ -317,15 +317,13 @@ function PricingRow({
         </div>
       </div>
 
-      <div className="mt-3 space-y-1">
-        <div className="flex items-baseline justify-between text-sm">
-          <span className="text-muted-foreground">Listing price</span>
-          <span className="font-semibold tabular-nums text-foreground">
+      <div className="mt-3">
+        <div className="inline-grid w-fit max-w-full grid-cols-[auto_auto] items-baseline gap-x-3 gap-y-1 sm:gap-x-4">
+          <span className="text-sm text-muted-foreground">Listing price</span>
+          <span className="text-sm font-semibold tabular-nums text-foreground">
             {formatUsd(row.priceCents)}
           </span>
-        </div>
-        <div className="flex items-baseline justify-between text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
             Base cost
             <Tooltip>
               <TooltipTrigger
@@ -356,21 +354,25 @@ function PricingRow({
               (item + shipping + 8% platform + processing)
             </span>
           </span>
-          <span className="tabular-nums">{formatUsd(baseCostCents)}</span>
-        </div>
-        <div className="mt-2 flex items-baseline justify-between border-t border-border/40 pt-2">
-          <span className="text-sm font-medium">You take home</span>
-          <span
-            className={cn(
-              "text-lg font-bold tabular-nums",
-              isZero ? "text-destructive" : "text-emerald-500",
-            )}
-          >
-            {formatUsd(takeHome.takeHomeCents)}
-            <span className="ml-1 text-xs font-normal text-muted-foreground">
-              per sale
-            </span>
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {formatUsd(baseCostCents)}
           </span>
+        </div>
+        <div className="mt-2 border-t border-border/40 pt-2">
+          <div className="inline-grid w-fit max-w-full grid-cols-[auto_auto] items-baseline gap-x-3 sm:gap-x-4">
+            <span className="text-sm font-medium">You take home</span>
+            <span
+              className={cn(
+                "text-lg font-bold tabular-nums",
+                isZero ? "text-destructive" : "text-emerald-500",
+              )}
+            >
+              {formatUsd(takeHome.takeHomeCents)}
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                per sale
+              </span>
+            </span>
+          </div>
         </div>
       </div>
 
