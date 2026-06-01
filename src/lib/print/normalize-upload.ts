@@ -122,8 +122,8 @@ export async function trimPrintMargins(
       .trim({ threshold: 15 })
       .toBuffer({ resolveWithObject: true });
 
-    const origW = info.input?.width ?? meta.width;
-    const origH = info.input?.height ?? meta.height;
+    const origW = meta.width;
+    const origH = meta.height;
     const longEdge = Math.max(origW, origH);
     const trimmedW = origW - info.width;
     const trimmedH = origH - info.height;
