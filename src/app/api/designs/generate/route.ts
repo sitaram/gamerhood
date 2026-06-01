@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getDefaultProfileForAuthUser, insertDesign } from "@/lib/supabase/queries";
 import { uploadDesignImage } from "@/lib/storage";
 import { detectDesignTransparency } from "@/lib/print/transparency";
+import { loadReferenceImageFromUrl } from "@/lib/design/reference-image";
 
 const STYLE_MODIFIERS: Record<string, string> = {
   anime: "anime art style, cel shaded, vibrant colors, manga inspired",
@@ -53,6 +54,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const isRefine = Boolean(body.referenceImageUrl?.trim());
+  let referenceImage: { mimeType: string; base64: string } | null = null;
+  if (isRefine) {
+    referenceImage = await loadReferenceImageFromUrl(body.referenceImageUrl!.trim());
+    if (!referenceImage) {
+      return NextResponse.json(
+        { error: "Couldn't load the design to refine. Try downloading it and starting fresh." },
+        { status: 400 },
+      );
+    }
+    const refCheck = await moderateImageBase64(referenceImage.base64);
+    if (!refCheck.safe) {
+      return NextResponse.json(
+        { error: "This design can't be refined because it didn't pass our safety check." },
+        { status: 400 },
+      );
+    }
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
   const encode = sseEncoder();
 
@@ -90,6 +110,14 @@ export async function POST(request: NextRequest) {
        * client's progress UI flushes through to "ready" without spinning.
        */
       if (!apiKey) {
+        if (isRefine) {
+          send("error", {
+            error:
+              "Refining designs requires AI to be configured. Set GEMINI_API_KEY in .env.local and restart the dev server.",
+          });
+          finish();
+          return;
+        }
         const label = encodeURIComponent("DEMO MODE\nGEMINI_API_KEY\nnot set");
         const imageUrl = `https://placehold.co/1024x1024/1a1a2e/ff8906?text=${label}`;
         send("done", {
@@ -110,15 +138,38 @@ export async function POST(request: NextRequest) {
         send("status", { step, label });
 
       try {
-        tick("generating", "Generating your design with AI…");
+        tick(
+          "generating",
+          isRefine ? "Refining your design with AI…" : "Generating your design with AI…",
+        );
 
         const ai = new GoogleGenAI({ apiKey });
         const styleHint = STYLE_MODIFIERS[body.style] || "";
-        const fullPrompt = `${body.prompt.trim()}, ${styleHint}, suitable for printing on merchandise, high quality, centered composition, no text or watermarks, square 1:1 aspect ratio`;
+        const fullPrompt = isRefine
+          ? `Modify the attached design image according to these instructions: ${body.prompt.trim()}. ` +
+            `Keep the overall composition, subject, and style unless the instructions explicitly ask to change them. ` +
+            `${styleHint ? `Art direction: ${styleHint}. ` : ""}` +
+            `Suitable for printing on merchandise, high quality, centered composition, no text or watermarks, square 1:1 aspect ratio.`
+          : `${body.prompt.trim()}, ${styleHint}, suitable for printing on merchandise, high quality, centered composition, no text or watermarks, square 1:1 aspect ratio`;
 
         const response = await ai.models.generateContent({
           model: "gemini-3.1-flash-image-preview",
-          contents: fullPrompt,
+          contents: referenceImage
+            ? [
+                {
+                  role: "user",
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: referenceImage.mimeType,
+                        data: referenceImage.base64,
+                      },
+                    },
+                    { text: fullPrompt },
+                  ],
+                },
+              ]
+            : fullPrompt,
           config: {
             responseModalities: ["TEXT", "IMAGE"],
           },
@@ -169,6 +220,7 @@ export async function POST(request: NextRequest) {
 
           tick("saving", "Saving to your library…");
           let designId: string | null = null;
+          const promptToSave = body.savedPrompt?.trim() || body.prompt.trim();
           try {
             const supabase = await createClient();
             const { data: { user } } = await supabase.auth.getUser();
@@ -177,9 +229,9 @@ export async function POST(request: NextRequest) {
               if (profile) {
                 const { data: design } = await insertDesign(supabase, {
                   profile_id: profile.id,
-                  title: body.prompt.slice(0, 80),
+                  title: promptToSave.slice(0, 80),
                   image_url: imageUrl,
-                  prompt: body.prompt,
+                  prompt: promptToSave,
                   style: body.style,
                   // Both text and image moderation passed, so the design is
                   // safe to surface in catalogs (RLS policy

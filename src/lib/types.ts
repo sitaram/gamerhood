@@ -147,6 +147,10 @@ export interface GenerateDesignRequest {
   prompt: string;
   style: DesignStyle;
   negativePrompt?: string;
+  /** When set, Gemini edits this image instead of generating from scratch. */
+  referenceImageUrl?: string;
+  /** Full prompt text to store on the design row (e.g. refine history). */
+  savedPrompt?: string;
 }
 
 export interface GenerateDesignResponse {

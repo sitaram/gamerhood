@@ -29,6 +29,7 @@ import {
   capRasterIfHuge,
   isSvgMime,
   rasterizeSvgForPrinting,
+  trimPrintMargins,
 } from "@/lib/print/normalize-upload";
 import { uploadDesignImage, decodeDesignDataUrl } from "@/lib/storage";
 import { moderateImageBase64 } from "@/lib/moderation";
@@ -233,6 +234,9 @@ export async function POST(request: NextRequest) {
           uploadBytes = capped.buffer;
           uploadMime = capped.mimeOut;
         }
+        const trimmed = await trimPrintMargins(uploadBytes, uploadMime);
+        uploadBytes = trimmed.buffer;
+        uploadMime = trimmed.mimeOut;
       } catch (err) {
         const tag = err instanceof Error ? err.message : "";
         console.error("[Publish] Upload normalization failed:", err);

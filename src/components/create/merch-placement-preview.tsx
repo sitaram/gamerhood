@@ -35,6 +35,7 @@ export function MerchPlacementPreview({
   const baseLayout = getMerchPreviewLayout(productType);
   const {
     url: blankPhotoUrl,
+    loading: blankLoading,
     area: liveArea,
     pixelRect: blankPixelRect,
   } = usePrintfulBlankPhoto(productType);
@@ -104,6 +105,9 @@ export function MerchPlacementPreview({
                     draggable={false}
                   />
                 </div>
+              ) : blankLoading ? (
+                /** Hold a neutral frame while the Printful blank warms — avoids silhouette flash. */
+                <div className="h-full w-full animate-pulse rounded-md bg-muted/50" />
               ) : (
                 <div
                   style={{

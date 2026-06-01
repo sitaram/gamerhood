@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
@@ -8,9 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { ShoppingCart, Heart, ArrowLeft, Truck, Shield, RotateCcw, Check } from "lucide-react";
+import { ShoppingCart, ArrowLeft, Truck, Shield, RotateCcw, Check } from "lucide-react";
 import { useCartStore } from "@/lib/store";
-import { toast } from "sonner";
 import type { Product } from "@/lib/types";
 import { PrintfulCatalogDetails } from "@/components/storefront/printful-catalog-details";
 import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
@@ -46,7 +45,6 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
   const [selectedSize, setSelectedSize] = useState(product.sizes?.[0] ?? "");
   const [quantity, setQuantity] = useState(1);
   const [added, setAdded] = useState(false);
-  const [liked, setLiked] = useState(false);
   const addItem = useCartStore((s) => s.addItem);
 
   const hasClothing = !!product.sizes;
@@ -60,11 +58,15 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
    */
   const { area: indicatorPrintArea } = usePrintfulBlankPhoto(
     product.productType,
-    selectedColor === defaultColor ? null : selectedColor,
+    selectedColor,
   );
+  const baseIndicatorLayout = getMerchPreviewLayout(product.productType);
+  const indicatorLayout = baseIndicatorLayout.photoBand
+    ? { ...baseIndicatorLayout, ...baseIndicatorLayout.photoBand }
+    : baseIndicatorLayout;
   const indicatorOverlay = computeDesignOverlayBox({
     productType: product.productType,
-    layout: getMerchPreviewLayout(product.productType),
+    layout: indicatorLayout,
     printAreaInches: indicatorPrintArea,
     defaultPrintAreaInches: getDefaultPrintAreaInches(product.productType),
     normalizedPlacement: product.printPlacement ?? DEFAULT_STORED,
@@ -88,11 +90,6 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
     }
     setAdded(true);
     setTimeout(() => setAdded(false), 2000);
-  }
-
-  function handleLike() {
-    setLiked(!liked);
-    toast(liked ? "Removed from favorites" : "Added to favorites");
   }
 
   const colorPickerVisible =
@@ -236,14 +233,6 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
                 </>
               )}
             </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              onClick={handleLike}
-              className={`border-border/50 ${liked ? "text-red-500 border-red-500/30" : ""}`}
-            >
-              <Heart className={`h-5 w-5 ${liked ? "fill-current" : ""}`} />
-            </Button>
             <ShareMenu
               url={shareUrl}
               title={product.title}
@@ -321,6 +310,87 @@ function ColorSwatchDot({
 }
 
 /**
+ * `<Image onLoad>` does not fire when the browser already has `src` in its
+ * HTTP cache — common when swapping back to a color the buyer picked earlier.
+ * This helper invokes `onReady` synchronously when the decode is already done.
+ */
+function useImageReady(url: string | undefined, onReady: () => void) {
+  useEffect(() => {
+    if (!url) return;
+    const img = new window.Image();
+    img.onload = onReady;
+    img.src = url;
+    if (img.complete && img.naturalWidth > 0) {
+      onReady();
+    }
+  }, [url, onReady]);
+}
+
+function MockupPhotoLayer({
+  layerId,
+  url,
+  alt,
+  onReady,
+}: {
+  layerId: string;
+  url: string;
+  alt: string;
+  onReady: (id: string) => void;
+}) {
+  const markReady = useCallback(() => onReady(layerId), [layerId, onReady]);
+  useImageReady(url, markReady);
+  return (
+    <Image
+      src={url}
+      alt={alt}
+      fill
+      sizes="(max-width: 1024px) 100vw, 50vw"
+      className="object-cover"
+      unoptimized
+      onLoad={markReady}
+    />
+  );
+}
+
+function MockupBlankLayer({
+  layerId,
+  product,
+  photoUrl,
+  colorName,
+  printAreaInches,
+  printAreaPixelRect,
+  onReady,
+}: {
+  layerId: string;
+  product: Product;
+  photoUrl: string;
+  colorName: string;
+  printAreaInches: { width: number; height: number } | null;
+  printAreaPixelRect: {
+    mockupWidthPx: number;
+    mockupHeightPx: number;
+    xPx: number;
+    yPx: number;
+    wPx: number;
+    hPx: number;
+  } | null;
+  onReady: (id: string) => void;
+}) {
+  const markReady = useCallback(() => onReady(layerId), [layerId, onReady]);
+  useImageReady(photoUrl, markReady);
+  return (
+    <PhotographicColorMockup
+      product={product}
+      photoUrl={photoUrl}
+      colorName={colorName}
+      printAreaInches={printAreaInches}
+      printAreaPixelRect={printAreaPixelRect}
+      onPhotoLoad={markReady}
+    />
+  );
+}
+
+/**
  * One renderable layer in the crossfade stack. `mockup` is the published
  * listing photo (design already composited by Printful). `blank` is a
  * per-color catalog photo with the design overlaid in the DOM. `silhouette`
@@ -369,17 +439,25 @@ function ProductMockupImage({
     loading: blankLoading,
     area: printAreaInches,
     pixelRect: blankPixelRect,
-  } = usePrintfulBlankPhoto(
-    product.productType,
-    isDefaultColor ? null : selectedColor,
-  );
+  } = usePrintfulBlankPhoto(product.productType, selectedColor);
 
   /**
-   * The layer we *want* to display for the current selection. May be
-   * `null` while a per-color blank is being warmed — in that window we
-   * keep the previous layer on screen instead of flashing the silhouette.
+   * The layer we *want* to display for the current selection. Per-color
+   * photographic blanks are preferred for every swatch — including the
+   * listing default — so the hero always matches the selected color.
+   * The published Printful mockup is kept only as a fallback when a blank
+   * hasn't warmed yet (or is unavailable) for the default color.
    */
   const target = useMemo<MockupLayer | null>(() => {
+    if (hasDesign && blankPhotoUrl) {
+      return {
+        id: `blank::${selectedColor}::${blankPhotoUrl}`,
+        kind: "blank",
+        url: blankPhotoUrl,
+        loaded: false,
+        colorLabel: selectedColor,
+      };
+    }
     if (isDefaultColor && canRenderMockup) {
       return {
         id: `mockup::${product.mockupUrl}`,
@@ -389,17 +467,8 @@ function ProductMockupImage({
         colorLabel: selectedColor,
       };
     }
-    if (!isDefaultColor && hasDesign && blankPhotoUrl) {
-      return {
-        id: `blank::${selectedColor}::${blankPhotoUrl}`,
-        kind: "blank",
-        url: blankPhotoUrl,
-        loaded: false,
-        colorLabel: selectedColor,
-      };
-    }
     /** Cache terminal (unavailable) → fall back to the tinted silhouette so we don't keep showing a different color. */
-    if (!isDefaultColor && hasDesign && !blankLoading) {
+    if (hasDesign && !blankLoading) {
       return {
         id: `silhouette::${selectedColor}`,
         kind: "silhouette",
@@ -502,8 +571,8 @@ function ProductMockupImage({
     );
   }
 
-  /** Subtle hint only while a brand-new color's blank is actively warming. */
-  const showLoadingHint = !isDefaultColor && hasDesign && blankLoading;
+  /** Subtle hint while a color's blank is actively warming (any swatch). */
+  const showLoadingHint = hasDesign && blankLoading && !blankPhotoUrl;
 
   return (
     <div className="relative h-full w-full">
@@ -520,24 +589,22 @@ function ProductMockupImage({
             onTransitionEnd={() => pruneBelow(layer.id)}
           >
             {layer.kind === "mockup" && (
-              <Image
-                src={layer.url}
+              <MockupPhotoLayer
+                layerId={layer.id}
+                url={layer.url}
                 alt={product.title}
-                fill
-                sizes="(max-width: 1024px) 100vw, 50vw"
-                className="object-cover"
-                unoptimized
-                onLoad={() => markLoaded(layer.id)}
+                onReady={markLoaded}
               />
             )}
             {layer.kind === "blank" && (
-              <PhotographicColorMockup
+              <MockupBlankLayer
+                layerId={layer.id}
                 product={product}
                 photoUrl={layer.url}
                 colorName={layer.colorLabel}
                 printAreaInches={printAreaInches}
                 printAreaPixelRect={blankPixelRect}
-                onPhotoLoad={() => markLoaded(layer.id)}
+                onReady={markLoaded}
               />
             )}
             {layer.kind === "silhouette" && (

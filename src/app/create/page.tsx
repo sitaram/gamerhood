@@ -20,6 +20,7 @@ import {
   Download,
   LogIn,
   Store,
+  X,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -217,6 +218,10 @@ function CreatePageInner() {
   // "ai" → image came from /api/designs/generate (already moderated server-side).
   // "upload" → user picked a file from disk; needs server-side moderation on publish.
   const [imageSource, setImageSource] = useState<"ai" | "upload">("ai");
+  /** Delta instructions when refining the current AI design (preview step). */
+  const [refinePrompt, setRefinePrompt] = useState("");
+  /** Whether the in-flight /api/designs/generate call is a fresh gen or a refine. */
+  const [generationMode, setGenerationMode] = useState<"generate" | "refine">("generate");
   /**
    * Alpha-channel check result for the currently-previewed design.
    * `null` until the API answers (or for direct file uploads, which we
@@ -539,6 +544,7 @@ function CreatePageInner() {
         setPrompt(data.prompt || "");
         if (data.style) setStyle(data.style);
         setGeneratedImage(data.imageUrl);
+        setImageSource(data.prompt ? "ai" : "upload");
         setHasTransparency(
           typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
         );
@@ -567,12 +573,25 @@ function CreatePageInner() {
     setPrompt(latest.prompt || "");
     setStyle((latest.style as DesignStyle) || "anime");
     setGeneratedImage(latest.imageUrl);
+    setImageSource("ai");
     setStep("preview");
   }, [authState, searchParams, generatedImage]);
 
-  async function handleGenerate() {
-    if (!prompt.trim()) return;
+  async function runGeneration(
+    mode: "generate" | "refine",
+    refineInstructions?: string,
+    options?: { useReference?: boolean },
+  ) {
+    const isRefine = mode === "refine";
+    const textPrompt = isRefine ? refineInstructions?.trim() : prompt.trim();
+    if (!textPrompt) return;
+    if (isRefine && !generatedImage) return;
     if (authState === "anon" && anonRemaining <= 0) return;
+
+    const useReference =
+      options?.useReference !== false &&
+      Boolean(generatedImage) &&
+      (isRefine || mode === "generate");
 
     // Tear down any leftover request (e.g. user clicked Recreate while a
     // previous attempt was still streaming).
@@ -580,9 +599,18 @@ function CreatePageInner() {
     const controller = new AbortController();
     generateAbortRef.current = controller;
 
+    setGenerationMode(useReference ? "refine" : "generate");
     setStep("generating");
     setGenerationStep(null);
     setError(null);
+
+    const returnStepOnCancel: typeof step = isRefine ? "preview" : "prompt";
+    const nextPrompt = isRefine
+      ? prompt
+        ? `${prompt} → ${textPrompt}`
+        : textPrompt
+      : prompt.trim();
+    const savedPrompt = isRefine ? nextPrompt : textPrompt;
 
     try {
       const res = await fetch("/api/designs/generate", {
@@ -591,7 +619,13 @@ function CreatePageInner() {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
         },
-        body: JSON.stringify({ prompt: prompt.trim(), style }),
+        body: JSON.stringify({
+          prompt: textPrompt,
+          style,
+          ...(useReference && generatedImage
+            ? { referenceImageUrl: generatedImage, savedPrompt }
+            : {}),
+        }),
         signal: controller.signal,
       });
 
@@ -615,32 +649,46 @@ function CreatePageInner() {
       setPlaceholderNotice(
         result.placeholder ? (result.placeholderReason ?? "") : null,
       );
+      if (isRefine) {
+        setPrompt(nextPrompt);
+        setRefinePrompt("");
+      }
       setStep("preview");
 
       if (authState === "anon") {
-        addAnonDesign({ prompt: prompt.trim(), style, imageUrl: result.imageUrl });
+        addAnonDesign({ prompt: nextPrompt, style, imageUrl: result.imageUrl });
         refreshAnonCount();
       }
     } catch (err) {
-      // User-initiated cancel — silently return to the prompt screen
-      // without flashing a scary error. AbortError is what fetch throws
-      // when controller.abort() runs while the request/stream is open.
+      // User-initiated cancel — return to preview when refining, prompt otherwise.
       if (
         (err instanceof DOMException && err.name === "AbortError") ||
         (err instanceof Error && err.name === "AbortError")
       ) {
-        setStep("prompt");
+        setStep(returnStepOnCancel);
         setGenerationStep(null);
         return;
       }
       setError(err instanceof Error ? err.message : "Something went wrong");
-      setStep("prompt");
+      setStep(returnStepOnCancel);
       setGenerationStep(null);
     } finally {
       if (generateAbortRef.current === controller) {
         generateAbortRef.current = null;
       }
     }
+  }
+
+  function handleGenerate() {
+    void runGeneration("generate");
+  }
+
+  function handleRecreate() {
+    void runGeneration("generate", undefined, { useReference: false });
+  }
+
+  function handleRefine() {
+    void runGeneration("refine", refinePrompt);
   }
 
   function handleCancelGenerate() {
@@ -675,20 +723,35 @@ function CreatePageInner() {
     // tab and is invalid both server-side and after refresh.
     const reader = new FileReader();
     reader.onload = () => {
-      const dataUrl = typeof reader.result === "string" ? reader.result : null;
-      if (!dataUrl) {
-        setError("Couldn't read that image — try a different file.");
-        return;
-      }
-      setGeneratedImage(dataUrl);
-      setImageSource("upload");
-      setUploadedAsSvg(
-        file.type === "image/svg+xml" || isSvgDataUrl(dataUrl),
-      );
-      // Local-file uploads don't carry a pre-computed transparency check.
-      setHasTransparency(null);
-      setStep("preview");
-      setError(null);
+      void (async () => {
+        const dataUrl = typeof reader.result === "string" ? reader.result : null;
+        if (!dataUrl) {
+          setError("Couldn't read that image — try a different file.");
+          return;
+        }
+        let nextUrl = dataUrl;
+        let aspect = 1;
+        try {
+          const { trimImageToContent } = await import("@/lib/print/image-content-bounds");
+          const trimmed = await trimImageToContent(dataUrl);
+          nextUrl = trimmed.imageUrl;
+          aspect = trimmed.aspect;
+        } catch {
+          //
+        }
+        setGeneratedImage(nextUrl);
+        setPrintPlacement((prev) =>
+          prev.imageAspect === aspect ? prev : { ...prev, imageAspect: aspect },
+        );
+        setImageSource("upload");
+        setUploadedAsSvg(
+          file.type === "image/svg+xml" || isSvgDataUrl(dataUrl),
+        );
+        // Local-file uploads don't carry a pre-computed transparency check.
+        setHasTransparency(null);
+        setStep("preview");
+        setError(null);
+      })();
     };
     reader.onerror = () => setError("Couldn't read that image — try a different file.");
     reader.readAsDataURL(file);
@@ -716,8 +779,23 @@ function CreatePageInner() {
     setError(null);
   }
 
+  function handleBackToPreview() {
+    if (!generatedImage) return;
+    setStep("preview");
+    setError(null);
+  }
+
+  function handleRemoveAttachment() {
+    setGeneratedImage(null);
+    setImageSource("ai");
+    setHasTransparency(null);
+    setUploadedAsSvg(false);
+    setPlaceholderNotice(null);
+  }
+
   function handleReset() {
     setPrompt("");
+    setRefinePrompt("");
     setStep("prompt");
     setGeneratedImage(null);
     setImageSource("ai");
@@ -829,6 +907,11 @@ function CreatePageInner() {
 
   const isAnon = authState === "anon";
   const generationsExhausted = isAnon && anonRemaining <= 0;
+  const canRefine =
+    imageSource === "ai" && Boolean(prompt) && !placeholderNotice && !uploadedAsSvg;
+  const hasAttachment = Boolean(generatedImage);
+  const attachmentLabel =
+    imageSource === "upload" ? "Uploaded artwork" : "Current design";
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
@@ -944,6 +1027,39 @@ function CreatePageInner() {
                 )}
               </Card>
 
+              {hasAttachment && generatedImage && (
+                <Card className="border-border/50 bg-card p-4">
+                  <div className="flex items-start gap-4">
+                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border/60 bg-muted">
+                      <Image
+                        src={generatedImage}
+                        alt={attachmentLabel}
+                        fill
+                        className="object-cover"
+                        unoptimized
+                      />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold">{attachmentLabel} attached</p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        Keep this to refine from your existing artwork, or remove it to generate something
+                        new from scratch.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleRemoveAttachment}
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label="Remove attached design"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </Card>
+              )}
+
               <Card className="border-border/50 bg-card p-6">
                 <h2 className="text-lg font-semibold mb-4">Pick a style</h2>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -970,7 +1086,17 @@ function CreatePageInner() {
                   description="You've used your free creations. Sign in and we'll save everything you've made so far."
                 />
               ) : (
-                <div className="flex justify-center">
+                <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+                  {hasAttachment && (
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={handleBackToPreview}
+                      className="gap-2 px-8"
+                    >
+                      Back to preview
+                    </Button>
+                  )}
                   <Button
                     size="lg"
                     onClick={handleGenerate}
@@ -978,7 +1104,7 @@ function CreatePageInner() {
                     className="gap-2 bg-primary px-10 text-lg hover:bg-primary/90"
                   >
                     <Wand2 className="h-5 w-5" />
-                    Generate Design
+                    {hasAttachment ? "Refine from attached design" : "Generate Design"}
                   </Button>
                 </div>
               )}
@@ -994,9 +1120,10 @@ function CreatePageInner() {
               className="py-10"
             >
               <GenerationProgress
-                prompt={prompt}
+                prompt={generationMode === "refine" ? refinePrompt : prompt}
                 activeStep={generationStep}
                 onCancel={handleCancelGenerate}
+                mode={generationMode}
               />
             </motion.div>
           )}
@@ -1055,6 +1182,32 @@ function CreatePageInner() {
                     </div>
                   </div>
 
+                  {canRefine && !editingPublishedDesign && (
+                    <Card className="border-border/50 bg-card p-4">
+                      <h3 className="text-sm font-semibold flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        Refine this design
+                      </h3>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Describe what to change — the AI keeps your current artwork as a starting point.
+                      </p>
+                      <Textarea
+                        value={refinePrompt}
+                        onChange={(e) => setRefinePrompt(e.target.value)}
+                        placeholder='e.g., "make the flames purple" or "add a basketball"'
+                        className="mt-3 min-h-[80px] resize-none border-border bg-background text-sm"
+                      />
+                      <Button
+                        onClick={handleRefine}
+                        disabled={!refinePrompt.trim() || generationsExhausted}
+                        className="mt-3 w-full gap-2 bg-primary hover:bg-primary/90"
+                      >
+                        <Sparkles className="h-4 w-4" />
+                        Refine with AI
+                      </Button>
+                    </Card>
+                  )}
+
                   <div className="flex flex-wrap gap-3">
                     <Button onClick={() => setStep("placement")} className="gap-2 bg-primary hover:bg-primary/90">
                       <ShoppingCart className="h-4 w-4" />
@@ -1067,7 +1220,7 @@ function CreatePageInner() {
                           Edit
                         </Button>
                         {!generationsExhausted && (
-                          <Button variant="outline" onClick={handleGenerate} className="gap-2">
+                          <Button variant="outline" onClick={handleRecreate} className="gap-2">
                             <Wand2 className="h-4 w-4" />
                             Recreate
                           </Button>

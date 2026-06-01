@@ -35,6 +35,13 @@ const STEPS: StepMeta[] = [
   { id: "saving", label: "Saving to your library", estimate: "~1s", Icon: Save },
 ];
 
+const REFINE_STEPS: StepMeta[] = [
+  { id: "generating", label: "Refining your design with AI", estimate: "~15s", Icon: Wand2 },
+  { id: "moderation", label: "Running safety checks", estimate: "~2s", Icon: ShieldCheck },
+  { id: "analyzing", label: "Inspecting transparency", estimate: "~1s", Icon: Layers },
+  { id: "saving", label: "Saving to your library", estimate: "~1s", Icon: Save },
+];
+
 /**
  * Rotated through every ~10s while the generate request is in flight. The
  * 60s threshold swaps to a calmer "service may be slow" warning instead of
@@ -51,12 +58,14 @@ export function GenerationProgress({
   prompt,
   activeStep,
   onCancel,
+  mode = "generate",
 }: {
   prompt: string;
   /** `null` before the first SSE event lands — treat as "generating" so the
    * first row lights up immediately while we wait for the Gemini call. */
   activeStep: GenerationStep | null;
   onCancel: () => void;
+  mode?: "generate" | "refine";
 }) {
   // `Date.now()` is impure, so it can't be the `useRef` initialiser under
   // React 19's purity rules. Seed in an effect instead and start ticking
@@ -73,7 +82,8 @@ export function GenerationProgress({
     return () => clearInterval(id);
   }, []);
 
-  const activeIdx = activeStep ? STEPS.findIndex((s) => s.id === activeStep) : 0;
+  const steps = mode === "refine" ? REFINE_STEPS : STEPS;
+  const activeIdx = activeStep ? steps.findIndex((s) => s.id === activeStep) : 0;
   const stuck = elapsed >= STUCK_AFTER_S;
 
   let reassuranceIdx = 0;
@@ -92,7 +102,7 @@ export function GenerationProgress({
         <div
           className="relative h-1 w-full overflow-hidden bg-muted"
           role="progressbar"
-          aria-label="Generating design"
+          aria-label={mode === "refine" ? "Refining design" : "Generating design"}
           aria-valuetext="In progress"
         >
           <motion.div
@@ -106,7 +116,9 @@ export function GenerationProgress({
         <div className="p-6">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="text-lg font-semibold">Creating your design</h2>
+              <h2 className="text-lg font-semibold">
+                {mode === "refine" ? "Refining your design" : "Creating your design"}
+              </h2>
               {prompt && (
                 <p className="mt-1 truncate text-sm text-muted-foreground">
                   {`"${prompt}"`}
@@ -123,7 +135,7 @@ export function GenerationProgress({
           </div>
 
           <ul className="mt-6 space-y-2">
-            {STEPS.map((step, idx) => {
+            {steps.map((step, idx) => {
               const isDone = idx < activeIdx;
               const isActive = idx === activeIdx;
               const isPending = idx > activeIdx;

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Sparkles, Wand2, ImageOff, Store, ExternalLink, LayoutGrid } from "lucide-react";
+import { Sparkles, Wand2, ImageOff, Store, ExternalLink, LayoutGrid, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -171,7 +171,7 @@ export default async function DashboardPage() {
       )}
 
       <div className="mt-12">
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-6 flex items-center justify-between gap-4">
           <h2 className="text-xl font-semibold">
             Your Designs
             {designList.length > 0 && (
@@ -180,6 +180,12 @@ export default async function DashboardPage() {
               </span>
             )}
           </h2>
+          <Link href="/create">
+            <Button variant="outline" size="sm" className="gap-2 shrink-0">
+              <Wand2 className="h-4 w-4" />
+              Create new image
+            </Button>
+          </Link>
         </div>
 
         {designList.length === 0 ? (
@@ -205,7 +211,7 @@ export default async function DashboardPage() {
 
       {profile && (
         <div className="mt-12">
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-6 flex items-center justify-between gap-4">
             <h2 className="text-xl font-semibold">
               Your Listings
               {listingRows.length > 0 && (
@@ -214,12 +220,20 @@ export default async function DashboardPage() {
                 </span>
               )}
             </h2>
-            <Link
-              href="/dashboard/listings"
-              className="text-sm font-medium text-primary hover:underline"
-            >
-              Manage all
-            </Link>
+            <div className="flex shrink-0 items-center gap-3">
+              <Link href="/create">
+                <Button size="sm" className="gap-2 bg-primary hover:bg-primary/90">
+                  <Plus className="h-4 w-4" />
+                  Add an item
+                </Button>
+              </Link>
+              <Link
+                href="/dashboard/listings"
+                className="text-sm font-medium text-primary hover:underline"
+              >
+                Manage all
+              </Link>
+            </div>
           </div>
 
           <ListingsManager

@@ -276,20 +276,14 @@ function CartLineThumbnail({
   product: Product;
   selectedColor: string;
 }) {
-  const defaultColor = product.colors[0];
-  const isDefaultColor = selectedColor === defaultColor;
   const hasDesign = !!product.designImageUrl?.trim();
-
   const {
     url: blankPhotoUrl,
     area: printAreaInches,
     pixelRect: printAreaPixelRect,
-  } = usePrintfulBlankPhoto(
-    product.productType,
-    isDefaultColor ? null : selectedColor,
-  );
+  } = usePrintfulBlankPhoto(product.productType, selectedColor);
 
-  if (!isDefaultColor && hasDesign && blankPhotoUrl) {
+  if (hasDesign && blankPhotoUrl) {
     return (
       <PhotographicColorMockup
         product={product}
@@ -302,14 +296,18 @@ function CartLineThumbnail({
     );
   }
 
-  return (
-    <Image
-      src={product.mockupUrl}
-      alt={product.title}
-      fill
-      sizes="96px"
-      className="object-cover"
-      unoptimized
-    />
-  );
+  if (product.mockupUrl?.trim()) {
+    return (
+      <Image
+        src={product.mockupUrl}
+        alt={product.title}
+        fill
+        sizes="96px"
+        className="object-cover"
+        unoptimized
+      />
+    );
+  }
+
+  return <div className="h-full w-full bg-muted" aria-hidden />;
 }

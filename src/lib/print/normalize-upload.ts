@@ -96,3 +96,69 @@ export function bytesToBase64DataUrl(bytes: Buffer, mimeType: string): string {
   const safeMime = allowed.has(base) ? base : "image/png";
   return `data:${safeMime};base64,${bytes.toString("base64")}`;
 }
+
+/**
+ * Remove uniform transparent or near-white margins before Printful sees the
+ * file. Uploads with a small logo centered on a huge white square otherwise
+ * print as an oversized solid rectangle — the #1 POD failure mode for
+ * non-designer artwork.
+ */
+export async function trimPrintMargins(
+  input: Buffer,
+  mimeHint: string,
+): Promise<{ buffer: Buffer; mimeOut: string }> {
+  const base = baseMime(mimeHint);
+  if (!base.startsWith("image/") || base === "image/svg+xml") {
+    return { buffer: input, mimeOut: base };
+  }
+
+  const meta = await sharp(input).metadata().catch(() => null);
+  if (!meta?.width || !meta?.height) {
+    return { buffer: input, mimeOut: base };
+  }
+
+  try {
+    const { data, info } = await sharp(input)
+      .trim({ threshold: 15 })
+      .toBuffer({ resolveWithObject: true });
+
+    const origW = info.input?.width ?? meta.width;
+    const origH = info.input?.height ?? meta.height;
+    const longEdge = Math.max(origW, origH);
+    const trimmedW = origW - info.width;
+    const trimmedH = origH - info.height;
+    /** Skip when margins are negligible — avoids touching edge-to-edge art. */
+    if (
+      trimmedW < longEdge * 0.02 &&
+      trimmedH < longEdge * 0.02
+    ) {
+      return { buffer: input, mimeOut: base };
+    }
+
+    const pipeline = sharp(data);
+    if (base === "image/png") {
+      return {
+        buffer: await pipeline.png({ compressionLevel: 9 }).toBuffer(),
+        mimeOut: "image/png",
+      };
+    }
+    if (base === "image/webp") {
+      return {
+        buffer: await pipeline.webp({ quality: 92 }).toBuffer(),
+        mimeOut: "image/webp",
+      };
+    }
+    if (base === "image/gif") {
+      return {
+        buffer: await pipeline.png({ compressionLevel: 9 }).toBuffer(),
+        mimeOut: "image/png",
+      };
+    }
+    return {
+      buffer: await pipeline.jpeg({ quality: 92, mozjpeg: true }).toBuffer(),
+      mimeOut: "image/jpeg",
+    };
+  } catch {
+    return { buffer: input, mimeOut: base };
+  }
+}

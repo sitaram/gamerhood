@@ -150,17 +150,19 @@ export function PrintPlacementEditor({
   const drag = useRef<{ lastX: number; lastY: number } | null>(null);
 
   useEffect(() => {
-    if (!imageUrl) return;
-    const img = new window.Image();
-    if (imageUrl.startsWith("http")) {
-      img.crossOrigin = "anonymous";
-    }
-    img.onload = () => {
-      const imageAspect =
-        img.naturalHeight > 0 ? img.naturalWidth / img.naturalHeight : 1;
-      onAspectDetected?.(imageAspect);
+    if (!imageUrl || !onAspectDetected) return;
+    let cancelled = false;
+    import("@/lib/print/image-content-bounds")
+      .then(({ detectContentAspect }) => detectContentAspect(imageUrl))
+      .then((aspect) => {
+        if (!cancelled) onAspectDetected(aspect);
+      })
+      .catch(() => {
+        if (!cancelled) onAspectDetected(1);
+      });
+    return () => {
+      cancelled = true;
     };
-    img.src = imageUrl;
   }, [imageUrl, onAspectDetected]);
 
   const onPointerDown = (e: React.PointerEvent) => {
