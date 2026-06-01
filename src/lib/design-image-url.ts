@@ -14,7 +14,9 @@ export function designCardImageSrc(d: Pick<DesignRow, "id" | "image_url">): stri
 }
 
 /** Plain JSON row for client components — never includes inline data URLs. */
-export function toDashboardDesignCard(d: DesignRow) {
+export function toDashboardDesignCard(
+  d: Pick<DesignRow, "id" | "title" | "prompt" | "style" | "created_at" | "image_url">,
+) {
   return {
     id: d.id,
     title: d.title,

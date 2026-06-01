@@ -21,6 +21,7 @@ import {
   LogIn,
   Store,
   X,
+  Images,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -55,6 +56,8 @@ import type { StoredPrintPlacement } from "@/lib/print/placement";
 import { XpBadge } from "@/components/xp/xp-badge";
 import { showXpToasts } from "@/components/xp/show-xp-toasts";
 import { XP_RULES } from "@/lib/xp/rules";
+import { DesignLibraryInfiniteGrid } from "@/components/designs/design-library-infinite-grid";
+import type { DashboardDesignCard } from "@/components/dashboard/dashboard-designs-grid";
 
 const STYLES: { value: DesignStyle; label: string; emoji: string }[] = [
   { value: "anime", label: "Anime", emoji: "⚔️" },
@@ -283,6 +286,10 @@ function CreatePageInner() {
   const [anonRemaining, setAnonRemaining] = useState<number>(MAX_FREE_GENERATIONS);
   /** True when `/create?designId=` loaded a design that already has published listings. */
   const [editingPublishedDesign, setEditingPublishedDesign] = useState(false);
+  /** Row id in `designs` when the current artwork is already saved to the library. */
+  const [savedDesignId, setSavedDesignId] = useState<string | null>(null);
+  /** Bumps the infinite-scroll library grid after a new save/generate. */
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
 
   // Storefronts the signed-in user owns. Used to surface the
   // "Publish to which storefront?" picker only when there's more than
@@ -549,6 +556,7 @@ function CreatePageInner() {
           typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
         );
         setUploadedAsSvg(Boolean(data.uploadedAsSvg));
+        setSavedDesignId(designId);
         setEditingPublishedDesign(Boolean(data.hasPublishedProducts));
         setStep("preview");
       } catch {
@@ -649,6 +657,10 @@ function CreatePageInner() {
       setPlaceholderNotice(
         result.placeholder ? (result.placeholderReason ?? "") : null,
       );
+      if (result.designId) {
+        setSavedDesignId(result.designId);
+        setLibraryRefreshKey((k) => k + 1);
+      }
       if (isRefine) {
         setPrompt(nextPrompt);
         setRefinePrompt("");
@@ -697,6 +709,31 @@ function CreatePageInner() {
 
   function handleRandomPrompt() {
     setPrompt(PROMPTS[Math.floor(Math.random() * PROMPTS.length)]);
+  }
+
+  async function loadDesignFromLibrary(d: DashboardDesignCard) {
+    try {
+      const res = await fetch(`/api/designs/${d.id}`);
+      if (!res.ok) throw new Error("Could not load that design");
+      const data = await res.json();
+      setSavedDesignId(d.id);
+      setPrompt(data.prompt || "");
+      if (data.style) setStyle(data.style as DesignStyle);
+      setGeneratedImage(data.imageUrl);
+      setImageSource(data.prompt ? "ai" : "upload");
+      setHasTransparency(
+        typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
+      );
+      setUploadedAsSvg(Boolean(data.uploadedAsSvg));
+      setEditingPublishedDesign(Boolean(data.hasPublishedProducts));
+      setPlaceholderNotice(null);
+      setStep("preview");
+      setError(null);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      toast.success("Design loaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not load design");
+    }
   }
 
   function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -751,6 +788,37 @@ function CreatePageInner() {
         setHasTransparency(null);
         setStep("preview");
         setError(null);
+
+        if (authState === "signed-in") {
+          try {
+            const saveRes = await fetch("/api/designs", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                imageUrl: nextUrl,
+                style,
+                prompt: prompt.trim() || null,
+                title: file.name.replace(/\.[^.]+$/, "").slice(0, 80) || "Uploaded artwork",
+              }),
+            });
+            const saved = await saveRes.json().catch(() => ({}));
+            if (saveRes.ok && typeof saved.designId === "string") {
+              setSavedDesignId(saved.designId);
+              if (typeof saved.imageUrl === "string") {
+                setGeneratedImage(saved.imageUrl);
+              }
+              setLibraryRefreshKey((k) => k + 1);
+            } else if (!saveRes.ok) {
+              toast.error(
+                typeof saved.error === "string"
+                  ? saved.error
+                  : "Upload saved locally but couldn't add to your library",
+              );
+            }
+          } catch {
+            toast.error("Couldn't save upload to your library — you can still publish it");
+          }
+        }
       })();
     };
     reader.onerror = () => setError("Couldn't read that image — try a different file.");
@@ -791,6 +859,7 @@ function CreatePageInner() {
     setHasTransparency(null);
     setUploadedAsSvg(false);
     setPlaceholderNotice(null);
+    setSavedDesignId(null);
   }
 
   function handleReset() {
@@ -816,6 +885,7 @@ function CreatePageInner() {
     setPlacementOverrides({});
     setTuningType(null);
     setEditingPublishedDesign(false);
+    setSavedDesignId(null);
     setError(null);
   }
 
@@ -841,6 +911,7 @@ function CreatePageInner() {
         body: JSON.stringify({
           imageUrl: generatedImage,
           imageSource,
+          designId: savedDesignId ?? undefined,
           prompt: prompt || null,
           style,
           productTypes: [...selectedProducts],
@@ -922,6 +993,17 @@ function CreatePageInner() {
         <p className="mt-3 text-lg text-muted-foreground">
           Describe your design, pick a style, and watch the magic happen
         </p>
+        {authState === "signed-in" && (
+          <div className="mt-4">
+            <Link
+              href="/dashboard/designs"
+              className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
+            >
+              <Images className="h-4 w-4" />
+              My Images &amp; Uploads
+            </Link>
+          </div>
+        )}
         {isAnon && (
           <div className="mt-5 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-4 py-1.5 text-sm">
             <Sparkles className="h-3.5 w-3.5 text-primary" />
@@ -1593,6 +1675,19 @@ function CreatePageInner() {
           )}
         </AnimatePresence>
       </div>
+
+      {authState === "signed-in" && (
+        <section className="mt-16 border-t border-border/50 pt-12">
+          <DesignLibraryInfiniteGrid
+            enabled
+            mode="pick"
+            refreshKey={libraryRefreshKey}
+            onPick={(d) => void loadDesignFromLibrary(d)}
+            title="Your saved designs"
+            description="Everything you've generated or uploaded is kept here. Click any image to pick it back up — scroll for more."
+          />
+        </section>
+      )}
     </div>
   );
 }

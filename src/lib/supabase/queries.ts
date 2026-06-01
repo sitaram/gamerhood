@@ -182,6 +182,27 @@ export async function getDesignsByProfile(supabase: SupabaseClient, profileId: s
     .order("created_at", { ascending: false });
 }
 
+/** Paginated library listing — cursor is the prior page's last `created_at` ISO string. */
+export async function getDesignsByProfilePaginated(
+  supabase: SupabaseClient,
+  profileId: string,
+  opts: { limit: number; cursor?: string | null },
+) {
+  const limit = Math.min(Math.max(1, opts.limit), 48);
+  let query = supabase
+    .from("designs")
+    .select("id, title, prompt, style, image_url, created_at, uploaded_as_svg")
+    .eq("profile_id", profileId)
+    .order("created_at", { ascending: false })
+    .limit(limit + 1);
+
+  if (opts.cursor) {
+    query = query.lt("created_at", opts.cursor);
+  }
+
+  return query;
+}
+
 export async function getDesignById(supabase: SupabaseClient, id: string) {
   return supabase.from("designs").select("*").eq("id", id).single();
 }

@@ -172,14 +172,22 @@ export default async function DashboardPage() {
 
       <div className="mt-12">
         <div className="mb-6 flex items-center justify-between gap-4">
-          <h2 className="text-xl font-semibold">
-            Your Designs
-            {designList.length > 0 && (
-              <span className="ml-3 text-sm font-normal text-muted-foreground">
-                {designList.length}
-              </span>
-            )}
-          </h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-xl font-semibold">
+              Your Designs
+              {designList.length > 0 && (
+                <span className="ml-3 text-sm font-normal text-muted-foreground">
+                  {designList.length}
+                </span>
+              )}
+            </h2>
+            <Link
+              href="/dashboard/designs"
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              My Images &amp; Uploads
+            </Link>
+          </div>
           <Link href="/create">
             <Button variant="outline" size="sm" className="gap-2 shrink-0">
               <Wand2 className="h-4 w-4" />
