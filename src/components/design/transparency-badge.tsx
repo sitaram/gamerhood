@@ -9,10 +9,9 @@ import {
 } from "@/components/ui/tooltip";
 
 /**
- * Warn only when a transparent SVG upload may print differently than the
- * on-screen preview. Solid backgrounds, AI-generated PNGs, and raster
- * uploads with transparency stay silent — those cases are usually fine and
- * don't need a badge on every listing.
+ * Warn for SVG uploads because the pipeline rasterizes SVG before print.
+ * We show it immediately on upload (before transparency analysis finishes),
+ * then keep the stronger "Transparent SVG" wording when alpha is confirmed.
  */
 export function TransparencyBadge({
   hasTransparency,
@@ -26,7 +25,7 @@ export function TransparencyBadge({
   size?: "sm" | "md";
   showInfoIcon?: boolean;
 }) {
-  if (!uploadedAsSvg || hasTransparency !== true) {
+  if (!uploadedAsSvg) {
     return null;
   }
 
@@ -41,9 +40,14 @@ export function TransparencyBadge({
           icon: "h-3 w-3",
         };
 
-  const label = "Transparent SVG";
-  const tooltip =
-    "This design was uploaded as a transparent SVG. What you see on screen may look a bit different from the final print — we convert SVG to a print file before it goes to the manufacturer, and fine edges or transparency can shift slightly.";
+  const transparencyKnown = typeof hasTransparency === "boolean";
+  const isTransparentSvg = hasTransparency === true;
+  const label = isTransparentSvg ? "Transparent SVG" : "SVG upload";
+  const tooltip = isTransparentSvg
+    ? "This design was uploaded as a transparent SVG. What you see on screen may look a bit different from the final print — we convert SVG to a print file before it goes to the manufacturer, and fine edges or transparency can shift slightly."
+    : transparencyKnown
+      ? "This design was uploaded as an SVG. We convert SVG to a print file before it goes to the manufacturer, so fine edges can render a little differently than the live preview."
+      : "This design was uploaded as an SVG. We convert SVG to a print file before it goes to the manufacturer, so fine edges can render a little differently than the live preview. Transparency analysis is still in progress.";
 
   return (
     <TooltipProvider delay={150}>

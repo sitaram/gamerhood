@@ -88,6 +88,11 @@ const BASE_PRICES_CENTS: Record<string, number> = {
   "hardcover-journal": 750,
 };
 
+function errorMessage(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  return String(err);
+}
+
 function mockupThrottle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 400));
 }
@@ -138,12 +143,23 @@ export async function POST(request: NextRequest) {
   if (!body.imageUrl || typeof body.imageUrl !== "string") {
     return NextResponse.json({ error: "Missing imageUrl" }, { status: 400 });
   }
+  const imageUrl = body.imageUrl.trim();
+  if (!imageUrl) {
+    return NextResponse.json({ error: "Missing imageUrl" }, { status: 400 });
+  }
+
+  let effectiveImageSource: "ai" | "upload" = body.imageSource === "upload" ? "upload" : "ai";
+  if (effectiveImageSource === "upload" && !imageUrl.startsWith("data:")) {
+    // Client can hold "upload" while image_url is already persisted to Storage.
+    // Treat any non-data, non-blob URL as a hosted source so publish doesn't fail.
+    if (!imageUrl.startsWith("blob:")) effectiveImageSource = "ai";
+  }
 
   // blob: URLs only resolve in the originating browser tab. We catch them
   // explicitly because Printful (which fetches the image server-side at
   // order time) would otherwise see a generic "fetch failed" once the
   // buyer pays — way too late for a useful error message.
-  if (body.imageUrl.startsWith("blob:")) {
+  if (imageUrl.startsWith("blob:")) {
     return NextResponse.json(
       { error: "Image upload didn't complete — please pick the file again." },
       { status: 400 },
@@ -190,17 +206,17 @@ export async function POST(request: NextRequest) {
     // fetcher always gets a crispy raster + transparent background when the
     // vector has alpha, Vision moderates raster pixels instead of bogus XML,
     // and oversized PNG/JPEG gets capped (never upscaled).
-    let imageForPersist = body.imageUrl;
+    let imageForPersist = imageUrl;
     let uploadedAsSvg = false;
 
-    if (body.imageSource === "upload") {
-      if (!body.imageUrl.startsWith("data:")) {
+    if (effectiveImageSource === "upload") {
+      if (!imageUrl.startsWith("data:")) {
         return NextResponse.json(
           { error: "Upload must be provided as inline image data." },
           { status: 400 },
         );
       }
-      const decoded = decodeDesignDataUrl(body.imageUrl);
+      const decoded = decodeDesignDataUrl(imageUrl);
       if (!decoded) {
         return NextResponse.json(
           {
@@ -435,12 +451,20 @@ export async function POST(request: NextRequest) {
       let printfulCatalogMetaRow: PrintfulCatalogMeta | null = null;
 
       if (catalog?.catalogVariantId && isPrintfulConfigured()) {
-        const aug = await augmentMerchFromPrintfulCatalog(catalog.catalogVariantId, productType);
-        if (aug?.meta) {
-          printfulCatalogProductId = aug.catalogProductId;
-          printfulCatalogMetaRow = aug.meta;
-          if (aug.sizes?.length) sizesForRow = aug.sizes;
-          if (aug.colors?.length) colorsForRow = aug.colors;
+        try {
+          const aug = await augmentMerchFromPrintfulCatalog(catalog.catalogVariantId, productType);
+          if (aug?.meta) {
+            printfulCatalogProductId = aug.catalogProductId;
+            printfulCatalogMetaRow = aug.meta;
+            if (aug.sizes?.length) sizesForRow = aug.sizes;
+            if (aug.colors?.length) colorsForRow = aug.colors;
+          }
+        } catch (err) {
+          console.warn("[Publish] catalog augmentation failed:", {
+            productType,
+            catalogVariantId: catalog.catalogVariantId,
+            error: errorMessage(err),
+          });
         }
       }
 
@@ -463,16 +487,25 @@ export async function POST(request: NextRequest) {
         catalog &&
         designUrlIsFetchable
       ) {
-        const pfListing = await generateListingMockupUrl({
-          catalogProductId: printfulCatalogProductId,
-          catalogVariantId: catalog.catalogVariantId,
-          productType,
-          catalog,
-          designUrl: publicImageUrl,
-          storedPlacement: storedPlacementForRow,
-        });
-        if (pfListing) listingMockupUrl = pfListing;
-        await mockupThrottle();
+        try {
+          const pfListing = await generateListingMockupUrl({
+            catalogProductId: printfulCatalogProductId,
+            catalogVariantId: catalog.catalogVariantId,
+            productType,
+            catalog,
+            designUrl: publicImageUrl,
+            storedPlacement: storedPlacementForRow,
+          });
+          if (pfListing) listingMockupUrl = pfListing;
+          await mockupThrottle();
+        } catch (err) {
+          console.warn("[Publish] listing mockup generation failed:", {
+            productType,
+            catalogVariantId: catalog.catalogVariantId,
+            catalogProductId: printfulCatalogProductId,
+            error: errorMessage(err),
+          });
+        }
       }
 
       // Snapshot a cost basis so the post-publish price editor can show a stable
@@ -538,6 +571,20 @@ export async function POST(request: NextRequest) {
     // first product on the profile — gated by counting existing
     // published rows BEFORE this batch.
     const xpResults: XpAwardResult[] = [];
+    const safeAward = async (
+      params: Parameters<typeof awardXp>[0],
+    ): Promise<XpAwardResult | null> => {
+      try {
+        return await awardXp(params);
+      } catch (err) {
+        console.warn("[Publish] XP award failed:", {
+          ruleKey: params.ruleKey,
+          profileId: params.profileId,
+          error: errorMessage(err),
+        });
+        return null;
+      }
+    };
     if (products.length > 0) {
       let preBatchPublishedCount: number | null = null;
       try {
@@ -554,13 +601,12 @@ export async function POST(request: NextRequest) {
       }
 
       if (preBatchPublishedCount === 0) {
-        xpResults.push(
-          await awardXp({
-            profileId,
-            ruleKey: "FIRST_PRODUCT_PUBLISHED",
-            metadata: { product_ids: products.map((p) => p.id) },
-          }),
-        );
+        const firstPublishAward = await safeAward({
+          profileId,
+          ruleKey: "FIRST_PRODUCT_PUBLISHED",
+          metadata: { product_ids: products.map((p) => p.id) },
+        });
+        if (firstPublishAward) xpResults.push(firstPublishAward);
       }
 
       const descLongEnough =
@@ -568,33 +614,30 @@ export async function POST(request: NextRequest) {
       const hasEnoughTags = productTags.length >= PRODUCT_TAGS_MIN_COUNT;
 
       for (const p of products) {
-        xpResults.push(
-          await awardXp({
-            profileId,
-            ruleKey: "PRODUCT_PUBLISHED",
-            dedupeSuffix: `product:${p.id}`,
-            metadata: { product_id: p.id, product_type: p.type },
-          }),
-        );
+        const productPublishedAward = await safeAward({
+          profileId,
+          ruleKey: "PRODUCT_PUBLISHED",
+          dedupeSuffix: `product:${p.id}`,
+          metadata: { product_id: p.id, product_type: p.type },
+        });
+        if (productPublishedAward) xpResults.push(productPublishedAward);
         if (descLongEnough) {
-          xpResults.push(
-            await awardXp({
-              profileId,
-              ruleKey: "PRODUCT_DESCRIPTION",
-              dedupeSuffix: `product_desc:${p.id}`,
-              metadata: { product_id: p.id },
-            }),
-          );
+          const productDescriptionAward = await safeAward({
+            profileId,
+            ruleKey: "PRODUCT_DESCRIPTION",
+            dedupeSuffix: `product_desc:${p.id}`,
+            metadata: { product_id: p.id },
+          });
+          if (productDescriptionAward) xpResults.push(productDescriptionAward);
         }
         if (hasEnoughTags) {
-          xpResults.push(
-            await awardXp({
-              profileId,
-              ruleKey: "PRODUCT_TAGS",
-              dedupeSuffix: `product_tags:${p.id}`,
-              metadata: { product_id: p.id, tag_count: productTags.length },
-            }),
-          );
+          const productTagsAward = await safeAward({
+            profileId,
+            ruleKey: "PRODUCT_TAGS",
+            dedupeSuffix: `product_tags:${p.id}`,
+            metadata: { product_id: p.id, tag_count: productTags.length },
+          });
+          if (productTagsAward) xpResults.push(productTagsAward);
         }
       }
     }
@@ -652,9 +695,11 @@ export async function POST(request: NextRequest) {
       xpAwards: pickXpToastPayload(xpResults),
     });
   } catch (err) {
-    console.error("[Publish] Error:", err);
+    const debugId = `publish_${Date.now().toString(36)}`;
+    const message = errorMessage(err);
+    console.error(`[Publish] Error (${debugId}):`, err);
     return NextResponse.json(
-      { error: "Failed to publish products" },
+      { error: `Failed to publish products: ${message}`, debugId },
       { status: 500 },
     );
   }

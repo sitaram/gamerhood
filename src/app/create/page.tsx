@@ -21,6 +21,7 @@ import {
   LogIn,
   Store,
   X,
+  Trash2,
   Images,
 } from "lucide-react";
 import Image from "next/image";
@@ -39,6 +40,7 @@ import { PrintPlacementEditor } from "@/components/create/print-placement-editor
 import { CategoryProductPicker } from "@/components/create/category-product-picker";
 import { PRODUCT_TYPE_LABELS } from "@/components/storefront/product-card";
 import { TransparencyBadge } from "@/components/design/transparency-badge";
+import { TransparencyStatus } from "@/components/design/transparency-status";
 import { isSvgDataUrl } from "@/lib/design/source-format";
 import {
   GenerationProgress,
@@ -98,6 +100,85 @@ type GenerateResult = {
   hasTransparency: boolean | null;
   placeholder?: boolean;
   placeholderReason?: string;
+};
+
+async function parseErrorMessageFromResponse(
+  res: Response,
+  fallback: string,
+): Promise<string> {
+  const statusLabel = `HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""}`;
+  let raw = "";
+  try {
+    raw = (await res.text()).trim();
+  } catch {
+    // Ignore read failures and fall back to status + default text.
+  }
+
+  let message = "";
+  let debugId = "";
+  if (raw.length > 0) {
+    try {
+      const parsed = JSON.parse(raw) as {
+        error?: unknown;
+        message?: unknown;
+        debugId?: unknown;
+      } | null;
+      if (typeof parsed?.error === "string" && parsed.error.trim().length > 0) {
+        message = parsed.error.trim();
+      } else if (typeof parsed?.message === "string" && parsed.message.trim().length > 0) {
+        message = parsed.message.trim();
+      }
+      if (typeof parsed?.debugId === "string" && parsed.debugId.trim().length > 0) {
+        debugId = parsed.debugId.trim();
+      }
+    } catch {
+      // Non-JSON response (often an HTML error page or plain text).
+      if (raw.startsWith("<")) {
+        const title = raw.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1]?.trim();
+        if (title) message = title;
+      } else {
+        message = raw.slice(0, 240);
+      }
+    }
+  }
+
+  if (!message) message = `${fallback} (empty error response body)`;
+  const withStatus = `${message} (${statusLabel})`;
+  return debugId ? `${withStatus} [debugId: ${debugId}]` : withStatus;
+}
+
+function inferImageSourceFromUrl(imageUrl: unknown): "ai" | "upload" {
+  if (typeof imageUrl === "string" && imageUrl.startsWith("data:")) {
+    return "upload";
+  }
+  // Any persisted/public URL should publish as server-fetchable media.
+  return "ai";
+}
+
+const MERCH_DRAFT_STORAGE_KEY = "gh:create:merch-draft:v1";
+const MERCH_DRAFT_AUTOSAVE_MS = 30_000;
+const MERCH_DRAFT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
+
+type CreateMerchDraft = {
+  version: 1;
+  savedAtMs: number;
+  prompt: string;
+  style: DesignStyle;
+  step: "preview" | "placement" | "products";
+  generatedImage: string;
+  imageSource: "ai" | "upload";
+  hasTransparency: boolean | null;
+  uploadedAsSvg: boolean;
+  placeholderNotice: string | null;
+  selectedProducts: ProductType[];
+  printPlacement: StoredPrintPlacement;
+  placementOverrides: Partial<Record<ProductType, StoredPrintPlacement>>;
+  listingDescription: string;
+  productTags: string;
+  productCategory: string;
+  merchPricing: Record<string, MerchPricingRow>;
+  selectedStorefrontId: string | null;
+  savedDesignId: string | null;
 };
 
 /**
@@ -238,6 +319,7 @@ function CreatePageInner() {
   const [selectedProducts, setSelectedProducts] = useState<Set<ProductType>>(new Set(["hoodie", "tshirt"]));
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [deletingImage, setDeletingImage] = useState(false);
   /** Optional shopper-facing copy + discovery fields applied to each product in this publish batch. */
   const [listingDescription, setListingDescription] = useState("");
   const [productTags, setProductTags] = useState("");
@@ -301,6 +383,17 @@ function CreatePageInner() {
     null,
   );
 
+  const formatPublishError = useCallback((err: unknown): string => {
+    const base =
+      err instanceof Error ? err.message : "Failed to publish (non-error exception thrown)";
+    // Keep generic publish-only messages from reaching the UI.
+    const normalized = base.trim().toLowerCase();
+    if (normalized === "publish failed" || normalized.startsWith("publish failed (")) {
+      return "Publish failed, but the server returned no details. Please retry and inspect /api/designs/publish in Network.";
+    }
+    return base;
+  }, []);
+
   // Listing-details pre-fill plumbing. We track per-field interaction
   // so switching storefronts mid-flow can refill empty fields without
   // wiping anything the seller already typed; the "source" string
@@ -317,6 +410,64 @@ function CreatePageInner() {
   const categoryTouchedRef = useRef(false);
   /** Last storefront whose defaults we successfully applied — guards against re-applying on every render. */
   const lastPrefilledStorefrontIdRef = useRef<string | null>(null);
+  /** Prevents restoring the same local merch draft more than once per mount. */
+  const merchDraftHydratedRef = useRef(false);
+  const [hasAttemptedMerch, setHasAttemptedMerch] = useState(false);
+
+  const clearMerchDraft = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(MERCH_DRAFT_STORAGE_KEY);
+  }, []);
+
+  const saveMerchDraft = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (!hasAttemptedMerch || !generatedImage) return;
+    const payload: CreateMerchDraft = {
+      version: 1,
+      savedAtMs: Date.now(),
+      prompt,
+      style,
+      step: step === "prompt" || step === "generating" ? "preview" : step,
+      generatedImage,
+      imageSource,
+      hasTransparency,
+      uploadedAsSvg,
+      placeholderNotice,
+      selectedProducts: [...selectedProducts],
+      printPlacement,
+      placementOverrides,
+      listingDescription,
+      productTags,
+      productCategory,
+      merchPricing,
+      selectedStorefrontId,
+      savedDesignId,
+    };
+    try {
+      window.localStorage.setItem(MERCH_DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Quota / privacy mode issues shouldn't break create flow.
+    }
+  }, [
+    generatedImage,
+    hasAttemptedMerch,
+    imageSource,
+    hasTransparency,
+    uploadedAsSvg,
+    placeholderNotice,
+    selectedProducts,
+    printPlacement,
+    placementOverrides,
+    listingDescription,
+    productTags,
+    productCategory,
+    merchPricing,
+    selectedStorefrontId,
+    savedDesignId,
+    prompt,
+    style,
+    step,
+  ]);
 
   const refreshAnonCount = useCallback(() => {
     setAnonRemaining(Math.max(0, MAX_FREE_GENERATIONS - getAnonDesigns().length));
@@ -329,6 +480,113 @@ function CreatePageInner() {
       generateAbortRef.current?.abort();
     };
   }, []);
+
+  useEffect(() => {
+    if (step === "placement" || step === "products") {
+      setHasAttemptedMerch(true);
+    }
+  }, [step]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (merchDraftHydratedRef.current) return;
+    if (authState === "unknown") return;
+    if (searchParams.get("designId")) {
+      merchDraftHydratedRef.current = true;
+      return;
+    }
+    if (generatedImage) {
+      merchDraftHydratedRef.current = true;
+      return;
+    }
+
+    let raw: string | null = null;
+    try {
+      raw = window.localStorage.getItem(MERCH_DRAFT_STORAGE_KEY);
+    } catch {
+      merchDraftHydratedRef.current = true;
+      return;
+    }
+    if (!raw) {
+      merchDraftHydratedRef.current = true;
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as CreateMerchDraft | null;
+      if (
+        !parsed ||
+        parsed.version !== 1 ||
+        typeof parsed.generatedImage !== "string" ||
+        parsed.generatedImage.length === 0
+      ) {
+        clearMerchDraft();
+        merchDraftHydratedRef.current = true;
+        return;
+      }
+      if (
+        typeof parsed.savedAtMs !== "number" ||
+        Date.now() - parsed.savedAtMs > MERCH_DRAFT_MAX_AGE_MS
+      ) {
+        clearMerchDraft();
+        merchDraftHydratedRef.current = true;
+        return;
+      }
+
+      setPrompt(parsed.prompt ?? "");
+      setStyle(parsed.style ?? "anime");
+      setGeneratedImage(parsed.generatedImage);
+      setImageSource(inferImageSourceFromUrl(parsed.generatedImage));
+      setHasTransparency(
+        typeof parsed.hasTransparency === "boolean" ? parsed.hasTransparency : null,
+      );
+      setUploadedAsSvg(Boolean(parsed.uploadedAsSvg));
+      setPlaceholderNotice(parsed.placeholderNotice ?? null);
+      setSelectedProducts(new Set(parsed.selectedProducts ?? ["hoodie", "tshirt"]));
+      setPrintPlacement(
+        parsed.printPlacement && typeof parsed.printPlacement === "object"
+          ? parsed.printPlacement
+          : { ...DEFAULT_STORED },
+      );
+      setPlacementOverrides(
+        parsed.placementOverrides && typeof parsed.placementOverrides === "object"
+          ? parsed.placementOverrides
+          : {},
+      );
+      setListingDescription(parsed.listingDescription ?? "");
+      setProductTags(parsed.productTags ?? "");
+      setProductCategory(parsed.productCategory ?? "");
+      setMerchPricing(
+        parsed.merchPricing && typeof parsed.merchPricing === "object"
+          ? parsed.merchPricing
+          : {},
+      );
+      setSelectedStorefrontId(parsed.selectedStorefrontId ?? null);
+      setSavedDesignId(parsed.savedDesignId ?? null);
+      setStep(parsed.step ?? "products");
+      setHasAttemptedMerch(true);
+      setError(null);
+      toast.success("Restored your merch draft");
+    } catch {
+      clearMerchDraft();
+    } finally {
+      merchDraftHydratedRef.current = true;
+    }
+  }, [authState, clearMerchDraft, generatedImage, searchParams]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!hasAttemptedMerch || !generatedImage) return;
+
+    saveMerchDraft();
+    const id = window.setInterval(saveMerchDraft, MERCH_DRAFT_AUTOSAVE_MS);
+    const onBeforeUnload = () => saveMerchDraft();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, [generatedImage, hasAttemptedMerch, saveMerchDraft]);
 
   useEffect(() => {
     const supabase = createBrowserClient(
@@ -551,7 +809,7 @@ function CreatePageInner() {
         setPrompt(data.prompt || "");
         if (data.style) setStyle(data.style);
         setGeneratedImage(data.imageUrl);
-        setImageSource(data.prompt ? "ai" : "upload");
+        setImageSource(inferImageSourceFromUrl(data.imageUrl));
         setHasTransparency(
           typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
         );
@@ -640,8 +898,7 @@ function CreatePageInner() {
       if (!res.ok) {
         // Pre-stream rejection (prompt-moderation, invalid body). The route
         // returns plain JSON in that case so we don't have to parse SSE.
-        const data = await res.json().catch(() => ({ error: "Generation failed" }));
-        throw new Error(data.error || `Server error ${res.status}`);
+        throw new Error(await parseErrorMessageFromResponse(res, "Generation failed"));
       }
 
       const result = await consumeGenerateStream(res, (next) => {
@@ -720,7 +977,7 @@ function CreatePageInner() {
       setPrompt(data.prompt || "");
       if (data.style) setStyle(data.style as DesignStyle);
       setGeneratedImage(data.imageUrl);
-      setImageSource(data.prompt ? "ai" : "upload");
+      setImageSource(inferImageSourceFromUrl(data.imageUrl));
       setHasTransparency(
         typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
       );
@@ -806,6 +1063,13 @@ function CreatePageInner() {
               setSavedDesignId(saved.designId);
               if (typeof saved.imageUrl === "string") {
                 setGeneratedImage(saved.imageUrl);
+                setImageSource(inferImageSourceFromUrl(saved.imageUrl));
+              }
+              if (typeof saved.hasTransparency === "boolean") {
+                setHasTransparency(saved.hasTransparency);
+              }
+              if (typeof saved.uploadedAsSvg === "boolean") {
+                setUploadedAsSvg(saved.uploadedAsSvg);
               }
               setLibraryRefreshKey((k) => k + 1);
             } else if (!saveRes.ok) {
@@ -859,7 +1123,46 @@ function CreatePageInner() {
     setHasTransparency(null);
     setUploadedAsSvg(false);
     setPlaceholderNotice(null);
+    setEditingPublishedDesign(false);
     setSavedDesignId(null);
+    setHasAttemptedMerch(false);
+    clearMerchDraft();
+  }
+
+  async function handleDeleteImage() {
+    if (!generatedImage) return;
+
+    const deletingSavedDesign = authState === "signed-in" && Boolean(savedDesignId);
+    const message = deletingSavedDesign
+      ? "Delete this image from your library? This cannot be undone."
+      : "Remove this image from your current draft?";
+    if (!window.confirm(message)) return;
+
+    setDeletingImage(true);
+    setError(null);
+
+    try {
+      if (deletingSavedDesign && savedDesignId) {
+        const res = await fetch(`/api/designs/${savedDesignId}`, { method: "DELETE" });
+        if (!res.ok) {
+          throw new Error(
+            await parseErrorMessageFromResponse(res, "Could not delete image"),
+          );
+        }
+        setLibraryRefreshKey((k) => k + 1);
+        toast.success("Image deleted");
+      } else {
+        toast.success("Image removed");
+      }
+
+      handleRemoveAttachment();
+      setRefinePrompt("");
+      setStep("prompt");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete image");
+    } finally {
+      setDeletingImage(false);
+    }
   }
 
   function handleReset() {
@@ -887,6 +1190,8 @@ function CreatePageInner() {
     setEditingPublishedDesign(false);
     setSavedDesignId(null);
     setError(null);
+    setHasAttemptedMerch(false);
+    clearMerchDraft();
   }
 
   function handleDownload() {
@@ -905,41 +1210,64 @@ function CreatePageInner() {
     setError(null);
 
     try {
-      const res = await fetch("/api/designs/publish", {
+      const normalizedImageUrl =
+        typeof generatedImage === "string" ? generatedImage.trim() : generatedImage;
+      const publishImageSource =
+        imageSource === "upload" && typeof normalizedImageUrl === "string"
+          ? inferImageSourceFromUrl(normalizedImageUrl)
+          : imageSource;
+      const requestBody = {
+        imageUrl: normalizedImageUrl,
+        imageSource: publishImageSource,
+        designId: savedDesignId ?? undefined,
+        prompt: prompt || null,
+        style,
+        productTypes: [...selectedProducts],
+        listingDescription: listingDescription.trim() || null,
+        productTags: productTags.trim() || null,
+        productCategory: productCategory.trim() || null,
+        printPlacement,
+        ...(Object.keys(placementOverrides).length > 0
+          ? { printPlacementsByType: placementOverrides }
+          : {}),
+        ...(selectedStorefrontId
+          ? { storefrontId: selectedStorefrontId }
+          : {}),
+        ...(Object.keys(merchPricing).length > 0
+          ? {
+              pricesByType: Object.fromEntries(
+                [...selectedProducts]
+                  .map((pt) => [pt, merchPricing[pt]?.priceCents] as const)
+                  .filter(([, cents]) => typeof cents === "number" && cents > 0),
+              ),
+            }
+          : {}),
+      };
+
+      let res = await fetch("/api/designs/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageUrl: generatedImage,
-          imageSource,
-          designId: savedDesignId ?? undefined,
-          prompt: prompt || null,
-          style,
-          productTypes: [...selectedProducts],
-          listingDescription: listingDescription.trim() || null,
-          productTags: productTags.trim() || null,
-          productCategory: productCategory.trim() || null,
-          printPlacement,
-          ...(Object.keys(placementOverrides).length > 0
-            ? { printPlacementsByType: placementOverrides }
-            : {}),
-          ...(selectedStorefrontId
-            ? { storefrontId: selectedStorefrontId }
-            : {}),
-          ...(Object.keys(merchPricing).length > 0
-            ? {
-                pricesByType: Object.fromEntries(
-                  [...selectedProducts]
-                    .map((pt) => [pt, merchPricing[pt]?.priceCents] as const)
-                    .filter(([, cents]) => typeof cents === "number" && cents > 0),
-                ),
-              }
-            : {}),
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: "Publish failed" }));
-        throw new Error(data.error || `Server error ${res.status}`);
+        const firstError = await parseErrorMessageFromResponse(res, "Publish failed");
+        const shouldRetryAsHosted =
+          firstError.includes("Upload must be provided as inline image data.") &&
+          typeof normalizedImageUrl === "string" &&
+          !normalizedImageUrl.startsWith("data:") &&
+          !normalizedImageUrl.startsWith("blob:");
+        if (!shouldRetryAsHosted) {
+          throw new Error(firstError);
+        }
+        res = await fetch("/api/designs/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...requestBody, imageSource: "ai" }),
+        });
+        if (!res.ok) {
+          throw new Error(await parseErrorMessageFromResponse(res, "Publish failed"));
+        }
       }
 
       const data = await res.json();
@@ -969,9 +1297,11 @@ function CreatePageInner() {
           (data as { xpAwards: Parameters<typeof showXpToasts>[0] }).xpAwards,
         );
       }
+      clearMerchDraft();
+      setHasAttemptedMerch(false);
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to publish");
+      setError(formatPublishError(err));
       setPublishing(false);
     }
   }
@@ -1262,6 +1592,13 @@ function CreatePageInner() {
                         uploadedAsSvg={uploadedAsSvg}
                       />
                     </div>
+                    <div className="mt-3">
+                      <TransparencyStatus
+                        hasTransparency={hasTransparency}
+                        uploadedAsSvg={uploadedAsSvg}
+                        imageSource={imageSource}
+                      />
+                    </div>
                   </div>
 
                   {canRefine && !editingPublishedDesign && (
@@ -1312,6 +1649,15 @@ function CreatePageInner() {
                     <Button variant="outline" onClick={handleDownload} className="gap-2">
                       <Download className="h-4 w-4" />
                       Download
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleDeleteImage()}
+                      disabled={deletingImage}
+                      className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingImage ? "Deleting..." : "Delete image"}
                     </Button>
                     <Button variant="outline" onClick={handleReset} className="gap-2">
                       <RotateCcw className="h-4 w-4" />

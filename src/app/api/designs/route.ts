@@ -139,6 +139,8 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     designId: design.id,
     imageUrl: publicImageUrl,
+    hasTransparency: normalized.value.hasTransparency,
+    uploadedAsSvg: normalized.value.uploadedAsSvg,
     design: toDashboardDesignCard({ ...design, image_url: publicImageUrl }),
   });
 }

@@ -26,7 +26,26 @@ export async function normalizeUploadedDesignDataUrl(
   | { ok: true; value: NormalizedUpload }
   | { ok: false; error: string; status: number }
 > {
-  if (!imageUrl.startsWith("data:")) {
+  const normalizedUrl = imageUrl.trim();
+  if (normalizedUrl.startsWith("http://") || normalizedUrl.startsWith("https://")) {
+    const transparency = await detectDesignTransparencyFromAnySource(normalizedUrl);
+    return {
+      ok: true,
+      value: {
+        imageForPersist: normalizedUrl,
+        uploadedAsSvg: false,
+        hasTransparency: transparency ? transparency.transparent : null,
+      },
+    };
+  }
+  if (normalizedUrl.startsWith("blob:")) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Image upload didn't complete — please pick the file again.",
+    };
+  }
+  if (!normalizedUrl.startsWith("data:")) {
     return {
       ok: false,
       status: 400,
@@ -34,7 +53,7 @@ export async function normalizeUploadedDesignDataUrl(
     };
   }
 
-  const decoded = decodeDesignDataUrl(imageUrl);
+  const decoded = decodeDesignDataUrl(normalizedUrl);
   if (!decoded) {
     return {
       ok: false,
