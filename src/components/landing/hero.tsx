@@ -53,10 +53,8 @@ export function Hero() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}
           >
-            The marketplace where young creators turn wild ideas into real merch.
-            Describe your vision, AI brings it to life, and we print it on premium gear.
-            You set the price and keep the profits.
-            <span className="mt-3 block text-center text-foreground font-medium">For kids, by kids.</span>
+            The marketplace where young creators turn ideas into real merch. You set the price and keep the
+            profits.
           </motion.p>
 
           <motion.div
