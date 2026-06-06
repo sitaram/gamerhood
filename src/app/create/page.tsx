@@ -1216,8 +1216,13 @@ function CreatePageInner() {
         imageSource === "upload" && typeof normalizedImageUrl === "string"
           ? inferImageSourceFromUrl(normalizedImageUrl)
           : imageSource;
+      const useDesignImageServerSide =
+        typeof savedDesignId === "string" &&
+        savedDesignId.length > 0 &&
+        typeof normalizedImageUrl === "string" &&
+        normalizedImageUrl.startsWith("data:");
       const requestBody = {
-        imageUrl: normalizedImageUrl,
+        ...(useDesignImageServerSide ? {} : { imageUrl: normalizedImageUrl }),
         imageSource: publishImageSource,
         designId: savedDesignId ?? undefined,
         prompt: prompt || null,
@@ -1467,6 +1472,19 @@ function CreatePageInner() {
                       aria-label="Remove attached design"
                     >
                       <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void handleDeleteImage()}
+                      disabled={deletingImage}
+                      className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingImage ? "Deleting..." : "Delete image"}
                     </Button>
                   </div>
                 </Card>
@@ -2027,6 +2045,7 @@ function CreatePageInner() {
           <DesignLibraryInfiniteGrid
             enabled
             mode="pick"
+            showActions
             refreshKey={libraryRefreshKey}
             onPick={(d) => void loadDesignFromLibrary(d)}
             title="Your saved designs"

@@ -99,7 +99,7 @@ function mockupThrottle(): Promise<void> {
 
 export async function POST(request: NextRequest) {
   let body: {
-    imageUrl: string;
+    imageUrl?: string;
     // "ai"     → from /api/designs/generate, already moderated
     // "upload" → user-supplied file, must be moderated here before publish
     imageSource?: "ai" | "upload";
@@ -140,30 +140,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  if (!body.imageUrl || typeof body.imageUrl !== "string") {
-    return NextResponse.json({ error: "Missing imageUrl" }, { status: 400 });
-  }
-  const imageUrl = body.imageUrl.trim();
-  if (!imageUrl) {
-    return NextResponse.json({ error: "Missing imageUrl" }, { status: 400 });
-  }
-
-  let effectiveImageSource: "ai" | "upload" = body.imageSource === "upload" ? "upload" : "ai";
-  if (effectiveImageSource === "upload" && !imageUrl.startsWith("data:")) {
-    // Client can hold "upload" while image_url is already persisted to Storage.
-    // Treat any non-data, non-blob URL as a hosted source so publish doesn't fail.
-    if (!imageUrl.startsWith("blob:")) effectiveImageSource = "ai";
-  }
-
-  // blob: URLs only resolve in the originating browser tab. We catch them
-  // explicitly because Printful (which fetches the image server-side at
-  // order time) would otherwise see a generic "fetch failed" once the
-  // buyer pays — way too late for a useful error message.
-  if (imageUrl.startsWith("blob:")) {
-    return NextResponse.json(
-      { error: "Image upload didn't complete — please pick the file again." },
-      { status: 400 },
-    );
+  let imageUrl =
+    typeof body.imageUrl === "string" && body.imageUrl.trim().length > 0
+      ? body.imageUrl.trim()
+      : null;
+  const hasDesignId = typeof body.designId === "string" && body.designId.length > 0;
+  if (!imageUrl && !hasDesignId) {
+    return NextResponse.json({ error: "Missing imageUrl or designId" }, { status: 400 });
   }
 
   try {
@@ -179,6 +162,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No creator profile found" }, { status: 400 });
     }
     const profileId = profile.id;
+
+    if (!imageUrl && hasDesignId) {
+      const { data: existingDesign, error: existingDesignErr } = await supabase
+        .from("designs")
+        .select("id, image_url, profile_id")
+        .eq("id", body.designId!)
+        .single();
+      if (existingDesignErr || !existingDesign || existingDesign.profile_id !== profileId) {
+        return NextResponse.json({ error: "Design not found" }, { status: 404 });
+      }
+      imageUrl = existingDesign.image_url?.trim() || null;
+      if (!imageUrl) {
+        return NextResponse.json({ error: "Saved design has no image URL" }, { status: 400 });
+      }
+    }
+    if (!imageUrl) {
+      return NextResponse.json({ error: "Missing imageUrl" }, { status: 400 });
+    }
+
+    let effectiveImageSource: "ai" | "upload" = body.imageSource === "upload" ? "upload" : "ai";
+    if (effectiveImageSource === "upload" && !imageUrl.startsWith("data:")) {
+      // Client can hold "upload" while image_url is already persisted to Storage.
+      // Treat any non-data, non-blob URL as a hosted source so publish doesn't fail.
+      if (!imageUrl.startsWith("blob:")) effectiveImageSource = "ai";
+    }
+
+    // blob: URLs only resolve in the originating browser tab. We catch them
+    // explicitly because Printful (which fetches the image server-side at
+    // order time) would otherwise see a generic "fetch failed" once the
+    // buyer pays — way too late for a useful error message.
+    if (imageUrl.startsWith("blob:")) {
+      return NextResponse.json(
+        { error: "Image upload didn't complete — please pick the file again." },
+        { status: 400 },
+      );
+    }
 
     // ── Resolve which storefront these listings attach to ──────────────
     // The picker on `/create` only renders when there's more than one
