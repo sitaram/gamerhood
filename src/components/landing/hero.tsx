@@ -53,8 +53,8 @@ export function Hero() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.2 }}
           >
-            The marketplace where young creators turn ideas into real merch. You set the price and keep the
-            profits.
+            The marketplace where young creators turn ideas into real merch.
+            <span className="block">You set the price and keep the profits.</span>
           </motion.p>
 
           <motion.div
