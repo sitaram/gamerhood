@@ -60,6 +60,7 @@ import { showXpToasts } from "@/components/xp/show-xp-toasts";
 import { XP_RULES } from "@/lib/xp/rules";
 import { DesignLibraryInfiniteGrid } from "@/components/designs/design-library-infinite-grid";
 import type { DashboardDesignCard } from "@/components/dashboard/dashboard-designs-grid";
+import { Progress } from "@/components/ui/progress";
 
 const STYLES: { value: DesignStyle; label: string; emoji: string }[] = [
   { value: "anime", label: "Anime", emoji: "⚔️" },
@@ -319,6 +320,8 @@ function CreatePageInner() {
   const [selectedProducts, setSelectedProducts] = useState<Set<ProductType>>(new Set(["hoodie", "tshirt"]));
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [publishProgress, setPublishProgress] = useState(0);
+  const [publishStatus, setPublishStatus] = useState("");
   const [deletingImage, setDeletingImage] = useState(false);
   /** Optional shopper-facing copy + discovery fields applied to each product in this publish batch. */
   const [listingDescription, setListingDescription] = useState("");
@@ -486,6 +489,34 @@ function CreatePageInner() {
       setHasAttemptedMerch(true);
     }
   }, [step]);
+
+  useEffect(() => {
+    if (!publishing) {
+      setPublishProgress(0);
+      setPublishStatus("");
+      return;
+    }
+
+    const startedAt = Date.now();
+    setPublishStatus("Uploading design and creating listings…");
+    setPublishProgress((prev) => Math.max(prev, 8));
+
+    const timer = window.setInterval(() => {
+      const elapsedMs = Date.now() - startedAt;
+      setPublishProgress((prev) => {
+        const cap = elapsedMs < 15_000 ? 72 : elapsedMs < 45_000 ? 90 : 96;
+        const stepSize = elapsedMs < 15_000 ? 3 : elapsedMs < 45_000 ? 1.2 : 0.4;
+        return Math.min(cap, prev + stepSize);
+      });
+      if (elapsedMs > 30_000) {
+        setPublishStatus("Still publishing — slow connection detected.");
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [publishing]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1208,6 +1239,8 @@ function CreatePageInner() {
   async function handlePublish() {
     setPublishing(true);
     setError(null);
+    setPublishProgress(8);
+    setPublishStatus("Uploading design and creating listings…");
 
     try {
       const normalizedImageUrl =
@@ -1276,6 +1309,8 @@ function CreatePageInner() {
       }
 
       const data = await res.json();
+      setPublishProgress((prev) => Math.max(prev, 95));
+      setPublishStatus("Finalizing publish…");
 
       const failures = Array.isArray((data as { failures?: unknown }).failures)
           ? (data as { failures: { productType: string; message: string }[] }).failures
@@ -1302,6 +1337,7 @@ function CreatePageInner() {
           (data as { xpAwards: Parameters<typeof showXpToasts>[0] }).xpAwards,
         );
       }
+      setPublishProgress(100);
       clearMerchDraft();
       setHasAttemptedMerch(false);
       router.push("/dashboard");
@@ -2000,7 +2036,19 @@ function CreatePageInner() {
                   </div>
                 </>
               ) : (
-                <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+                <div className="flex w-full flex-col items-center justify-center gap-4">
+                  {publishing && (
+                    <div className="w-full max-w-xl rounded-lg border border-primary/20 bg-primary/5 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                        <span className="font-medium text-foreground">{publishStatus}</span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {Math.round(publishProgress)}%
+                        </span>
+                      </div>
+                      <Progress value={publishProgress} className="w-full" />
+                    </div>
+                  )}
+                  <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
                   <Button variant="outline" onClick={() => setStep("placement")} className="gap-2">
                     Back to print layout
                   </Button>
@@ -2032,6 +2080,7 @@ function CreatePageInner() {
                       points={XP_RULES.PRODUCT_PUBLISHED.points}
                       variant="prominent"
                     />
+                  </div>
                   </div>
                 </div>
               )}
