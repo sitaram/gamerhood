@@ -36,6 +36,23 @@ git commit -m "Describe your changes"
 git push origin main
 ```
 
+## Deploying from a Socket-Firewalled machine
+
+On machines running Socket Firewall (e.g. a corporate laptop), `pnpm run
+deploy:*` fails with `unable to get local issuer certificate` — pnpm routes
+child processes through Socket's TLS proxy, whose CA the system doesn't
+trust, so Vercel's HTTPS calls break. It is not a CLI problem.
+
+Work around it by invoking the deploy without going through `pnpm run`:
+
+```bash
+bash scripts/vercel.sh deploy --prod --yes --archive=tgz   # or drop --prod for a preview
+```
+
+`scripts/vercel.sh` prefers a globally-installed `vercel` and falls back to
+`pnpm dlx vercel`. Install the global CLI once with `npm i -g vercel` (or
+`brew install vercel-cli`) if you don't have it.
+
 ## Notes
 
 - If checks fail, fix the issue before a gated deploy.
