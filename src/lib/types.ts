@@ -57,6 +57,10 @@ export interface Product {
   mockupUrl: string;
   /** Source artwork URL when `designs` row is joined — powers placement previews. */
   designImageUrl?: string;
+  /** True when the source design was uploaded as SVG before raster normalization. */
+  designUploadedAsSvg?: boolean;
+  /** Persisted alpha check; false often means opaque checker/solid backgrounds. */
+  designHasTransparency?: boolean | null;
   /** Saved zoom/pan/aspect per listing; fulfillment + thumbnails. */
   printPlacement?: StoredPrintPlacement | null;
   colors: string[];

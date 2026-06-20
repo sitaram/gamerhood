@@ -29,11 +29,12 @@ import {
   capRasterIfHuge,
   isSvgMime,
   rasterizeSvgForPrinting,
-  trimPrintMargins,
 } from "@/lib/print/normalize-upload";
-import { uploadDesignImage, decodeDesignDataUrl } from "@/lib/storage";
+import { uploadDesignAssetDerivatives, decodeDesignDataUrl } from "@/lib/storage";
 import { moderateImageBase64 } from "@/lib/moderation";
 import { detectDesignTransparencyFromAnySource } from "@/lib/print/transparency";
+import { detectBakedCheckerboard } from "@/lib/print/artifact-strip";
+import { BAKED_CHECKERBOARD_ERROR } from "@/lib/design/persist-upload";
 import { parseTagsInput, normalizeProductCategoryInput } from "@/lib/slug-utils";
 import { awardXp, pickXpToastPayload, type XpAwardResult } from "@/lib/xp/award";
 import {
@@ -119,10 +120,10 @@ export async function POST(request: NextRequest) {
     /** Per–product-type overrides; merged with `printPlacement` when inserting rows. */
     printPlacementsByType?: Record<string, unknown>;
     /**
-     * Which storefront to publish to. Optional — when omitted (or null)
-     * we resolve to the user's default storefront. Single-storefront
-     * users never see the picker, so this comes through unset for them.
+     * Which storefronts to publish to. Optional — when omitted we resolve
+     * to the user's default storefront.
      */
+    storefrontIds?: string[] | null;
     storefrontId?: string | null;
     /**
      * Per–product-type listing price in cents from the inline pricing
@@ -199,25 +200,39 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Resolve which storefront these listings attach to ──────────────
-    // The picker on `/create` only renders when there's more than one
-    // storefront; otherwise the client omits `storefrontId` and we fall
-    // back to the user's default. We re-verify ownership here so a
-    // hand-crafted POST can't publish into someone else's shop.
-    let storefrontId: string | null = null;
-    if (typeof body.storefrontId === "string" && body.storefrontId.length > 0) {
-      const requested = await getStorefrontById(supabase, body.storefrontId);
+    // ── Resolve which storefronts these listings attach to ─────────────
+    // Supports both `storefrontIds` (new) and `storefrontId` (legacy).
+    // Every id is ownership-verified server-side.
+    let storefrontIds: string[] = [];
+    if (Array.isArray(body.storefrontIds) && body.storefrontIds.length > 0) {
+      storefrontIds = Array.from(
+        new Set(
+          body.storefrontIds.filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          ),
+        ),
+      );
+    } else if (typeof body.storefrontId === "string" && body.storefrontId.length > 0) {
+      storefrontIds = [body.storefrontId];
+    } else {
+      const owned = await listStorefrontsByOwner(supabase, profileId);
+      const def = owned.find((s) => s.is_default) ?? owned[0] ?? null;
+      storefrontIds = def?.id ? [def.id] : [];
+    }
+    if (storefrontIds.length === 0) {
+      return NextResponse.json(
+        { error: "Create a storefront before publishing listings." },
+        { status: 400 },
+      );
+    }
+    for (const storefrontId of storefrontIds) {
+      const requested = await getStorefrontById(supabase, storefrontId);
       if (!requested || requested.owner_profile_id !== profileId) {
         return NextResponse.json(
           { error: "That storefront isn't yours to publish to." },
           { status: 403 },
         );
       }
-      storefrontId = requested.id;
-    } else {
-      const owned = await listStorefrontsByOwner(supabase, profileId);
-      const def = owned.find((s) => s.is_default) ?? owned[0] ?? null;
-      storefrontId = def?.id ?? null;
     }
 
     // ── Canonical image bytes for uploads: decode ALL data URLs (including
@@ -226,6 +241,7 @@ export async function POST(request: NextRequest) {
     // vector has alpha, Vision moderates raster pixels instead of bogus XML,
     // and oversized PNG/JPEG gets capped (never upscaled).
     let imageForPersist = imageUrl;
+    let sourceSvgDataUrl: string | null = null;
     let uploadedAsSvg = false;
 
     if (effectiveImageSource === "upload") {
@@ -262,6 +278,7 @@ export async function POST(request: NextRequest) {
       try {
         if (isSvgMime(uploadMime)) {
           uploadedAsSvg = true;
+          sourceSvgDataUrl = `data:image/svg+xml;base64,${uploadBytes.toString("base64")}`;
           uploadBytes = await rasterizeSvgForPrinting(uploadBytes);
           uploadMime = "image/png";
         } else {
@@ -269,9 +286,6 @@ export async function POST(request: NextRequest) {
           uploadBytes = capped.buffer;
           uploadMime = capped.mimeOut;
         }
-        const trimmed = await trimPrintMargins(uploadBytes, uploadMime);
-        uploadBytes = trimmed.buffer;
-        uploadMime = trimmed.mimeOut;
       } catch (err) {
         const tag = err instanceof Error ? err.message : "";
         console.error("[Publish] Upload normalization failed:", err);
@@ -280,6 +294,15 @@ export async function POST(request: NextRequest) {
             ? "Couldn't process this SVG — check that it's valid, or export as PNG."
             : "Couldn't process uploaded image.";
         return NextResponse.json({ error: msg }, { status: 400 });
+      }
+
+      try {
+        const { checker } = await detectBakedCheckerboard(uploadBytes);
+        if (checker) {
+          return NextResponse.json({ error: BAKED_CHECKERBOARD_ERROR }, { status: 400 });
+        }
+      } catch {
+        // If detection fails for any reason, don't block the publish.
       }
 
       imageForPersist = bytesToBase64DataUrl(uploadBytes, uploadMime);
@@ -350,7 +373,10 @@ export async function POST(request: NextRequest) {
     // forward so the storefront stops serving multi-MB data URLs.
     let publicImageUrl: string;
     try {
-      publicImageUrl = await uploadDesignImage(designId, imageForPersist);
+      const assets = await uploadDesignAssetDerivatives(designId, imageForPersist, {
+        sourceSvgDataUrl,
+      });
+      publicImageUrl = assets.printUrl;
     } catch (err) {
       console.error("[Publish] Storage upload failed:", err);
       return NextResponse.json(
@@ -536,7 +562,7 @@ export async function POST(request: NextRequest) {
       const { data: product, error: productErr } = await insertProduct(supabase, {
         design_id: designId,
         profile_id: profileId,
-        storefront_id: storefrontId,
+        storefront_id: storefrontIds[0] ?? null,
         title: `${designTitle} ${publishTypeTitle(productType)}`,
         description: shortDescription,
         product_type: productType,
@@ -563,6 +589,22 @@ export async function POST(request: NextRequest) {
           productType,
           message: productErr?.message ?? "could not insert product row",
         });
+        continue;
+      }
+
+      const { error: linkErr } = await supabase.from("product_storefronts").insert(
+        storefrontIds.map((storefrontId) => ({
+          product_id: product.id,
+          storefront_id: storefrontId,
+        })),
+      );
+      if (linkErr) {
+        console.error("[Publish] Product storefront links insert failed:", linkErr);
+        publishFailures.push({
+          productType,
+          message: "could not save storefront links",
+        });
+        await supabase.from("products").delete().eq("id", product.id);
         continue;
       }
 

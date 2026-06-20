@@ -32,29 +32,41 @@ export function toCreatorStorefrontNav(
 export function toManagedListings(
   products: ProductRow[],
   storefronts: StorefrontRow[],
+  storefrontIdsByProductId: Map<string, string[]> = new Map(),
 ): ManagedListingRow[] {
   const defaultStorefront =
     storefronts.find((s) => s.is_default) ?? storefronts[0] ?? null;
 
   return products.map((p) => {
-    // Legacy products (pre multi-storefront) have a null storefront_id.
-    // Treat them as living on the owner's default storefront so the badge
-    // and filter still resolve to a meaningful shop.
-    const resolvedStorefrontId = p.storefront_id ?? defaultStorefront?.id ?? null;
-    const storefront = storefronts.find((s) => s.id === resolvedStorefrontId) ?? null;
+    const linkedIds = storefrontIdsByProductId.get(p.id) ?? [];
+    const fallbackId = p.storefront_id ?? defaultStorefront?.id ?? null;
+    const resolvedStorefrontIds = linkedIds.length
+      ? linkedIds
+      : fallbackId
+        ? [fallbackId]
+        : [];
+    const resolvedStorefronts = resolvedStorefrontIds
+      .map((id) => storefronts.find((s) => s.id === id) ?? null)
+      .filter((s): s is StorefrontRow => Boolean(s));
     return {
       id: p.id,
+      designId: p.design_id,
       title: p.title,
       productType: p.product_type as ProductType,
       mockupUrl: p.mockup_url ?? null,
       designImageUrl: p.designs?.image_url ?? null,
+      designUploadedAsSvg: p.designs?.uploaded_as_svg ?? undefined,
+      designHasTransparency:
+        typeof p.designs?.has_transparency === "boolean"
+          ? p.designs.has_transparency
+          : null,
       priceCents: p.base_price_cents + p.markup_cents,
       isPublished: p.is_published,
       salesCount: p.sales_count ?? 0,
       createdAt: p.created_at,
-      storefrontId: resolvedStorefrontId,
-      storefrontSlug: storefront?.slug ?? null,
-      storefrontDisplayName: storefront?.display_name ?? null,
+      storefrontIds: resolvedStorefrontIds,
+      storefrontSlugs: resolvedStorefronts.map((s) => s.slug),
+      storefrontDisplayNames: resolvedStorefronts.map((s) => s.display_name),
       printPlacement: parseStoredPlacement(p.print_placement),
     };
   });

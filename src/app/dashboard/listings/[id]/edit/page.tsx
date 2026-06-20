@@ -5,6 +5,7 @@ import { ChevronLeft, ExternalLink } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
   getDefaultProfileForAuthUser,
+  listProductStorefrontIdsByProductIds,
   listStorefrontsByOwner,
   type ProductRow,
   type StorefrontRow,
@@ -116,8 +117,26 @@ export default async function EditListingPage({ params }: Props) {
   }
   const defaultStorefront =
     storefronts.find((s) => s.is_default) ?? storefronts[0] ?? null;
-  const resolvedStorefrontId =
-    product.storefront_id ?? defaultStorefront?.id ?? null;
+  let linkedStorefrontIds: string[] = [];
+  try {
+    const storefrontIdsByProductId = await listProductStorefrontIdsByProductIds(
+      supabase,
+      [product.id],
+    );
+    linkedStorefrontIds = storefrontIdsByProductId.get(product.id) ?? [];
+  } catch (err) {
+    console.warn("[edit-listing] storefront link lookup failed", {
+      productId: product.id,
+      err: err instanceof Error ? err.message : err,
+    });
+    linkedStorefrontIds = [];
+  }
+  const fallbackStorefrontId = product.storefront_id ?? defaultStorefront?.id ?? null;
+  const resolvedStorefrontIds = linkedStorefrontIds.length
+    ? linkedStorefrontIds
+    : fallbackStorefrontId
+      ? [fallbackStorefrontId]
+      : [];
 
   const productLabel =
     PRODUCT_TYPE_LABELS[product.product_type] || product.product_type;
@@ -128,7 +147,10 @@ export default async function EditListingPage({ params }: Props) {
     DEFAULT_STORED,
   );
   const designImageUrl = product.designs?.image_url ?? null;
-  const showRealMockup = hasRenderableListingMockup(
+  const previewDesignUrl = product.design_id
+    ? `/api/designs/${product.design_id}/image?v=${encodeURIComponent(product.created_at)}&pv=1`
+    : designImageUrl;
+  const showRealMockup = !previewDesignUrl && hasRenderableListingMockup(
     product.mockup_url,
     designImageUrl,
   );
@@ -212,8 +234,8 @@ export default async function EditListingPage({ params }: Props) {
       wholesaleCents: basis.wholesaleCents,
       shippingCents: basis.shippingCents,
       costBasisSource: basis.source,
-      mockupUrl: product.mockup_url ?? null,
-      designImageUrl,
+      mockupUrl: previewDesignUrl ? null : product.mockup_url ?? null,
+      designImageUrl: previewDesignUrl,
       printPlacement: placement,
     },
   ];
@@ -223,8 +245,8 @@ export default async function EditListingPage({ params }: Props) {
       id: product.id,
       title: product.title,
       productType: product.product_type as ProductType,
-      designImageUrl,
-      mockupUrl: product.mockup_url ?? null,
+      designImageUrl: previewDesignUrl,
+      mockupUrl: previewDesignUrl ? null : product.mockup_url ?? null,
       printPlacement: safeSync(
         "parseStoredPlacement(panel)",
         () => parseStoredPlacement(product.print_placement),
@@ -270,11 +292,13 @@ export default async function EditListingPage({ params }: Props) {
               className="object-cover"
               unoptimized
             />
-          ) : designImageUrl ? (
+          ) : previewDesignUrl ? (
             <MerchPlacementPreview
-              imageUrl={designImageUrl}
+              imageUrl={previewDesignUrl}
               productType={product.product_type as ProductType}
               placement={placement}
+              showPrintAreaFrame={false}
+              transparentBlankBackdrop
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-muted text-[10px] text-muted-foreground">
@@ -344,15 +368,15 @@ export default async function EditListingPage({ params }: Props) {
 
       {storefronts.length > 0 && (
         <section className="mt-12 border-t border-border/50 pt-10">
-          <h2 className="text-lg font-semibold">Storefront</h2>
+          <h2 className="text-lg font-semibold">Storefronts</h2>
           <p className="mt-1 mb-4 text-sm text-muted-foreground">
-            Choose which shop URL this listing appears on. Buyers only see it
-            on that storefront.
+            Choose which shop URLs this listing appears on. Buyers only see it
+            on the storefronts selected here.
           </p>
           <ListingStorefrontMover
             productId={product.id}
             storefronts={moverStorefronts}
-            currentStorefrontId={resolvedStorefrontId}
+            currentStorefrontIds={resolvedStorefrontIds}
           />
         </section>
       )}
@@ -366,12 +390,15 @@ export default async function EditListingPage({ params }: Props) {
       </section>
 
       <div className="mt-10">
-        <Link href="/dashboard/listings">
-          <Button variant="ghost" size="sm" className="gap-1">
-            <ChevronLeft className="h-4 w-4" />
-            Back to listings
-          </Button>
-        </Link>
+        <Button
+          render={<Link href="/dashboard/listings" />}
+          variant="ghost"
+          size="sm"
+          className="gap-1"
+        >
+          <ChevronLeft className="h-4 w-4" />
+          Back to listings
+        </Button>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { stripCheckerboardOnly } from "@/lib/print/artifact-strip";
 
 /** Longest edge px — comfortable for POD (Printful DTG prefers ~4500 px across). */
 const MAX_PRINT_DIMENSION = 4500;
@@ -90,6 +91,29 @@ export async function capRasterIfHuge(
   };
 }
 
+/**
+ * Remove only explicit checkerboard transparency artifacts.
+ *
+ * This is intentionally conservative: it keys off a strict 2-color alternating
+ * checker signature and leaves ordinary neutral/dark artwork untouched.
+ */
+export async function stripCheckerboardArtifacts(
+  input: Buffer,
+  mimeHint: string,
+): Promise<{ buffer: Buffer; mimeOut: string }> {
+  const base = baseMime(mimeHint);
+  if (!base.startsWith("image/") || base === "image/svg+xml") {
+    return { buffer: input, mimeOut: base };
+  }
+  try {
+    const cleaned = await stripCheckerboardOnly(input);
+    if (!cleaned.changed) return { buffer: input, mimeOut: base };
+    return { buffer: cleaned.buffer, mimeOut: "image/png" };
+  } catch {
+    return { buffer: input, mimeOut: base };
+  }
+}
+
 export function bytesToBase64DataUrl(bytes: Buffer, mimeType: string): string {
   const base = mimeType.split(";")[0].trim().toLowerCase();
   const allowed = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
@@ -98,10 +122,10 @@ export function bytesToBase64DataUrl(bytes: Buffer, mimeType: string): string {
 }
 
 /**
- * Remove uniform transparent or near-white margins before Printful sees the
- * file. Uploads with a small logo centered on a huge white square otherwise
- * print as an oversized solid rectangle — the #1 POD failure mode for
- * non-designer artwork.
+ * Remove only fully-transparent outer margins.
+ *
+ * This intentionally avoids color-key trimming (white/gray background removal),
+ * because that can delete real artwork in dark or neutral palettes.
  */
 export async function trimPrintMargins(
   input: Buffer,
@@ -118,24 +142,54 @@ export async function trimPrintMargins(
   }
 
   try {
-    const { data, info } = await sharp(input)
-      .trim({ threshold: 15 })
-      .toBuffer({ resolveWithObject: true });
-
-    const origW = meta.width;
-    const origH = meta.height;
-    const longEdge = Math.max(origW, origH);
-    const trimmedW = origW - info.width;
-    const trimmedH = origH - info.height;
-    /** Skip when margins are negligible — avoids touching edge-to-edge art. */
-    if (
-      trimmedW < longEdge * 0.02 &&
-      trimmedH < longEdge * 0.02
-    ) {
+    if (!meta.hasAlpha) {
       return { buffer: input, mimeOut: base };
     }
 
-    const pipeline = sharp(data);
+    const { data: alpha } = await sharp(input).ensureAlpha().extractChannel("alpha").raw().toBuffer({
+      resolveWithObject: true,
+    });
+
+    const width = meta.width;
+    const height = meta.height;
+    const n = width * height;
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let p = 0; p < n; p += 1) {
+      if (alpha[p] <= 0) continue;
+      const x = p % width;
+      const y = Math.floor(p / width);
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+
+    // Nothing visible after decode (or fully transparent): keep original bytes.
+    if (maxX < minX || maxY < minY) {
+      return { buffer: input, mimeOut: base };
+    }
+
+    const cropW = maxX - minX + 1;
+    const cropH = maxY - minY + 1;
+    const longEdge = Math.max(width, height);
+    const trimmedW = width - cropW;
+    const trimmedH = height - cropH;
+
+    // Skip negligible changes and fully edge-to-edge art.
+    if (trimmedW < longEdge * 0.02 && trimmedH < longEdge * 0.02) {
+      return { buffer: input, mimeOut: base };
+    }
+
+    const pipeline = sharp(input).extract({
+      left: minX,
+      top: minY,
+      width: cropW,
+      height: cropH,
+    });
     if (base === "image/png") {
       return {
         buffer: await pipeline.png({ compressionLevel: 9 }).toBuffer(),

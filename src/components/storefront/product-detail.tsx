@@ -2,9 +2,8 @@
 
 import { useMemo, useState, useEffect, useCallback } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -30,6 +29,7 @@ import {
 import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
 import { PhotographicColorMockup } from "@/components/storefront/photographic-color-mockup";
 import { DesignPrintSizeIndicator } from "@/components/create/design-print-size-indicator";
+import { cn } from "@/lib/utils";
 
 /** Lowercase + hyphenate + strip non-url-safe chars for QR PNG filenames. */
 function slugifyForFilename(input: string): string {
@@ -40,7 +40,15 @@ function slugifyForFilename(input: string): string {
     .slice(0, 40);
 }
 
-export function ProductDetail({ product, shareUrl }: { product: Product; shareUrl: string }) {
+export function ProductDetail({
+  product,
+  shareUrl,
+  showPreviewDebug = false,
+}: {
+  product: Product;
+  shareUrl: string;
+  showPreviewDebug?: boolean;
+}) {
   const [selectedColor, setSelectedColor] = useState(product.colors[0]);
   const [selectedSize, setSelectedSize] = useState(product.sizes?.[0] ?? "");
   const [quantity, setQuantity] = useState(1);
@@ -97,26 +105,37 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
 
   const creatorSlug = product.creator?.slug;
   const creatorName = product.creator?.displayName;
-  const backHref = creatorSlug ? `/shop/${creatorSlug}` : "/shop";
+  const creatorShopHref = creatorSlug ? `/shop/${creatorSlug}` : "/shop";
+  const backHref = creatorShopHref;
   const backLabel = creatorName ? `Back to ${creatorName}'s shop` : "Back to shop";
+  const previewDesignUrl = `/api/designs/${product.designId}/image?v=${encodeURIComponent(product.createdAt)}&pv=1&rev=20260608b`;
+  const previewProduct: Product = useMemo(
+    () => ({ ...product, designImageUrl: previewDesignUrl }),
+    [product, previewDesignUrl],
+  );
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-      <Link href={backHref}>
-        <Button variant="ghost" size="sm" className="mb-6 gap-2 text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" />
-          {backLabel}
-        </Button>
-      </Link>
+      <a
+        href={backHref}
+        className={cn(
+          buttonVariants({ variant: "ghost", size: "sm" }),
+          "relative z-20 mb-6 gap-2 text-muted-foreground hover:text-foreground",
+        )}
+      >
+        <ArrowLeft className="h-4 w-4" />
+        {backLabel}
+      </a>
 
       <div className="grid gap-8 lg:grid-cols-2">
         <Card className="overflow-hidden border-border/50 bg-card">
           <div className="relative aspect-square bg-muted">
             <ProductMockupImage
-              product={product}
+              product={previewProduct}
               isDefaultColor={isDefaultColor}
               swatch={selectedSwatch}
               selectedColor={selectedColor}
+              showPreviewDebug={showPreviewDebug}
             />
           </div>
         </Card>
@@ -124,11 +143,15 @@ export function ProductDetail({ product, shareUrl }: { product: Product; shareUr
         <div className="space-y-6">
           <div>
             {product.creator && (
-              <Link href={`/shop/${product.creator.slug}`}>
+              <a
+                href={creatorShopHref}
+                className="relative z-20 inline-flex"
+                aria-label={`View ${product.creator.displayName}'s shop`}
+              >
                 <Badge variant="outline" className="mb-3 border-primary/30 text-primary hover:bg-primary/10">
                   by {product.creator.displayName}
                 </Badge>
-              </Link>
+              </a>
             )}
             <h1 className="text-3xl font-bold">{product.title}</h1>
             <p className="mt-2 text-muted-foreground">{product.description}</p>
@@ -376,8 +399,28 @@ function MockupBlankLayer({
   } | null;
   onReady: (id: string) => void;
 }) {
-  const markReady = useCallback(() => onReady(layerId), [layerId, onReady]);
-  useImageReady(photoUrl, markReady);
+  const [photoReady, setPhotoReady] = useState(false);
+  const [designReady, setDesignReady] = useState(false);
+  const designUrl = product.designImageUrl ?? undefined;
+  const hasDesign = Boolean(designUrl);
+
+  useEffect(() => {
+    setPhotoReady(false);
+    setDesignReady(!hasDesign);
+  }, [layerId, hasDesign, designUrl, photoUrl]);
+
+  const markPhotoReady = useCallback(() => setPhotoReady(true), []);
+  const markDesignReady = useCallback(() => setDesignReady(true), []);
+
+  useImageReady(photoUrl, markPhotoReady);
+  useImageReady(designUrl, markDesignReady);
+
+  useEffect(() => {
+    if (photoReady && designReady) {
+      onReady(layerId);
+    }
+  }, [photoReady, designReady, layerId, onReady]);
+
   return (
     <PhotographicColorMockup
       product={product}
@@ -385,7 +428,8 @@ function MockupBlankLayer({
       colorName={colorName}
       printAreaInches={printAreaInches}
       printAreaPixelRect={printAreaPixelRect}
-      onPhotoLoad={markReady}
+      onPhotoLoad={markPhotoReady}
+      onDesignLoad={markDesignReady}
     />
   );
 }
@@ -422,15 +466,21 @@ function ProductMockupImage({
   isDefaultColor,
   swatch,
   selectedColor,
+  showPreviewDebug = false,
 }: {
   product: Product;
   isDefaultColor: boolean;
   swatch: ColorSwatch;
   selectedColor: string;
+  showPreviewDebug?: boolean;
 }) {
-  const canRenderMockup = hasRenderableListingMockup(
+  const canRenderStoredMockup = hasRenderableListingMockup(
     product.mockupUrl,
     product.designImageUrl,
+    {
+      designUploadedAsSvg: product.designUploadedAsSvg,
+      designHasTransparency: product.designHasTransparency ?? null,
+    },
   );
   const hasDesign = !!product.designImageUrl?.trim();
 
@@ -458,7 +508,12 @@ function ProductMockupImage({
         colorLabel: selectedColor,
       };
     }
-    if (isDefaultColor && canRenderMockup) {
+    /**
+     * Stored listing mockups may include legacy overlay artifacts (dashed
+     * print guides / checker backgrounds). On storefront surfaces we prefer
+     * live blank-photo composition when design bytes are available.
+     */
+    if (!hasDesign && isDefaultColor && canRenderStoredMockup) {
       return {
         id: `mockup::${product.mockupUrl}`,
         kind: "mockup",
@@ -480,7 +535,7 @@ function ProductMockupImage({
     return null;
   }, [
     isDefaultColor,
-    canRenderMockup,
+    canRenderStoredMockup,
     hasDesign,
     blankPhotoUrl,
     blankLoading,
@@ -496,7 +551,7 @@ function ProductMockupImage({
    * `<img>`. Starting at `loaded: true` keeps it opaque through hydration.
    */
   const [layers, setLayers] = useState<MockupLayer[]>(() =>
-    target ? [{ ...target, loaded: true }] : [],
+    target ? [{ ...target, loaded: target.kind !== "blank" }] : [],
   );
 
   /**
@@ -512,7 +567,7 @@ function ProductMockupImage({
   if (target && target.id !== prevTargetId) {
     setPrevTargetId(target.id);
     setLayers((prev) => {
-      if (prev.length === 0) return [{ ...target, loaded: true }];
+      if (prev.length === 0) return [{ ...target, loaded: target.kind !== "blank" }];
       const top = prev[prev.length - 1];
       if (top.id === target.id) return prev;
       /** Drop an unloaded top (a layer the user clicked past before it ever painted). */
@@ -561,6 +616,8 @@ function ProductMockupImage({
           imageUrl={product.designImageUrl}
           productType={product.productType}
           placement={product.printPlacement ?? DEFAULT_STORED}
+          showPrintAreaFrame={false}
+          transparentBlankBackdrop
         />
       );
     }
@@ -573,14 +630,34 @@ function ProductMockupImage({
 
   /** Subtle hint while a color's blank is actively warming (any swatch). */
   const showLoadingHint = hasDesign && blankLoading && !blankPhotoUrl;
+  const topLayer = layers[layers.length - 1];
+  const showDesignWarmHint =
+    hasDesign && topLayer?.kind === "blank" && !topLayer.loaded;
+  const designSourceTag = (() => {
+    const src = product.designImageUrl ?? "";
+    if (!src) return "none";
+    if (src.includes("/api/designs/")) return "design-api";
+    if (src.includes("/storage/v1/object/public/design-images/")) return "raw-storage";
+    return "other";
+  })();
+  const layerTag = topLayer?.kind ?? "none";
 
   return (
     <div className="relative h-full w-full">
       {layers.map((layer, i) => {
         const isTop = i === layers.length - 1;
-        /** Lower layers stay opaque so they remain visible behind the fading-in top layer. */
+        /**
+         * Keep single-layer blanks hidden until both garment + design decode,
+         * so we don't flash a naked shirt before the art arrives.
+         */
         const opacity =
-          layer.loaded || layers.length === 1 ? 1 : isTop ? 0 : 1;
+          layers.length === 1
+            ? layer.loaded
+              ? 1
+              : 0
+            : layer.loaded || !isTop
+              ? 1
+              : 0;
         return (
           <div
             key={layer.id}
@@ -622,6 +699,18 @@ function ProductMockupImage({
           <span className="rounded-full bg-background/80 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
             Loading high-res preview…
           </span>
+        </div>
+      )}
+      {showDesignWarmHint && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+          <span className="rounded-full bg-background/80 px-3 py-1 text-xs text-muted-foreground backdrop-blur">
+            Loading design preview…
+          </span>
+        </div>
+      )}
+      {showPreviewDebug && (
+        <div className="pointer-events-none absolute left-2 top-2 z-20 rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-white">
+          {`design:${designSourceTag} layer:${layerTag}`}
         </div>
       )}
     </div>

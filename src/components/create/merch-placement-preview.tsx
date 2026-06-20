@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import { MerchGarmentSilhouette } from "@/components/create/merch-garment-silhouette";
@@ -25,23 +26,49 @@ export function MerchPlacementPreview({
   imageUrl,
   productType,
   placement,
+  blankColorName,
+  showPrintAreaFrame = true,
+  transparentBlankBackdrop = false,
   className,
 }: {
   imageUrl: string;
   productType: ProductType;
   placement: StoredPrintPlacement;
+  /** Optional preferred blank color (e.g. "Black") for catalog-photo previews. */
+  blankColorName?: string | null;
+  /** Draw the dashed print-area guide (editing/tuning surfaces). */
+  showPrintAreaFrame?: boolean;
+  /** Use transparent backdrop behind blank photos (storefront surfaces). */
+  transparentBlankBackdrop?: boolean;
   className?: string;
 }) {
   const baseLayout = getMerchPreviewLayout(productType);
-  const {
-    url: blankPhotoUrl,
-    loading: blankLoading,
-    area: liveArea,
-    pixelRect: blankPixelRect,
-  } = usePrintfulBlankPhoto(productType);
-  const layout = blankPhotoUrl && baseLayout.photoBand
-    ? { ...baseLayout, ...baseLayout.photoBand }
-    : baseLayout;
+  const preferredBlank = usePrintfulBlankPhoto(productType, blankColorName);
+  const defaultBlank = usePrintfulBlankPhoto(productType);
+  const [failedUrls, setFailedUrls] = useState<Record<string, true>>({});
+
+  const preferredUrl =
+    blankColorName && preferredBlank.url && !failedUrls[preferredBlank.url]
+      ? preferredBlank.url
+      : null;
+  const defaultUrl =
+    defaultBlank.url && !failedUrls[defaultBlank.url] ? defaultBlank.url : null;
+
+  const usingPreferredBlank = Boolean(preferredUrl);
+  const activeBlank = usingPreferredBlank ? preferredBlank : defaultBlank;
+  const blankPhotoUrl = preferredUrl ?? defaultUrl;
+  const blankLoading = !blankPhotoUrl && (preferredBlank.loading || defaultBlank.loading);
+  const liveArea = activeBlank.area;
+  const blankPixelRect = activeBlank.pixelRect;
+  const blankBackdropColor = activeBlank.backdropColor;
+  const layout = blankPixelRect
+    ? {
+        ...baseLayout,
+        garmentAspect: blankPixelRect.mockupWidthPx / blankPixelRect.mockupHeightPx,
+      }
+    : blankPhotoUrl && baseLayout.photoBand
+      ? { ...baseLayout, ...baseLayout.photoBand }
+      : baseLayout;
 
   const overlay = computeDesignOverlayBox({
     productType,
@@ -80,7 +107,12 @@ export function MerchPlacementPreview({
       {!layout.showGarment ? (
         <div className="flex h-full w-full items-center justify-center p-2">
           <div
-            className="relative w-[88%] overflow-hidden rounded-md border border-dashed border-primary/50 bg-muted/40 shadow-inner"
+            className={cn(
+              "relative w-[88%] overflow-hidden rounded-md",
+              showPrintAreaFrame
+                ? "border border-dashed border-primary/50 bg-muted/40 shadow-inner"
+                : "border-0 bg-transparent shadow-none",
+            )}
             style={{ aspectRatio: overlay.band.aspectRatio }}
           >
             <div className="relative h-full w-full">{renderArtwork(1)}</div>
@@ -94,7 +126,14 @@ export function MerchPlacementPreview({
           >
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-1 sm:p-2">
               {blankPhotoUrl ? (
-                <div className="relative h-full w-full">
+                <div
+                  className="relative h-full w-full overflow-hidden"
+                  style={{
+                    backgroundColor: transparentBlankBackdrop
+                      ? "transparent"
+                      : blankBackdropColor ?? "#ffffff",
+                  }}
+                >
                   <Image
                     src={blankPhotoUrl}
                     alt=""
@@ -103,11 +142,25 @@ export function MerchPlacementPreview({
                     className="object-contain"
                     unoptimized
                     draggable={false}
+                    onError={() => {
+                      setFailedUrls((prev) => ({ ...prev, [blankPhotoUrl]: true }));
+                    }}
                   />
                 </div>
               ) : blankLoading ? (
-                /** Hold a neutral frame while the Printful blank warms — avoids silhouette flash. */
-                <div className="h-full w-full animate-pulse rounded-md bg-muted/50" />
+                /**
+                 * Show immediate silhouette + artwork while Printful blank warms.
+                 * This avoids long "empty card" waits on first storefront loads.
+                 */
+                <div
+                  style={{
+                    width: "min(88%, 260px)",
+                    aspectRatio: `${layout.garmentAspect}`,
+                    maxHeight: "94%",
+                  }}
+                >
+                  <MerchGarmentSilhouette type={productType} className="block h-full w-full text-foreground" />
+                </div>
               ) : (
                 <div
                   style={{
@@ -121,41 +174,74 @@ export function MerchPlacementPreview({
               )}
             </div>
 
-            <div
-              className={
-                overlay.band.leftPct != null
-                  ? "pointer-events-none absolute flex items-center justify-center"
-                  : "pointer-events-none absolute left-1 right-1 flex items-center justify-center sm:left-2 sm:right-2"
-              }
-              style={{
-                top: `${overlay.band.topPct}%`,
-                bottom: `${overlay.band.bottomPct}%`,
-                ...(overlay.band.leftPct != null
-                  ? {
-                      left: `${overlay.band.leftPct}%`,
-                      width: `${overlay.band.widthPct}%`,
-                    }
-                  : {}),
-              }}
-            >
+            {showPrintAreaFrame ? (
               <div
-                className="relative max-h-full overflow-visible rounded-sm border border-dashed border-primary/70 ring-1 ring-background/60"
+                className={
+                  overlay.band.leftPct != null
+                    ? "pointer-events-none absolute flex items-center justify-center"
+                    : "pointer-events-none absolute left-1 right-1 flex items-center justify-center sm:left-2 sm:right-2"
+                }
                 style={{
-                  aspectRatio: overlay.band.aspectRatio,
-                  width:
-                    overlay.band.leftPct != null
-                      ? "100%"
-                      : `${overlay.band.widthPct}%`,
+                  top: `${overlay.band.topPct}%`,
+                  bottom: `${overlay.band.bottomPct}%`,
+                  ...(overlay.band.leftPct != null
+                    ? {
+                        left: `${overlay.band.leftPct}%`,
+                        width: `${overlay.band.widthPct}%`,
+                      }
+                    : {}),
                 }}
               >
-                <div className="pointer-events-none absolute inset-0">
-                  {renderArtwork(0.3)}
-                </div>
-                <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-sm">
-                  {renderArtwork(1)}
+                <div
+                  className="relative max-h-full overflow-visible rounded-sm border border-dashed border-primary/70 ring-1 ring-background/60"
+                  style={{
+                    aspectRatio: overlay.band.aspectRatio,
+                    width:
+                      overlay.band.leftPct != null
+                        ? "100%"
+                        : `${overlay.band.widthPct}%`,
+                  }}
+                >
+                  <div className="pointer-events-none absolute inset-0">
+                    {renderArtwork(0.3)}
+                  </div>
+                  <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-sm">
+                    {renderArtwork(1)}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div
+                className={
+                  overlay.band.leftPct != null
+                    ? "pointer-events-none absolute flex items-center justify-center"
+                    : "pointer-events-none absolute left-1 right-1 flex items-center justify-center sm:left-2 sm:right-2"
+                }
+                style={{
+                  top: `${overlay.band.topPct}%`,
+                  bottom: `${overlay.band.bottomPct}%`,
+                  ...(overlay.band.leftPct != null
+                    ? {
+                        left: `${overlay.band.leftPct}%`,
+                        width: `${overlay.band.widthPct}%`,
+                      }
+                    : {}),
+                }}
+              >
+                <div
+                  className="relative max-h-full"
+                  style={{
+                    aspectRatio: overlay.band.aspectRatio,
+                    width:
+                      overlay.band.leftPct != null
+                        ? "100%"
+                        : `${overlay.band.widthPct}%`,
+                  }}
+                >
+                  <div className="pointer-events-none absolute inset-0">{renderArtwork(1)}</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

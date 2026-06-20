@@ -20,10 +20,10 @@ export function TransparencyStatus({
         <div className="flex items-start gap-2">
           <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <p>
-            <strong className="font-semibold">Transparency detected.</strong> The checkerboard
-            area is just preview context and will not print.
+            <strong className="font-semibold">Transparent background detected.</strong> Empty areas
+            around your artwork will not print — only the visible design will appear on the product.
             {uploadedAsSvg
-              ? " We still rasterize SVG before fulfillment, so tiny edge details can shift slightly."
+              ? " SVG files are converted to a print-ready image before fulfillment, so very fine edges can shift slightly."
               : ""}
           </p>
         </div>
@@ -40,8 +40,10 @@ export function TransparencyStatus({
         <div className="flex items-start gap-2">
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <p>
-            <strong className="font-semibold">No transparency detected.</strong> Any visible
-            background in this file will print.
+            <strong className="font-semibold">No transparent background detected.</strong>{" "}
+            {uploadedAsSvg
+              ? "This SVG will print as a solid rectangle — any background color, checker pattern, or empty margin baked into the file will show on the product. Re-export with a real transparent background if you only want the artwork."
+              : "Any visible background in this file will print on the product."}
           </p>
         </div>
       </div>

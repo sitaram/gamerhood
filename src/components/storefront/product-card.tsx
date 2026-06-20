@@ -9,6 +9,7 @@ import { MerchPlacementPreview } from "@/components/create/merch-placement-previ
 import { DEFAULT_STORED } from "@/lib/print/placement";
 import {
   hasRenderableListingMockup,
+  formatProductTypeLabel,
   PRODUCT_TYPE_LABELS,
 } from "@/components/storefront/product-card-utils";
 
@@ -27,9 +28,21 @@ interface ProductCardProps {
 export { hasRenderableListingMockup, PRODUCT_TYPE_LABELS };
 
 export function ProductCard({ product }: ProductCardProps) {
+  const previewDesignUrl = `/api/designs/${product.designId}/image?v=${encodeURIComponent(product.createdAt)}&pv=1&rev=20260608b`;
+  const hasDesignImage = Boolean(product.designId);
+  const defaultColor = product.colors[0] ?? null;
+  /**
+   * Storefront grid should paint instantly: when a publish-time mockup exists,
+   * prefer it over live client-side composition (which waits on blank-photo +
+   * sanitized design fetches and can look like a plain garment for seconds).
+   */
   const showRealMockup = hasRenderableListingMockup(
     product.mockupUrl,
     product.designImageUrl,
+    {
+      designUploadedAsSvg: product.designUploadedAsSvg,
+      designHasTransparency: product.designHasTransparency ?? null,
+    },
   );
 
   return (
@@ -45,11 +58,14 @@ export function ProductCard({ product }: ProductCardProps) {
               className="object-cover transition-transform duration-300 group-hover:scale-105"
               unoptimized
             />
-          ) : product.designImageUrl?.trim() ? (
+          ) : hasDesignImage ? (
             <MerchPlacementPreview
-              imageUrl={product.designImageUrl}
+              imageUrl={previewDesignUrl}
               productType={product.productType}
               placement={product.printPlacement ?? DEFAULT_STORED}
+              blankColorName={defaultColor}
+              showPrintAreaFrame={false}
+              transparentBlankBackdrop
               className="transition-transform duration-300 group-hover:scale-[1.02]"
             />
           ) : (
@@ -62,7 +78,7 @@ export function ProductCard({ product }: ProductCardProps) {
             <ShoppingCart className="h-4 w-4" />
           </div>
           <Badge className="absolute top-3 left-3 bg-background/80 text-foreground border-0 text-xs">
-            {PRODUCT_TYPE_LABELS[product.productType] || product.productType}
+            {formatProductTypeLabel(product.productType)}
           </Badge>
           {product.category && (
             <Badge

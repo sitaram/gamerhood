@@ -27,7 +27,11 @@ type ProductRowWithProfile = {
   print_placement?: unknown | null;
   printful_catalog_product_id?: number | null;
   printful_catalog_meta?: unknown;
-  designs?: { image_url: string } | null;
+  designs?: {
+    image_url: string;
+    uploaded_as_svg?: boolean | null;
+    has_transparency?: boolean | null;
+  } | null;
   profiles?: {
     id: string;
     display_name: string;
@@ -49,7 +53,7 @@ const PRODUCT_LISTING_SELECT = `
   profiles (
     id, display_name, slug, avatar_url, bio, level, xp
   ),
-  designs ( image_url )
+  designs ( image_url, uploaded_as_svg, has_transparency )
 `;
 
 /** Checkout + PDP — Stripe Connect IDs live on parents. */
@@ -59,7 +63,7 @@ const PRODUCT_WITH_CREATOR_SELECT = `
     id, display_name, slug, avatar_url, bio, level, xp,
     parents ( stripe_connect_id, stripe_onboarding_complete )
   ),
-  designs ( image_url )
+  designs ( image_url, uploaded_as_svg, has_transparency )
 `;
 
 function parsePrintfulCatalogMeta(raw: unknown): PrintfulCatalogMeta | undefined {
@@ -123,6 +127,11 @@ function mapProductRow(row: ProductRowWithProfile): Product {
     printfulCatalogMeta: parsePrintfulCatalogMeta(row.printful_catalog_meta),
     creatorStripeAccountId,
     designImageUrl: row.designs?.image_url ?? undefined,
+    designUploadedAsSvg: row.designs?.uploaded_as_svg ?? undefined,
+    designHasTransparency:
+      typeof row.designs?.has_transparency === "boolean"
+        ? row.designs.has_transparency
+        : null,
     printPlacement: parseStoredPlacement(row.print_placement),
   };
 }
@@ -242,6 +251,8 @@ export interface ProductRow {
    * to the owner's default storefront when this is null.
    */
   storefront_id?: string | null;
+  /** Join-table links for multi-storefront listings. */
+  product_storefronts?: { storefront_id: string }[] | null;
   /**
    * Joined columns from `designs` — present when the SELECT requested
    * them. `has_transparency` is populated for designs created after
@@ -296,7 +307,7 @@ export async function getProductsByProfile(supabase: SupabaseClient, profileId: 
     .select(
       `
       *,
-      designs ( image_url )
+      designs ( image_url, uploaded_as_svg, has_transparency )
     `,
     )
     .eq("profile_id", profileId)
@@ -362,12 +373,7 @@ export async function getPublishedProductsForBrowse(
   productType: ProductType,
   limit = 200,
 ): Promise<Product[]> {
-  const cat = categorySlug
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
+  const cat = normalizeBrowseCategorySlugInput(categorySlug);
   if (!cat) return [];
 
   const q = () =>
@@ -387,9 +393,30 @@ export async function getPublishedProductsForBrowse(
     .order("created_at", { ascending: false })
     .limit(limit);
 
+  return mergeBrowseProductsByCategoryAndTag(
+    (byCategory ?? []) as ProductRowWithProfile[],
+    (byTag ?? []) as ProductRowWithProfile[],
+    limit,
+  );
+}
+
+function normalizeBrowseCategorySlugInput(categorySlug: string): string {
+  return categorySlug
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function mergeBrowseProductsByCategoryAndTag(
+  byCategory: ProductRowWithProfile[] | null,
+  byTag: ProductRowWithProfile[] | null,
+  limit: number,
+): Product[] {
   const seen = new Set<string>();
   const merged: ProductRowWithProfile[] = [];
-  for (const row of [...(byCategory ?? []), ...(byTag ?? [])] as ProductRowWithProfile[]) {
+  for (const row of [...(byCategory ?? []), ...(byTag ?? [])]) {
     if (seen.has(row.id)) continue;
     seen.add(row.id);
     merged.push(row);
@@ -398,7 +425,41 @@ export async function getPublishedProductsForBrowse(
     (a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
   );
-  return merged.map(mapProductRow);
+  return merged.slice(0, limit).map(mapProductRow);
+}
+
+/**
+ * Published products for `/{tag}/merch` — any product type where category or tags match the slug.
+ */
+export async function getPublishedProductsForBrowseMerchHub(
+  supabase: SupabaseClient,
+  categorySlug: string,
+  limit = 200,
+): Promise<Product[]> {
+  const cat = normalizeBrowseCategorySlugInput(categorySlug);
+  if (!cat) return [];
+
+  const q = () =>
+    supabase
+      .from("products")
+      .select(PRODUCT_LISTING_SELECT)
+      .eq("is_published", true);
+
+  const { data: byCategory } = await q()
+    .eq("category", cat)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  const { data: byTag } = await q()
+    .contains("tags", [cat])
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  return mergeBrowseProductsByCategoryAndTag(
+    (byCategory ?? []) as ProductRowWithProfile[],
+    (byTag ?? []) as ProductRowWithProfile[],
+    limit,
+  );
 }
 
 // ── Browse categories (SEO landing `/{slug}/{merch}`) ────────────────────────
@@ -411,6 +472,7 @@ export interface BrowseCategoryRow {
   seo_description: string | null;
   keywords: string[] | null;
   created_by: string;
+  is_platform: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -835,6 +897,44 @@ export async function listStorefrontsByOwner(
 }
 
 /**
+ * Read storefront links for a batch of products.
+ * Returns product_id -> [storefront_id, ...].
+ */
+export async function listProductStorefrontIdsByProductIds(
+  supabase: SupabaseClient,
+  productIds: string[],
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  const ids = Array.from(
+    new Set(productIds.filter((id): id is string => typeof id === "string" && id.length > 0)),
+  );
+  if (ids.length === 0) return map;
+
+  let data: { product_id: string; storefront_id: string }[] | null = null;
+  try {
+    const res = await supabase
+      .from("product_storefronts")
+      .select("product_id, storefront_id")
+      .in("product_id", ids);
+    if (res.error || !res.data) return map;
+    data = res.data as { product_id: string; storefront_id: string }[];
+  } catch (err) {
+    console.warn("[listProductStorefrontIdsByProductIds] lookup failed", {
+      count: ids.length,
+      err: err instanceof Error ? err.message : err,
+    });
+    return map;
+  }
+
+  for (const row of data) {
+    const next = map.get(row.product_id) ?? [];
+    next.push(row.storefront_id);
+    map.set(row.product_id, next);
+  }
+  return map;
+}
+
+/**
  * Look up a storefront by its public slug. Storefronts are world-readable
  * (RLS policy `storefronts_public_read`) so any caller — signed-in or not
  * — gets a row when one exists.
@@ -882,12 +982,30 @@ export async function countProductsByStorefront(
   supabase: SupabaseClient,
   storefrontId: string,
 ): Promise<number> {
-  const { count, error } = await supabase
-    .from("products")
-    .select("id", { count: "exact", head: true })
+  const { data: links, error: linkErr } = await supabase
+    .from("product_storefronts")
+    .select("product_id")
     .eq("storefront_id", storefrontId);
-  if (error) return 0;
-  return count ?? 0;
+  if (linkErr) return 0;
+
+  const linkedIds = new Set(
+    (links ?? [])
+      .map((r) => (r as { product_id?: string }).product_id ?? "")
+      .filter((id) => id.length > 0),
+  );
+
+  const { data: legacyRows, error: legacyErr } = await supabase
+    .from("products")
+    .select("id")
+    .eq("storefront_id", storefrontId);
+  if (legacyErr) return linkedIds.size;
+
+  let legacyOnly = 0;
+  for (const row of legacyRows ?? []) {
+    const id = (row as { id?: string }).id ?? "";
+    if (id && !linkedIds.has(id)) legacyOnly += 1;
+  }
+  return linkedIds.size + legacyOnly;
 }
 
 /**
@@ -902,19 +1020,54 @@ export async function getPublishedProductsByStorefront(
   ownerProfileId: string,
   isDefault: boolean,
 ): Promise<Product[]> {
-  const { data: linked, error: linkedErr } = await supabase
+  const rows: ProductRowWithProfile[] = [];
+  const seen = new Set<string>();
+
+  const { data: links, error: linksErr } = await supabase
+    .from("product_storefronts")
+    .select("product_id")
+    .eq("storefront_id", storefrontId);
+  if (linksErr) {
+    console.error("[getPublishedProductsByStorefront.links]", storefrontId, linksErr);
+  }
+
+  const linkedProductIds = Array.from(
+    new Set(
+      (links ?? [])
+        .map((r) => (r as { product_id?: string }).product_id ?? "")
+        .filter((id) => id.length > 0),
+    ),
+  );
+  if (linkedProductIds.length > 0) {
+    const { data: linkedRows, error: linkedErr } = await supabase
+      .from("products")
+      .select(PRODUCT_LISTING_SELECT)
+      .in("id", linkedProductIds)
+      .eq("is_published", true)
+      .order("created_at", { ascending: false });
+    if (linkedErr) {
+      console.error("[getPublishedProductsByStorefront.products]", storefrontId, linkedErr);
+    } else {
+      for (const row of (linkedRows ?? []) as unknown as ProductRowWithProfile[]) {
+        rows.push(row);
+        seen.add(row.id);
+      }
+    }
+  }
+
+  // Legacy fallback while rows migrate to `product_storefronts`.
+  const { data: legacyLinked } = await supabase
     .from("products")
     .select(PRODUCT_LISTING_SELECT)
     .eq("storefront_id", storefrontId)
     .eq("is_published", true)
     .order("created_at", { ascending: false });
-
-  if (linkedErr) {
-    console.error("[getPublishedProductsByStorefront]", storefrontId, linkedErr);
+  for (const row of (legacyLinked ?? []) as unknown as ProductRowWithProfile[]) {
+    if (!seen.has(row.id)) {
+      rows.push(row);
+      seen.add(row.id);
+    }
   }
-
-  const rows: ProductRowWithProfile[] =
-    (linked ?? []) as unknown as ProductRowWithProfile[];
 
   if (isDefault) {
     const { data: legacy } = await supabase
@@ -926,9 +1079,11 @@ export async function getPublishedProductsByStorefront(
       .order("created_at", { ascending: false });
 
     if (legacy) {
-      const seen = new Set(rows.map((r) => r.id));
       for (const row of legacy as unknown as ProductRowWithProfile[]) {
-        if (!seen.has(row.id)) rows.push(row);
+        if (!seen.has(row.id)) {
+          rows.push(row);
+          seen.add(row.id);
+        }
       }
     }
   }

@@ -3,20 +3,24 @@ import {
   capRasterIfHuge,
   isSvgMime,
   rasterizeSvgForPrinting,
-  trimPrintMargins,
 } from "@/lib/print/normalize-upload";
 import { decodeDesignDataUrl } from "@/lib/storage";
 import { moderateImageBase64 } from "@/lib/moderation";
 import { detectDesignTransparencyFromAnySource } from "@/lib/print/transparency";
+import { detectBakedCheckerboard } from "@/lib/print/artifact-strip";
+
+export const BAKED_CHECKERBOARD_ERROR =
+  "This image has the transparency checkerboard baked into it, so it can't be shown cleanly on products. Re-export your artwork with a real transparent background (a PNG with transparency, or an SVG without the checker) and upload again.";
 
 export type NormalizedUpload = {
   imageForPersist: string;
+  sourceSvgDataUrl?: string | null;
   uploadedAsSvg: boolean;
   hasTransparency: boolean | null;
 };
 
 /**
- * Decode, normalize, trim, and moderate an inline upload data URL.
+ * Decode, normalize, and moderate an inline upload data URL.
  * Shared by the library-save endpoint and publish so uploads land in
  * Storage with identical bytes in both paths.
  */
@@ -64,6 +68,7 @@ export async function normalizeUploadedDesignDataUrl(
 
   let uploadBytes = decoded.bytes;
   let uploadMime = decoded.mimeType.split(";")[0].trim().toLowerCase();
+  let sourceSvgDataUrl: string | null = null;
   let uploadedAsSvg = false;
 
   const allowedUpload = /^image\/(png|jpeg|webp|gif|svg\+xml)$/;
@@ -78,6 +83,7 @@ export async function normalizeUploadedDesignDataUrl(
   try {
     if (isSvgMime(uploadMime)) {
       uploadedAsSvg = true;
+      sourceSvgDataUrl = `data:image/svg+xml;base64,${uploadBytes.toString("base64")}`;
       uploadBytes = await rasterizeSvgForPrinting(uploadBytes);
       uploadMime = "image/png";
     } else {
@@ -85,9 +91,6 @@ export async function normalizeUploadedDesignDataUrl(
       uploadBytes = capped.buffer;
       uploadMime = capped.mimeOut;
     }
-    const trimmed = await trimPrintMargins(uploadBytes, uploadMime);
-    uploadBytes = trimmed.buffer;
-    uploadMime = trimmed.mimeOut;
   } catch (err) {
     const tag = err instanceof Error ? err.message : "";
     const msg =
@@ -95,6 +98,15 @@ export async function normalizeUploadedDesignDataUrl(
         ? "Couldn't process this SVG — check that it's valid, or export as PNG."
         : "Couldn't process uploaded image.";
     return { ok: false, status: 400, error: msg };
+  }
+
+  try {
+    const { checker } = await detectBakedCheckerboard(uploadBytes);
+    if (checker) {
+      return { ok: false, status: 400, error: BAKED_CHECKERBOARD_ERROR };
+    }
+  } catch {
+    // If detection fails for any reason, don't block the upload.
   }
 
   const imageForPersist = bytesToBase64DataUrl(uploadBytes, uploadMime);
@@ -114,6 +126,7 @@ export async function normalizeUploadedDesignDataUrl(
     ok: true,
     value: {
       imageForPersist,
+      sourceSvgDataUrl,
       uploadedAsSvg,
       hasTransparency: transparency ? transparency.transparent : null,
     },

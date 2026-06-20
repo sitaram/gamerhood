@@ -11,9 +11,11 @@
 // using the service-role client so we don't have to expose a storage policy
 // to the browser bundle.
 
+import sharp from "sharp";
 import { getServiceClient } from "@/lib/supabase/admin";
 
 const BUCKET = "design-images";
+const DESIGN_ASSETS_PREFIX = "design-assets";
 
 /**
  * Returns true when Storage uploads are usable (service-role configured).
@@ -69,7 +71,7 @@ export function decodeDesignDataUrl(input: string): DecodedDesignDataUrl | null 
 
   try {
     // UTF-8 or percent-encoded (SVG/XML text common here)
-    const decoded = decodeURIComponent(rawData.replace(/\+/g, "%20"));
+    const decoded = decodeURIComponent(rawData);
     const bytes = Buffer.from(decoded, "utf8");
     return { bytes, mimeType, extension };
   } catch {
@@ -89,6 +91,92 @@ function decodeOrThrow(input: string): DataUrlPayload {
     throw new Error("decodeDesignImage: unrecognized data URL (need base64 or UTF-8 data: URL)");
   }
   return d;
+}
+
+function publicUrlForPath(path: string): string {
+  const supabase = getServiceClient();
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  if (!data?.publicUrl) {
+    throw new Error(`No public URL returned for ${path}`);
+  }
+  return data.publicUrl;
+}
+
+async function uploadStorageBytes(
+  path: string,
+  bytes: Buffer,
+  contentType: string,
+): Promise<string> {
+  const supabase = getServiceClient();
+  const { error } = await supabase.storage.from(BUCKET).upload(path, bytes, {
+    contentType,
+    upsert: true,
+  });
+  if (error) {
+    throw new Error(`Storage upload failed for ${path}: ${error.message}`);
+  }
+  return publicUrlForPath(path);
+}
+
+export function getDesignAssetPublicUrl(
+  designId: string,
+  kind: "source" | "preview" | "print",
+): string {
+  const ext = kind === "source" ? "svg" : "png";
+  return publicUrlForPath(`${DESIGN_ASSETS_PREFIX}/${designId}/${kind}.${ext}`);
+}
+
+/**
+ * Store a clean asset family for a design:
+ * - source.svg when the creator uploaded vector art
+ * - preview.png mirrors print.png for faithful UI compositing
+ * - print.png for Printful / fulfillment
+ */
+export async function uploadDesignAssetDerivatives(
+  designId: string,
+  imageUrl: string,
+  opts: { sourceSvgDataUrl?: string | null } = {},
+): Promise<{ printUrl: string; previewUrl: string | null; sourceUrl: string | null }> {
+  if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) {
+    return { printUrl: imageUrl, previewUrl: null, sourceUrl: null };
+  }
+  if (!isStorageConfigured()) {
+    return { printUrl: imageUrl, previewUrl: null, sourceUrl: null };
+  }
+
+  const printPayload = decodeOrThrow(imageUrl);
+  const sourcePayload = opts.sourceSvgDataUrl ? decodeDesignDataUrl(opts.sourceSvgDataUrl) : null;
+  const sourceIsSvg =
+    sourcePayload?.mimeType.split(";")[0].trim().toLowerCase() === "image/svg+xml";
+
+  let sourceUrl: string | null = null;
+  if (sourcePayload && sourceIsSvg) {
+    sourceUrl = await uploadStorageBytes(
+      `${DESIGN_ASSETS_PREFIX}/${designId}/source.svg`,
+      sourcePayload.bytes,
+      "image/svg+xml",
+    );
+  }
+
+  const printBytes =
+    printPayload.mimeType.split(";")[0].trim().toLowerCase() === "image/png"
+      ? printPayload.bytes
+      : await sharp(printPayload.bytes).ensureAlpha().png({ compressionLevel: 9 }).toBuffer();
+  const printUrl = await uploadStorageBytes(
+    `${DESIGN_ASSETS_PREFIX}/${designId}/print.png`,
+    printBytes,
+    "image/png",
+  );
+
+  // Preview must match print bytes exactly — re-rasterizing (rotate/resize/png)
+  // can shift anti-aliased edges and make the UI look cropped vs the upload.
+  const previewUrl = await uploadStorageBytes(
+    `${DESIGN_ASSETS_PREFIX}/${designId}/preview.png`,
+    printBytes,
+    "image/png",
+  );
+
+  return { printUrl, previewUrl, sourceUrl };
 }
 
 /**
@@ -152,7 +240,12 @@ const DESIGN_IMAGE_EXTENSIONS = ["png", "jpg", "jpeg", "webp", "gif", "svg"] as 
 /** Best-effort remove design file(s) from public bucket (paths used by `uploadDesignImage`). */
 export async function removeDesignImageFromStorage(designId: string): Promise<void> {
   const supabase = getServiceClient();
-  const paths = DESIGN_IMAGE_EXTENSIONS.map((ext) => `${designId}.${ext}`);
+  const paths = [
+    ...DESIGN_IMAGE_EXTENSIONS.map((ext) => `${designId}.${ext}`),
+    `${DESIGN_ASSETS_PREFIX}/${designId}/source.svg`,
+    `${DESIGN_ASSETS_PREFIX}/${designId}/preview.png`,
+    `${DESIGN_ASSETS_PREFIX}/${designId}/print.png`,
+  ];
   const { error } = await supabase.storage.from(BUCKET).remove(paths);
   if (error && !/not found/i.test(String(error.message))) {
     console.warn("[storage] remove design images:", error.message);

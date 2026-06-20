@@ -42,17 +42,20 @@ export interface ManagedStorefrontOption {
 
 export interface ManagedListingRow {
   id: string;
+  designId: string;
   title: string;
   productType: ProductType;
   mockupUrl: string | null;
   designImageUrl: string | null;
+  designUploadedAsSvg?: boolean;
+  designHasTransparency?: boolean | null;
   priceCents: number;
   isPublished: boolean;
   salesCount: number;
   createdAt: string;
-  storefrontId: string | null;
-  storefrontSlug: string | null;
-  storefrontDisplayName: string | null;
+  storefrontIds: string[];
+  storefrontSlugs: string[];
+  storefrontDisplayNames: string[];
   printPlacement: StoredPrintPlacement | null;
 }
 
@@ -88,8 +91,8 @@ export function ListingsManager({
       if (statusFilter === "live" && !row.isPublished) return false;
       if (statusFilter === "hidden" && row.isPublished) return false;
       if (storefrontFilter.size > 0) {
-        const key = row.storefrontId ?? "__none__";
-        if (!storefrontFilter.has(key)) return false;
+        const matchesAny = row.storefrontIds.some((id) => storefrontFilter.has(id));
+        if (!matchesAny) return false;
       }
       if (needle && !row.title.toLowerCase().includes(needle)) return false;
       return true;
@@ -292,10 +295,23 @@ function ListingCard({
   showStorefrontPicker: boolean;
   showStorefrontBadge: boolean;
 }) {
-  const showRealMockup = hasRenderableListingMockup(
-    row.mockupUrl,
-    row.designImageUrl,
-  );
+  const previewDesignUrl = `/api/designs/${row.designId}/image?v=${encodeURIComponent(row.createdAt)}&pv=1&rev=20260608b`;
+  const hasDesignPreview = Boolean(row.designId);
+  const defaultColor = row.productType === "tshirt" ? "White" : null;
+  /**
+   * Prefer persisted listing mockups in card grids so previews render
+   * immediately instead of waiting for client-side composition.
+   */
+  const showRealMockup = !hasDesignPreview
+    ? hasRenderableListingMockup(
+        row.mockupUrl,
+        row.designImageUrl,
+        {
+          designUploadedAsSvg: row.designUploadedAsSvg,
+          designHasTransparency: row.designHasTransparency ?? null,
+        },
+      )
+    : false;
   const productLabel =
     PRODUCT_TYPE_LABELS[row.productType] || row.productType;
 
@@ -311,11 +327,14 @@ function ListingCard({
             className="object-cover"
             unoptimized
           />
-        ) : row.designImageUrl ? (
+        ) : hasDesignPreview ? (
           <MerchPlacementPreview
-            imageUrl={row.designImageUrl}
+            imageUrl={previewDesignUrl}
             productType={row.productType}
             placement={row.printPlacement ?? DEFAULT_STORED}
+            blankColorName={defaultColor}
+            showPrintAreaFrame={false}
+            transparentBlankBackdrop
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center bg-muted p-6 text-center text-xs text-muted-foreground">
@@ -335,17 +354,17 @@ function ListingCard({
           <ListingStorefrontSelect
             productId={row.id}
             storefronts={storefronts}
-            currentStorefrontId={row.storefrontId}
+            currentStorefrontIds={row.storefrontIds}
             compact
           />
         )}
         {showStorefrontBadge &&
-          row.storefrontDisplayName &&
+          row.storefrontDisplayNames.length > 0 &&
           storefronts.length <= 1 && (
           <p className="text-xs text-muted-foreground">
             on{" "}
             <span className="font-medium text-foreground">
-              {row.storefrontDisplayName}
+              {row.storefrontDisplayNames.join(", ")}
             </span>
           </p>
         )}
@@ -360,31 +379,36 @@ function ListingCard({
           )}
         </div>
         <div className="flex flex-wrap gap-2 pt-1">
-          <Link
-            href={`/dashboard/listings/${row.id}/edit`}
-            className="flex-1"
-            aria-label={`Edit ${row.title}`}
+          <Button
+            render={
+              <Link
+                href={`/dashboard/listings/${row.id}/edit`}
+                aria-label={`Edit ${row.title}`}
+              />
+            }
+            size="sm"
+            variant="secondary"
+            className="flex-1 gap-1.5"
           >
-            <Button
-              size="sm"
-              variant="secondary"
-              className="w-full gap-1.5"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </Button>
-          </Link>
-          <Link
-            href={`/product/${row.id}`}
-            target="_blank"
-            rel="noopener"
-            aria-label={`Open ${row.title} on the public shop`}
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </Button>
+          <Button
+            render={
+              <Link
+                href={`/product/${row.id}`}
+                target="_blank"
+                rel="noopener"
+                aria-label={`Open ${row.title} on the public shop`}
+              />
+            }
+            size="sm"
+            variant="ghost"
+            className="gap-1.5"
           >
-            <Button size="sm" variant="ghost" className="gap-1.5">
-              <ExternalLink className="h-3.5 w-3.5" />
-              View
-            </Button>
-          </Link>
+            <ExternalLink className="h-3.5 w-3.5" />
+            View
+          </Button>
         </div>
       </div>
     </Card>
@@ -419,12 +443,13 @@ function EmptyState() {
         Once you publish a design from the Create flow, it&apos;ll show up here so
         you can tune price, placement, tags, and visibility.
       </p>
-      <Link href="/create" className="mt-6">
-        <Button className="gap-2 bg-primary hover:bg-primary/90">
-          <Wand2 className="h-4 w-4" />
-          Design your first product
-        </Button>
-      </Link>
+      <Button
+        render={<Link href="/create" />}
+        className="mt-6 gap-2 bg-primary hover:bg-primary/90"
+      >
+        <Wand2 className="h-4 w-4" />
+        Design your first product
+      </Button>
     </Card>
   );
 }

@@ -7,10 +7,12 @@ import type { DesignRow } from "@/lib/supabase/queries";
  * same-origin proxy instead.
  */
 export function designCardImageSrc(d: Pick<DesignRow, "id" | "image_url">): string {
-  const url = d.image_url?.trim();
-  if (!url) return `/api/designs/${d.id}/image`;
-  if (url.startsWith("data:")) return `/api/designs/${d.id}/image`;
-  return url;
+  return `/api/designs/${d.id}/image?pv=1`;
+}
+
+/** Same-origin preview URL for compositing art on merch mockups in the create flow. */
+export function designPreviewImageSrc(designId: string): string {
+  return `/api/designs/${designId}/image?pv=1`;
 }
 
 /** Plain JSON row for client components — never includes inline data URLs. */
