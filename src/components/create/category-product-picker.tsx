@@ -76,6 +76,7 @@ export function CategoryProductPicker({
         const open = openCategoryId === cat.id;
         const selectedCount = selectedCountByCategory[cat.id] ?? 0;
         const totalCount = cat.variants.length;
+        const isSingle = totalCount === 1;
 
         return (
           <div
@@ -86,14 +87,18 @@ export function CategoryProductPicker({
                 : "border-border/60 bg-card"
             }`}
           >
-            {/* Every category expands the same way — even single-option ones —
-                so you always see the product preview and the status wording
-                ("N selected" / "N option(s)") is consistent across the list. */}
+            {/* Every category expands to reveal its preview tile(s). For
+                single-option categories, opening also selects the one item —
+                so a single click both shows the product and adds it. */}
             <button
               type="button"
-              onClick={() =>
-                setOpenCategoryId((cur) => (cur === cat.id ? null : cat.id))
-              }
+              onClick={() => {
+                const willOpen = openCategoryId !== cat.id;
+                setOpenCategoryId((cur) => (cur === cat.id ? null : cat.id));
+                if (willOpen && isSingle && selectedCount === 0) {
+                  onToggle(cat.variants[0]!);
+                }
+              }}
               className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-primary"
               aria-expanded={open}
             >
@@ -112,9 +117,11 @@ export function CategoryProductPicker({
                     <Check className="h-3.5 w-3.5" />
                     {selectedCount} selected
                   </span>
+                ) : isSingle ? (
+                  <span className="text-xs font-medium text-primary">Select style</span>
                 ) : (
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {totalCount === 1 ? "1 option" : `${totalCount} styles`}
+                    {totalCount} styles
                   </span>
                 )}
                 {open ? (
