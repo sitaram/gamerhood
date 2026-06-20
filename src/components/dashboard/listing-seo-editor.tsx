@@ -137,7 +137,13 @@ export function ListingSeoEditor({
     const res = await fetch(`/api/products/${row.id}/refresh-printful`, { method: "POST" });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j.error || "Sync failed");
-    toast.success("Printful sizing & description updated — reload the product page to see changes.");
+    if (j.mockupUrl) {
+      toast.success("Synced & regenerated the real product mockup — reload to see it.");
+    } else {
+      toast.info(
+        "Synced sizing & description, but Printful didn't return a product mockup for this item.",
+      );
+    }
   }
 
   if (rows.length === 0) {
