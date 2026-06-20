@@ -204,6 +204,7 @@ export function PrintPlacementEditor({
   };
 
   const beginMove = (e: React.PointerEvent) => {
+    e.preventDefault();
     const rect = printRectRef.current?.getBoundingClientRect();
     drag.current = {
       mode: "move",
@@ -225,6 +226,7 @@ export function PrintPlacementEditor({
    *  centre, so the artwork is never distorted — what you see is what prints. */
   const beginResize = (e: React.PointerEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     const rect = printRectRef.current?.getBoundingClientRect();
     let centerX = e.clientX;
     let centerY = e.clientY;
@@ -348,7 +350,7 @@ export function PrintPlacementEditor({
       <div>
         <h3 className="text-lg font-semibold">Line up your art on the merch</h3>
         <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-          Drag the art to move it, drag a corner to resize. The faint dashed frame is Printful&apos;s printable box (
+          Drag the art to move it, drag a corner to resize. The solid frame is Printful&apos;s printable box (
           {Aw}&quot;×{Ah}&quot;) for{" "}
           <span className="font-medium text-foreground">
             {PRODUCT_TYPE_LABELS[previewType] ?? previewType.replace(/-/g, " ")}
@@ -409,7 +411,7 @@ export function PrintPlacementEditor({
               frameRef.current = el;
               printRectRef.current = el;
             }}
-            className="relative w-full cursor-grab touch-none overflow-hidden rounded-xl border-2 border-dashed border-primary/60 bg-muted/70 shadow-inner outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-primary active:cursor-grabbing"
+            className="relative w-full cursor-grab touch-none select-none overflow-hidden rounded-xl border-2 border-dashed border-primary/60 bg-muted/70 shadow-inner outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-primary active:cursor-grabbing"
             style={{ aspectRatio: `${Aw} / ${Ah}` }}
             tabIndex={0}
             onPointerDown={beginMove}
@@ -426,7 +428,7 @@ export function PrintPlacementEditor({
           <div className="overflow-hidden rounded-xl border border-border/60 bg-gradient-to-b from-secondary/80 via-muted/90 to-muted shadow-inner">
             <div
               ref={frameRef}
-              className="relative w-full touch-none outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-primary"
+              className="relative w-full touch-none select-none outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-primary"
               style={{ aspectRatio: `${layout.garmentAspect}` }}
               tabIndex={0}
               onPointerMove={onPointerMove}
@@ -513,7 +515,7 @@ export function PrintPlacementEditor({
                   <div
                     ref={printRectRef}
                     onPointerDown={beginMove}
-                    className="relative max-h-full cursor-grab touch-none overflow-visible rounded-sm border border-dashed border-cyan-400/40 active:cursor-grabbing"
+                    className="pointer-events-auto relative max-h-full cursor-grab touch-none select-none overflow-visible rounded-sm border-2 border-cyan-400/70 active:cursor-grabbing"
                     style={{
                       aspectRatio: overlay.band.aspectRatio,
                       width:
@@ -529,10 +531,11 @@ export function PrintPlacementEditor({
                       {renderArtwork(1)}
                     </div>
 
-                    {/* Bright selection box tracks the artwork; corner handles
-                        scale it proportionally (uniform — never distorts). */}
+                    {/* Solid frame above = printable area; this dashed box
+                        tracks the artwork. Corner handles scale it
+                        proportionally (uniform — never distorts). */}
                     <div
-                      className="pointer-events-none absolute rounded-sm border-2 border-cyan-400/90"
+                      className="pointer-events-none absolute rounded-sm border border-dashed border-white/90"
                       style={{
                         left: `${overlay.design.leftPct}%`,
                         top: `${overlay.design.topPct}%`,
@@ -541,16 +544,16 @@ export function PrintPlacementEditor({
                       }}
                     >
                       {[
-                        { className: "-top-1.5 -left-1.5 cursor-nwse-resize" },
-                        { className: "-top-1.5 -right-1.5 cursor-nesw-resize" },
-                        { className: "-bottom-1.5 -left-1.5 cursor-nesw-resize" },
-                        { className: "-bottom-1.5 -right-1.5 cursor-nwse-resize" },
+                        { className: "-top-1 -left-1 cursor-nwse-resize" },
+                        { className: "-top-1 -right-1 cursor-nesw-resize" },
+                        { className: "-bottom-1 -left-1 cursor-nesw-resize" },
+                        { className: "-bottom-1 -right-1 cursor-nwse-resize" },
                       ].map((p) => (
                         <span
                           key={p.className}
                           onPointerDown={beginResize}
                           aria-label="Resize artwork"
-                          className={`pointer-events-auto absolute h-3 w-3 touch-none rounded-full bg-cyan-400 ring-2 ring-white ${p.className}`}
+                          className={`pointer-events-auto absolute h-2 w-2 touch-none rounded-full bg-cyan-400 ring-1 ring-white ${p.className}`}
                         />
                       ))}
                     </div>
@@ -560,7 +563,7 @@ export function PrintPlacementEditor({
             </div>
 
             <p className="px-2 py-2 text-center text-[10px] leading-snug text-muted-foreground/90">
-              Drag the art to move it • Drag a corner dot to resize • Arrow keys nudge (Shift = bigger) • Faint frame = printable area; anything outside it is cropped
+              Drag the art to move it • Drag a corner dot to resize • Arrow keys nudge (Shift = bigger) • Solid frame = printable area; the dashed box is your art
             </p>
           </div>
         )}
