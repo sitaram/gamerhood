@@ -2291,64 +2291,87 @@ function CreatePageInner() {
                       {error}
                     </div>
                   )}
-                  <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-                  <Button variant="outline" onClick={handleReset} className="gap-2">
-                    <RotateCcw className="h-4 w-4" />
-                    Start over
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => void handleDeleteImage()}
-                    disabled={deletingImage || publishing}
-                    className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {deletingImage ? "Deleting..." : "Delete image"}
-                  </Button>
-                  <Button variant="outline" onClick={() => setStep("placement")} className="gap-2">
-                    Back to print layout
-                  </Button>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      disabled={
-                      selectedProducts.size === 0 ||
-                      publishing ||
-                      [...selectedProducts].some(
-                        (pt) => (merchPricing[pt]?.markupPercent ?? 0) === 0,
-                      )
-                    }
-                      onClick={handlePublish}
-                      className="relative gap-2 overflow-hidden bg-primary px-8 hover:bg-primary/90"
-                    >
-                      {publishing && (
-                        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-primary-foreground/20">
-                          <span
-                            className="block h-full bg-primary-foreground/80 transition-[width] duration-700 ease-out"
-                            style={{
-                              width: `${Math.max(6, Math.min(100, publishProgress))}%`,
-                            }}
-                          />
-                        </span>
-                      )}
-                      {publishing ? (
-                        <>
-                          <Wand2 className="h-4 w-4 animate-spin" />
-                          <span>
-                            Publishing... ({Math.round(publishProgress)}%)
+                  <div className="space-y-4">
+                    {/* Primary action sits alone so it reads as the one
+                        obvious next step, kept clear of the destructive
+                        resets that previously crowded the same row. */}
+                    <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
+                      <Button
+                        disabled={
+                          selectedProducts.size === 0 ||
+                          publishing ||
+                          [...selectedProducts].some(
+                            (pt) => (merchPricing[pt]?.markupPercent ?? 0) === 0,
+                          )
+                        }
+                        onClick={handlePublish}
+                        size="lg"
+                        className="relative gap-2 overflow-hidden bg-primary px-8 hover:bg-primary/90"
+                      >
+                        {publishing && (
+                          <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-primary-foreground/20">
+                            <span
+                              className="block h-full bg-primary-foreground/80 transition-[width] duration-700 ease-out"
+                              style={{
+                                width: `${Math.max(6, Math.min(100, publishProgress))}%`,
+                              }}
+                            />
                           </span>
-                        </>
-                      ) : (
-                        <>
-                          <Upload className="h-4 w-4" />
-                          Publish to My Shop ({selectedProducts.size} items)
-                        </>
-                      )}
-                    </Button>
-                    <XpBadge
-                      points={XP_RULES.PRODUCT_PUBLISHED.points}
-                      variant="prominent"
-                    />
-                  </div>
+                        )}
+                        {publishing ? (
+                          <>
+                            <Wand2 className="h-4 w-4 animate-spin" />
+                            <span>
+                              Publishing... ({Math.round(publishProgress)}%)
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4" />
+                            Publish to My Shop ({selectedProducts.size} items)
+                          </>
+                        )}
+                      </Button>
+                      <XpBadge
+                        points={XP_RULES.PRODUCT_PUBLISHED.points}
+                        variant="prominent"
+                      />
+                    </div>
+
+                    {/* Secondary actions: step-back navigation on the left,
+                        destructive resets on the right, de-emphasized so they
+                        don't compete with publish. */}
+                    <div className="flex flex-col items-center justify-between gap-3 border-t border-border/50 pt-4 sm:flex-row">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setStep("placement")}
+                        className="gap-2 text-muted-foreground hover:text-foreground"
+                      >
+                        Back to print layout
+                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleReset}
+                          className="gap-2 text-muted-foreground hover:text-foreground"
+                        >
+                          <RotateCcw className="h-4 w-4" />
+                          Start over
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void handleDeleteImage()}
+                          disabled={deletingImage || publishing}
+                          className="gap-2 text-destructive/80 hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          {deletingImage ? "Deleting..." : "Delete image"}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
