@@ -19,7 +19,7 @@ function SuccessContent() {
 
   useEffect(() => {
     if (!sessionId) {
-      setVerifyError(true);
+      queueMicrotask(() => setVerifyError(true));
       return;
     }
 
@@ -50,12 +50,13 @@ function SuccessContent() {
             check your email for confirmation.
           </p>
           <div className="mt-8">
-            <Link href="/shop">
-              <Button className="gap-2 bg-primary hover:bg-primary/90">
-                <ShoppingBag className="h-5 w-5" />
-                Browse Shop
-              </Button>
-            </Link>
+            <Button
+              render={<Link href="/shop" />}
+              className="gap-2 bg-primary hover:bg-primary/90"
+            >
+              <ShoppingBag className="h-5 w-5" />
+              Browse Shop
+            </Button>
           </div>
         </Card>
       </div>
@@ -107,18 +108,23 @@ function SuccessContent() {
         </div>
 
         <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-          <Link href="/shop">
-            <Button size="lg" className="gap-2 bg-primary hover:bg-primary/90">
-              <ShoppingBag className="h-5 w-5" />
-              Keep Shopping
-            </Button>
-          </Link>
-          <Link href="/dashboard">
-            <Button size="lg" variant="outline" className="gap-2 border-border/50">
-              My Dashboard
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button
+            render={<Link href="/shop" />}
+            size="lg"
+            className="gap-2 bg-primary hover:bg-primary/90"
+          >
+            <ShoppingBag className="h-5 w-5" />
+            Keep Shopping
+          </Button>
+          <Button
+            render={<Link href="/dashboard" />}
+            size="lg"
+            variant="outline"
+            className="gap-2 border-border/50"
+          >
+            My Dashboard
+            <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
       </Card>
     </div>

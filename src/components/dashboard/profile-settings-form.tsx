@@ -659,11 +659,13 @@ export function ProfileSettingsForm({
           <p className="text-sm text-muted-foreground">
             Send a reset link to {email} if you want to choose a new password.
           </p>
-          <Link href="/auth/forgot-password">
-            <Button type="button" variant="outline">
-              Reset password
-            </Button>
-          </Link>
+          <Button
+            render={<Link href="/auth/forgot-password" />}
+            type="button"
+            variant="outline"
+          >
+            Reset password
+          </Button>
         </Card>
       )}
     </div>

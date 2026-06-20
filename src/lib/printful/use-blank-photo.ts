@@ -29,10 +29,12 @@ interface CacheEntry {
   pixelRect: BlankPrintRect | null;
   /** mockup-templates `background_color` for template_backdrop rows. */
   backdropColor: string | null;
+  /** Epoch ms when we last marked this key as unavailable. */
+  unavailableAt: number | null;
 }
 
 /** Bump when the server-side backdrop strategy changes ( busts in-tab cache ). */
-const BACKDROP_CACHE_VERSION = "template-v2";
+const BACKDROP_CACHE_VERSION = "template-v4";
 
 /** Shared across all components mounted in the same browser tab. Keyed by version + productType[::color]. */
 const browserCache = new Map<string, CacheEntry>();
@@ -44,6 +46,8 @@ const pending = new Map<string, Promise<void>>();
  * server has a URL, without hammering the API in the steady state.
  */
 const POLL_DELAYS_MS = [4_000, 6_000, 8_000, 10_000, 15_000, 20_000];
+/** Retry terminal unavailable states after a short cooldown. */
+const UNAVAILABLE_RETRY_MS = 20_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -175,6 +179,7 @@ function ensureFetch(
           area: null,
           pixelRect: null,
           backdropColor: null,
+          unavailableAt: Date.now(),
         });
         onChange();
         return;
@@ -192,6 +197,7 @@ function ensureFetch(
           area: r.area,
           pixelRect: r.pixelRect,
           backdropColor: r.backdropColor,
+          unavailableAt: null,
         });
         onChange();
         return;
@@ -208,6 +214,7 @@ function ensureFetch(
           area: r.area,
           pixelRect: r.pixelRect,
           backdropColor: r.backdropColor,
+          unavailableAt: Date.now(),
         });
         onChange();
         return;
@@ -221,6 +228,7 @@ function ensureFetch(
           area: r.area,
           pixelRect: r.pixelRect,
           backdropColor: r.backdropColor,
+          unavailableAt: null,
         });
         onChange();
       }
@@ -245,6 +253,7 @@ function ensureFetch(
           area: null,
           pixelRect: null,
           backdropColor: null,
+          unavailableAt: Date.now(),
         });
         onChange();
         return;
@@ -297,7 +306,14 @@ export function usePrintfulBlankPhoto(
 
   useEffect(() => {
     const existing = browserCache.get(key);
-    if (existing && (existing.status === "ready" || existing.status === "unavailable")) {
+    if (existing?.status === "ready") {
+      return;
+    }
+    if (
+      existing?.status === "unavailable" &&
+      existing.unavailableAt &&
+      Date.now() - existing.unavailableAt < UNAVAILABLE_RETRY_MS
+    ) {
       return;
     }
     let cancelled = false;

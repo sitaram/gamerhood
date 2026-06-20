@@ -48,7 +48,11 @@ type Props = {
   refreshKey?: number;
   /** `pick` = click loads the design in the create flow; `manage` = edit/delete controls. */
   mode?: "pick" | "manage";
+  /** Force action buttons even in `pick` mode (used on /create saved library). */
+  showActions?: boolean;
   onPick?: (design: DashboardDesignCard) => void;
+  /** Called after a design is deleted from the library (create flow sync). */
+  onDeleted?: (designId: string) => void;
   /** Optional heading — omit on pages that provide their own title. */
   title?: string;
   description?: string;
@@ -58,7 +62,9 @@ export function DesignLibraryInfiniteGrid({
   enabled,
   refreshKey = 0,
   mode = "manage",
+  showActions = false,
   onPick,
+  onDeleted,
   title,
   description,
 }: Props) {
@@ -74,6 +80,7 @@ export function DesignLibraryInfiniteGrid({
   const pendingDelete = pendingDeleteId
     ? designs.find((d) => d.id === pendingDeleteId)
     : null;
+  const canShowActions = mode === "manage" || showActions;
 
   const loadPage = useCallback(
     async (cursor: string | null, replace: boolean) => {
@@ -141,6 +148,7 @@ export function DesignLibraryInfiniteGrid({
       }
       setDesigns((prev) => prev.filter((d) => d.id !== id));
       setPendingDeleteId(null);
+      onDeleted?.(id);
       toast.success("Design removed");
       router.refresh();
     } catch (e) {
@@ -193,12 +201,12 @@ export function DesignLibraryInfiniteGrid({
                   onClick={() => handleCardActivate(d)}
                   className="block w-full text-left"
                 >
-                  <div className="relative aspect-square overflow-hidden bg-secondary">
+                  <div className="relative aspect-square overflow-hidden bg-muted">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={d.image_url}
                       alt={d.title}
-                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                      className="h-full w-full object-contain object-center"
                     />
                   </div>
                 </button>
@@ -213,14 +221,30 @@ export function DesignLibraryInfiniteGrid({
                       </Badge>
                       <span className="text-xs text-muted-foreground">{timeAgo(d.created_at)}</span>
                     </div>
-                    {mode === "manage" && (
+                    {canShowActions && (
                       <div className="flex items-center gap-1">
-                        <Link href={`/create?designId=${d.id}`}>
-                          <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs">
+                        {mode === "manage" ? (
+                          <Button
+                            render={<Link href={`/create?designId=${d.id}`} />}
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 px-2 text-xs"
+                          >
                             <Pencil className="h-3.5 w-3.5" />
                             Edit
                           </Button>
-                        </Link>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 px-2 text-xs"
+                            onClick={() => handleCardActivate(d)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Edit
+                          </Button>
+                        )}
                         <Button
                           type="button"
                           variant="ghost"

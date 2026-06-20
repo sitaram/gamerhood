@@ -206,6 +206,7 @@ function ListingPriceCard({
     row.mockupUrl,
     row.designImageUrl,
   );
+  const shouldUseDesignPreview = Boolean(row.designImageUrl);
   const placement = row.printPlacement ?? DEFAULT_STORED;
 
   const costsAndFeesCents = Math.max(0, priceCents - takeHome.takeHomeCents);
@@ -252,7 +253,7 @@ function ListingPriceCard({
         <div className="mt-5 rounded-xl border border-border bg-muted/30 p-4 sm:p-5">
           <div className="flex gap-4">
             <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border bg-background sm:h-24 sm:w-24">
-              {showRealMockup && row.mockupUrl ? (
+              {showRealMockup && row.mockupUrl && !shouldUseDesignPreview ? (
                 <Image
                   src={row.mockupUrl}
                   alt=""
@@ -266,6 +267,8 @@ function ListingPriceCard({
                   imageUrl={row.designImageUrl}
                   productType={row.productType as ProductType}
                   placement={placement}
+                  showPrintAreaFrame={false}
+                  transparentBlankBackdrop
                   className="h-full w-full"
                 />
               ) : (

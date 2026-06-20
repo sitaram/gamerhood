@@ -81,12 +81,13 @@ export default async function StorefrontDashboardPage() {
             </p>
           </div>
         </div>
-        <Link href="/dashboard/listings">
-          <Button className="gap-2 bg-primary hover:bg-primary/90">
-            Open listings
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </Link>
+        <Button
+          render={<Link href="/dashboard/listings" />}
+          className="gap-2 bg-primary hover:bg-primary/90"
+        >
+          Open listings
+          <ArrowRight className="h-4 w-4" />
+        </Button>
       </Card>
     </div>
   );

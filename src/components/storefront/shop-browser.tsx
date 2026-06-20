@@ -13,13 +13,13 @@ import type { Product, ProductType } from "@/lib/types";
 
 const PRODUCT_TYPES: { value: ProductType | "all"; label: string }[] = [
   { value: "all", label: "All Products" },
-  { value: "hoodie", label: "Hoodies" },
+  { value: "hoodie", label: "Adult hoodies" },
   { value: "kids-hoodie", label: "Kids hoodies" },
   { value: "kids-tshirt", label: "Kids tees" },
   { value: "kids-heavyweight-tee", label: "Kids heavyweight tees" },
   { value: "kids-long-sleeve", label: "Kids long sleeves" },
   { value: "kids-sports-tee", label: "Kids sports tees" },
-  { value: "tshirt", label: "Tees" },
+  { value: "tshirt", label: "Adult tees" },
   { value: "poster", label: "Posters" },
   { value: "hardcover-journal", label: "Journals" },
   { value: "puzzle", label: "Puzzles" },
@@ -87,11 +87,12 @@ export function ShopBrowser({ products }: { products: Product[] }) {
         <p className="mt-2 max-w-md text-sm text-muted-foreground">
           The shop is just getting started. Be among the first creators — design something fresh and publish it for the world to see.
         </p>
-        <Link href="/create" className="mt-6">
-          <Button className="gap-2 bg-primary hover:bg-primary/90">
-            Start Creating
-          </Button>
-        </Link>
+        <Button
+          render={<Link href="/create" />}
+          className="mt-6 gap-2 bg-primary hover:bg-primary/90"
+        >
+          Start Creating
+        </Button>
       </div>
     );
   }

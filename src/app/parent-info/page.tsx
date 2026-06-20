@@ -189,11 +189,14 @@ export default async function ParentInfoPage({
               Ask them to re-share the link from their dashboard — Stripe
               onboarding links expire after about 5 minutes for security.
             </p>
-            <Link href="/" className="mt-4 inline-flex">
-              <Button variant="outline" size="lg">
-                Go to Gamerhood home
-              </Button>
-            </Link>
+            <Button
+              render={<Link href="/" />}
+              variant="outline"
+              size="lg"
+              className="mt-4"
+            >
+              Go to Gamerhood home
+            </Button>
           </>
         )}
       </div>

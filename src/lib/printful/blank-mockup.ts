@@ -116,6 +116,44 @@ export interface VariantPrintAreaPx {
   hPx: number;
 }
 
+function assertValidVariantPrintAreaPx(
+  px: VariantPrintAreaPx,
+  context: {
+    productType: ProductType;
+    catalogVariantId: number;
+    placement: string | null;
+    templateId: number | null;
+  },
+): void {
+  const finite =
+    Number.isFinite(px.mockupWidthPx) &&
+    Number.isFinite(px.mockupHeightPx) &&
+    Number.isFinite(px.xPx) &&
+    Number.isFinite(px.yPx) &&
+    Number.isFinite(px.wPx) &&
+    Number.isFinite(px.hPx);
+  if (!finite) {
+    throw new Error(
+      `[blank-mockup] invalid template pixel rect (${context.productType}/${context.catalogVariantId}): non-finite values`,
+    );
+  }
+  if (px.mockupWidthPx <= 0 || px.mockupHeightPx <= 0 || px.wPx <= 0 || px.hPx <= 0) {
+    throw new Error(
+      `[blank-mockup] invalid template pixel rect (${context.productType}/${context.catalogVariantId}): non-positive dimensions`,
+    );
+  }
+  if (px.xPx < 0 || px.yPx < 0) {
+    throw new Error(
+      `[blank-mockup] invalid template pixel rect (${context.productType}/${context.catalogVariantId}): negative origin`,
+    );
+  }
+  if (px.xPx + px.wPx > px.mockupWidthPx || px.yPx + px.hPx > px.mockupHeightPx) {
+    throw new Error(
+      `[blank-mockup] invalid template pixel rect (${context.productType}/${context.catalogVariantId}): out of bounds (template=${context.templateId ?? "n/a"}, placement=${context.placement ?? "n/a"})`,
+    );
+  }
+}
+
 let dummyUrlMemo: string | null = null;
 
 /**
@@ -554,6 +592,14 @@ export async function generateTemplateBackdropMockup(
     tmpl.printfile_id ?? 0,
     1200,
   );
+  if (printAreaPx) {
+    assertValidVariantPrintAreaPx(printAreaPx, {
+      productType,
+      catalogVariantId: cfg.catalogVariantId,
+      placement: cfg.placement,
+      templateId: tmpl.printfile_id ?? null,
+    });
+  }
 
   const rehosted = await rehostImageToStorage(
     `tpl-${cfg.catalogVariantId}`,
@@ -585,15 +631,103 @@ export async function generateTemplateBackdropMockup(
   };
 }
 
+/**
+ * Variant-scoped template backdrop generator.
+ *
+ * Unlike `generateTemplateBackdropMockup(productType)`, this resolves the
+ * mockup-template image for an explicit catalog variant id so per-color
+ * blanks share the same coordinate frame + print-area pixel rect as the
+ * default color.
+ */
+async function generateTemplateBackdropForVariant(
+  variantId: number,
+  productType: ProductType,
+): Promise<{
+  result: BlankMockupResult;
+  colorName: string | null;
+  colorHex: string | null;
+} | null> {
+  if (!isPrintfulConfigured()) return null;
+  const cfg = getCatalogConfig(productType);
+  if (!cfg) return null;
+
+  const summary = await fetchCatalogVariantSummary(variantId);
+  if (!summary.catalogProductId) return null;
+
+  const tmpl = await fetchCatalogMockupTemplateForVariant({
+    catalogProductId: summary.catalogProductId,
+    catalogVariantId: variantId,
+    placement: cfg.placement,
+  });
+  if (!tmpl?.image_url) return null;
+
+  const rehosted = await rehostImageToStorage(`tpl-v-${variantId}`, tmpl.image_url).catch((err) => {
+    console.warn("[blank-mockup] template-backdrop(v): rehost failed", {
+      variantId,
+      productType,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  });
+  if (!rehosted) return null;
+
+  const printArea = pickPrintAreaForPlacement(summary.placementDims, cfg.placement);
+  const printAreaPx = scaleTemplatePrintAreaPx(tmpl, tmpl.printfile_id ?? 0, 1200);
+  if (printAreaPx) {
+    assertValidVariantPrintAreaPx(printAreaPx, {
+      productType,
+      catalogVariantId: variantId,
+      placement: cfg.placement,
+      templateId: tmpl.printfile_id ?? null,
+    });
+  }
+
+  return {
+    result: {
+      url: rehosted,
+      catalogProductId: summary.catalogProductId,
+      catalogVariantId: variantId,
+      mockupStyleId: null,
+      printArea,
+      printAreaPx,
+      backdropColor: tmpl.background_color ?? summary.colorHex,
+      source: "template_backdrop",
+    },
+    colorName: summary.colorName,
+    colorHex: summary.colorHex,
+  };
+}
+
 /** True when a cached row is safe to serve for the placement editor. */
 export async function isTemplateAlignedBlankRow(
   row: BlankMockupRow,
   _productType: ProductType,
 ): Promise<boolean> {
+  void _productType;
   if (row.source === "template_backdrop") return true;
   /** Per-color studio shots — no template pixel overlay (photoBand fallback). */
   if (row.source === "catalog_image") return true;
-  /** mockup_task, null source, or any other legacy row — regenerate. */
+  /**
+   * `mockup_task` rows are still valid flat-product backdrops; they simply
+   * don't carry template pixel coordinates. Keep serving them so the create
+   * flow shows a real blank while we use photoBand fallback for placement.
+   */
+  if (row.source === "mockup_task") {
+    const url = row.mockup_url ?? "";
+    /**
+     * Printful mockup-task `/tmp/` URLs expire. If a legacy row still points
+     * there, force regeneration so the cache repopulates with a durable
+     * re-hosted URL from our own storage.
+     */
+    if (
+      url.includes("printful-upload.s3-accelerate.amazonaws.com/tmp/") ||
+      url.includes("files.cdn.printful.com/tmp/")
+    ) {
+      return false;
+    }
+    return true;
+  }
+  /** Unknown/legacy source values should refresh. */
   return false;
 }
 
@@ -958,75 +1092,97 @@ export async function getOrGenerateBlankForVariantId(
     await supabase.from("printful_blank_mockups").delete().eq("catalog_variant_id", variantId);
   }
 
-  const cfg = getCatalogConfig(productType);
-  const isDefaultVariant = cfg?.catalogVariantId === variantId;
-
   type TrackPack = {
     result: BlankMockupResult;
     colorName: string | null;
     colorHex: string | null;
   };
-  let trackA: TrackPack | null = null;
+  const cfg = getCatalogConfig(productType);
+  const isDefaultVariant = cfg?.catalogVariantId === variantId;
 
-  if (isDefaultVariant) {
-    /** Default variant: mockup-templates image + print_area (placement editor). */
-    const templateB = await generateTemplateBackdropMockup(productType).catch((err) => {
-      console.warn("[blank-mockup] per-variant: template backdrop threw", {
+  /**
+   * Preferred path for ALL colors: variant-scoped template backdrop.
+   * This keeps every swatch on the same coordinate system as Printful's
+   * template print-area rect, preventing color-dependent drift.
+   */
+  let track: TrackPack | null = await generateTemplateBackdropForVariant(variantId, productType).catch(
+    (err) => {
+      console.warn("[blank-mockup] per-variant: template-backdrop(v) threw", {
         variantId,
         productType,
         error: err instanceof Error ? err.message : String(err),
       });
       return null;
-    });
-    const trackB =
-      templateB ??
-      (await generateFlatBlankMockup(productType).catch((err) => {
+    },
+  );
+
+  if (!track) {
+    if (isDefaultVariant) {
+      const fallback = await generateFlatBlankMockup(productType).catch((err) => {
         console.warn("[blank-mockup] per-variant: mockup-tasks fallback threw", {
           variantId,
           productType,
           error: err instanceof Error ? err.message : String(err),
         });
         return null;
-      }));
-    if (trackB) {
-      trackA = {
-        result: trackB,
-        colorName: opts?.colorName ?? null,
-        colorHex: trackB.backdropColor ?? opts?.colorHex ?? null,
-      };
-    }
-  } else {
-    /** Non-default colors: fast catalog studio photo (no template pixel overlay). */
-    trackA = await generateBlankFromCatalogPhoto(variantId, productType).catch((err) => {
-      console.warn("[blank-mockup] per-variant: Track A threw", {
-        variantId,
-        productType,
-        error: err instanceof Error ? err.message : String(err),
       });
-      return null;
-    });
+      if (fallback) {
+        track = {
+          result: fallback,
+          colorName: opts?.colorName ?? null,
+          colorHex: fallback.backdropColor ?? opts?.colorHex ?? null,
+        };
+      }
+      if (!track) {
+        /**
+         * Keep a real photographic blank even when template + mockup-task
+         * generation are unavailable for the default variant.
+         */
+        track = await generateBlankFromCatalogPhoto(variantId, productType).catch((err) => {
+          console.warn("[blank-mockup] per-variant: default catalog-photo fallback threw", {
+            variantId,
+            productType,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return null;
+        });
+      }
+    } else {
+      /**
+       * Last-resort non-default path: catalog studio photo. This can drift
+       * versus template coords, but is still better than no photo.
+       */
+      track = await generateBlankFromCatalogPhoto(variantId, productType).catch((err) => {
+        console.warn("[blank-mockup] per-variant: catalog-photo fallback threw", {
+          variantId,
+          productType,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return null;
+      });
+    }
   }
 
-  if (!trackA) return null;
+  if (!track) return null;
 
-  const px = trackA.result.printAreaPx;
+  const px = track.result.printAreaPx;
   const row: BlankMockupRow = {
     product_type: productType,
-    mockup_url: trackA.result.url,
-    catalog_product_id: trackA.result.catalogProductId,
-    catalog_variant_id: trackA.result.catalogVariantId,
-    mockup_style_id: trackA.result.mockupStyleId || null,
+    mockup_url: track.result.url,
+    catalog_product_id: track.result.catalogProductId,
+    catalog_variant_id: track.result.catalogVariantId,
+    mockup_style_id: track.result.mockupStyleId || null,
     technique: cfg?.technique ?? null,
     placement: cfg?.placement ?? null,
-    print_area_width_in: trackA.result.printArea?.width ?? null,
-    print_area_height_in: trackA.result.printArea?.height ?? null,
-    color_name: opts?.colorName ?? trackA.colorName ?? null,
+    print_area_width_in: track.result.printArea?.width ?? null,
+    print_area_height_in: track.result.printArea?.height ?? null,
+    color_name: opts?.colorName ?? track.colorName ?? null,
     color_hex:
       opts?.colorHex ??
-      trackA.colorHex ??
-      trackA.result.backdropColor ??
+      track.colorHex ??
+      track.result.backdropColor ??
       null,
-    source: trackA.result.source,
+    source: track.result.source,
     mockup_width_px: px?.mockupWidthPx ?? null,
     mockup_height_px: px ? Math.round(px.mockupHeightPx) : null,
     print_area_x_px: px ? Math.round(px.xPx) : null,

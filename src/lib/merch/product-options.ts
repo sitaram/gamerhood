@@ -36,6 +36,8 @@ export function storefrontColors(productType: ProductType): string[] {
 }
 
 export function publishTypeTitle(productType: ProductType): string {
+  if (productType === "hoodie") return "Adult hoodie";
+  if (productType === "tshirt") return "Adult tee";
   if (productType === "kids-hoodie") return "Kids hoodie";
   if (productType === "kids-tshirt") return "Kids tee";
   if (productType === "kids-heavyweight-tee") return "Kids heavyweight tee";

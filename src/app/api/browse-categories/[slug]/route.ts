@@ -1,24 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { validateBrowseCategorySlug } from "@/lib/browse-routes";
-import { parseTagsInput } from "@/lib/slug-utils";
+import { getServiceClient } from "@/lib/supabase/admin";
+import {
+  canManageBrowseCategory,
+  isPlatformAdminUser,
+} from "@/lib/browse-categories/admin-access";
+import { parseBrowseCategoryPatchBody } from "@/lib/browse-categories/api-body";
 
 export const dynamic = "force-dynamic";
-
-function parseKeywordsField(raw: unknown): string {
-  if (raw === undefined || raw === null) return "";
-  if (Array.isArray(raw)) {
-    return raw.filter((x) => typeof x === "string").join(", ");
-  }
-  return typeof raw === "string" ? raw : "";
-}
 
 interface Ctx {
   params: Promise<{ slug: string }>;
 }
 
 /**
- * PATCH — update a category you created (slug change allowed if not taken).
+ * PATCH — update a category you created, or any row if platform admin.
  */
 export async function PATCH(request: NextRequest, context: Ctx) {
   const { slug: paramSlug } = await context.params;
@@ -30,7 +26,10 @@ export async function PATCH(request: NextRequest, context: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: existing, error: findErr } = await supabase
+  const asAdmin = isPlatformAdminUser(user);
+  const lookup = asAdmin ? getServiceClient() : supabase;
+
+  const { data: existing, error: findErr } = await lookup
     .from("browse_categories")
     .select("*")
     .eq("slug", paramSlug.trim().toLowerCase())
@@ -39,7 +38,7 @@ export async function PATCH(request: NextRequest, context: Ctx) {
   if (findErr || !existing) {
     return NextResponse.json({ error: "Category not found" }, { status: 404 });
   }
-  if (existing.created_by !== user.id) {
+  if (!canManageBrowseCategory(user, existing, asAdmin)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -50,46 +49,17 @@ export async function PATCH(request: NextRequest, context: Ctx) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const row: Record<string, unknown> = {};
-
-  if (typeof body.name === "string") {
-    row.name = body.name.trim().slice(0, 120) || existing.name;
+  const parsed = parseBrowseCategoryPatchBody(body, existing);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: parsed.status });
   }
 
-  if (body.slug !== undefined && body.slug !== null) {
-    const v = validateBrowseCategorySlug(String(body.slug));
-    if (!v.ok) {
-      return NextResponse.json({ error: v.error }, { status: 400 });
-    }
-    row.slug = v.slug;
-  }
+  const row = { ...parsed.row };
+  if (asAdmin && body.isPlatform === true) row.is_platform = true;
+  if (asAdmin && body.isPlatform === false) row.is_platform = false;
 
-  if (body.seoTitle !== undefined) {
-    row.seo_title =
-      body.seoTitle === null
-        ? null
-        : typeof body.seoTitle === "string"
-          ? body.seoTitle.trim().slice(0, 120) || null
-          : existing.seo_title;
-  }
-  if (body.seoDescription !== undefined) {
-    row.seo_description =
-      body.seoDescription === null
-        ? null
-        : typeof body.seoDescription === "string"
-          ? body.seoDescription.trim().slice(0, 320) || null
-          : existing.seo_description;
-  }
-  if (body.keywords !== undefined) {
-    const kw = parseTagsInput(parseKeywordsField(body.keywords), 40);
-    row.keywords = kw;
-  }
-
-  if (Object.keys(row).length === 0) {
-    return NextResponse.json({ error: "No changes" }, { status: 400 });
-  }
-
-  const { data: updated, error } = await supabase
+  const db = asAdmin ? getServiceClient() : supabase;
+  const { data: updated, error } = await db
     .from("browse_categories")
     .update(row)
     .eq("id", existing.id)
@@ -117,20 +87,24 @@ export async function DELETE(_request: NextRequest, context: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: existing } = await supabase
+  const asAdmin = isPlatformAdminUser(user);
+  const lookup = asAdmin ? getServiceClient() : supabase;
+
+  const { data: existing } = await lookup
     .from("browse_categories")
-    .select("id, created_by")
+    .select("id, created_by, is_platform")
     .eq("slug", paramSlug.trim().toLowerCase())
     .maybeSingle();
 
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (existing.created_by !== user.id) {
+  if (!canManageBrowseCategory(user, existing, asAdmin)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { error } = await supabase.from("browse_categories").delete().eq("id", existing.id);
+  const db = asAdmin ? getServiceClient() : supabase;
+  const { error } = await db.from("browse_categories").delete().eq("id", existing.id);
   if (error) {
     return NextResponse.json({ error: "Could not delete" }, { status: 500 });
   }

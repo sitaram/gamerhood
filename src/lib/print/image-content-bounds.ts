@@ -1,23 +1,73 @@
 /**
  * Client-side helpers to find the visible artwork bounds inside an upload.
- * Square PNG/JPG exports often ship with large white or transparent margins;
- * treating the full canvas as the design makes Printful print a huge white
- * rectangle. These helpers crop to the content bbox before preview/publish.
+ * Square PNG/JPG exports often ship with large transparent or near-white
+ * margins; treating the full canvas as the design makes Printful print a huge
+ * matte. These helpers crop to the content bbox before preview/publish, but
+ * preserve near-white strokes/outlines that hug colored ink.
  */
 
 const NEAR_WHITE = 245;
 const MIN_ALPHA = 12;
 /** Ignore trims smaller than this fraction of the long edge (noise / anti-aliasing). */
 const MIN_TRIM_FRACTION = 0.02;
+/**
+ * Near-white pixels within this distance of colored ink are treated as artwork
+ * (strokes/outlines), not as export margins to crop away.
+ */
+const STROKE_PRESERVE_RADIUS = 32;
 
-function isContentPixel(data: Uint8ClampedArray, i: number): boolean {
+function isNearWhitePixel(data: Uint8ClampedArray, i: number): boolean {
   const r = data[i];
   const g = data[i + 1];
   const b = data[i + 2];
+  return r >= NEAR_WHITE && g >= NEAR_WHITE && b >= NEAR_WHITE;
+}
+
+/** Opaque pixels that are not near-white — the "real" colored artwork. */
+function isInkPixel(data: Uint8ClampedArray, i: number): boolean {
   const a = data[i + 3];
   if (a < MIN_ALPHA) return false;
-  if (r >= NEAR_WHITE && g >= NEAR_WHITE && b >= NEAR_WHITE) return false;
-  return true;
+  return !isNearWhitePixel(data, i);
+}
+
+/** Dilate ink so white strokes/outlines hugging the art stay in the crop box. */
+function buildInkPreserveMask(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+): Uint8Array {
+  const n = width * height;
+  const preserve = new Uint8Array(n);
+  for (let p = 0; p < n; p += 1) {
+    if (isInkPixel(data, p * 4)) preserve[p] = 1;
+  }
+  for (let r = 0; r < STROKE_PRESERVE_RADIUS; r += 1) {
+    const tmp = preserve.slice();
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const p = y * width + x;
+        if (!preserve[p]) continue;
+        if (x > 0) tmp[p - 1] = 1;
+        if (x + 1 < width) tmp[p + 1] = 1;
+        if (y > 0) tmp[p - width] = 1;
+        if (y + 1 < height) tmp[p + width] = 1;
+      }
+    }
+    preserve.set(tmp);
+  }
+  return preserve;
+}
+
+function isContentPixel(
+  data: Uint8ClampedArray,
+  i: number,
+  preserveMask: Uint8Array,
+  p: number,
+): boolean {
+  const a = data[i + 3];
+  if (a < MIN_ALPHA) return false;
+  if (!isNearWhitePixel(data, i)) return true;
+  return preserveMask[p] === 1;
 }
 
 export interface ContentBounds {
@@ -28,12 +78,18 @@ export interface ContentBounds {
   aspect: number;
 }
 
-/** Scan `imageData` for the tightest box around non-transparent, non-white pixels. */
+/**
+ * Scan `imageData` for the tightest box around visible artwork.
+ * Trims transparent and distant near-white export margins, but keeps white
+ * strokes/outlines that hug colored ink.
+ */
 export function boundsFromImageData(
   imageData: ImageData,
 ): ContentBounds | null {
   const { data, width, height } = imageData;
   if (width <= 0 || height <= 0) return null;
+
+  const preserveMask = buildInkPreserveMask(data, width, height);
 
   let minX = width;
   let minY = height;
@@ -42,8 +98,9 @@ export function boundsFromImageData(
 
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      const i = (y * width + x) * 4;
-      if (!isContentPixel(data, i)) continue;
+      const p = y * width + x;
+      const i = p * 4;
+      if (!isContentPixel(data, i, preserveMask, p)) continue;
       if (x < minX) minX = x;
       if (y < minY) minY = y;
       if (x > maxX) maxX = x;

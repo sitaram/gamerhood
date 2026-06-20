@@ -31,13 +31,15 @@ export function CTA() {
           </p>
 
           <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link href="/create">
-              <Button size="lg" className="gap-2 bg-primary px-8 text-lg hover:bg-primary/90">
-                <Sparkles className="h-5 w-5" />
-                Open Design Studio
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
+            <Button
+              render={<Link href="/create" />}
+              size="lg"
+              className="gap-2 bg-primary px-8 text-lg hover:bg-primary/90"
+            >
+              <Sparkles className="h-5 w-5" />
+              Open Design Studio
+              <ArrowRight className="h-4 w-4" />
+            </Button>
           </div>
 
           <p className="mt-6 text-sm text-muted-foreground">

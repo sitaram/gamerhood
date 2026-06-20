@@ -144,8 +144,16 @@ export function validateBrowseCategorySlug(raw: string): { ok: true; slug: strin
   return { ok: true, slug };
 }
 
+/** All merch for a tag — `/{tag}/merch` (any product type). */
+export const BROWSE_MERCH_HUB_SEGMENT = "merch";
+
+export function isBrowseMerchHubSegment(segment: string): boolean {
+  return segment.trim().toLowerCase() === BROWSE_MERCH_HUB_SEGMENT;
+}
+
 export function merchSegmentToProductType(segment: string): ProductType | null {
   const key = segment.trim().toLowerCase();
+  if (isBrowseMerchHubSegment(key)) return null;
   return MERCH_SEGMENT_TO_TYPE[key] ?? null;
 }
 

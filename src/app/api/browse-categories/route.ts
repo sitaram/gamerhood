@@ -1,18 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getServiceClient } from "@/lib/supabase/admin";
 import { listBrowseCategories } from "@/lib/supabase/queries";
-import { validateBrowseCategorySlug } from "@/lib/browse-routes";
-import { parseTagsInput, sanitizeSlugInput, MAX_BROWSE_CATEGORY_SLUG_LEN } from "@/lib/slug-utils";
+import { isPlatformAdminUser } from "@/lib/browse-categories/admin-access";
+import { parseBrowseCategoryCreateBody } from "@/lib/browse-categories/api-body";
 
 export const dynamic = "force-dynamic";
-
-function parseKeywordsField(raw: unknown): string {
-  if (raw === undefined || raw === null) return "";
-  if (Array.isArray(raw)) {
-    return raw.filter((x) => typeof x === "string").join(", ");
-  }
-  return typeof raw === "string" ? raw : "";
-}
 
 /**
  * GET — list all browse categories (public) for SEO pages and picker UIs.
@@ -24,7 +17,7 @@ export async function GET() {
 }
 
 /**
- * POST — create a category (auth). `slug` becomes `/{slug}/hoodies` etc.
+ * POST — create a category (auth). Platform admins create official tag landings.
  */
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -42,36 +35,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const name = typeof body.name === "string" ? body.name.trim().slice(0, 120) : "";
-  if (!name) {
-    return NextResponse.json({ error: "Name is required" }, { status: 400 });
+  const parsed = parseBrowseCategoryCreateBody(body);
+  if (!parsed.ok) {
+    return NextResponse.json({ error: parsed.error }, { status: parsed.status });
   }
 
-  const slugFromBody =
-    typeof body.slug === "string" && body.slug.trim()
-      ? sanitizeSlugInput(body.slug, MAX_BROWSE_CATEGORY_SLUG_LEN)
-      : "";
-  const slugRaw = slugFromBody || sanitizeSlugInput(name, MAX_BROWSE_CATEGORY_SLUG_LEN);
-  const slugCheck = validateBrowseCategorySlug(slugRaw);
-  if (!slugCheck.ok) {
-    return NextResponse.json({ error: slugCheck.error }, { status: 400 });
-  }
+  const asAdmin = isPlatformAdminUser(user);
+  const isPlatform = asAdmin && body.isPlatform === true;
 
-  const kw = parseTagsInput(parseKeywordsField(body.keywords), 40);
-  const seoTitle = typeof body.seoTitle === "string" ? body.seoTitle.trim().slice(0, 120) || null : null;
-  const seoDesc =
-    typeof body.seoDescription === "string" ? body.seoDescription.trim().slice(0, 320) || null : null;
+  const insertRow = {
+    ...parsed.row,
+    created_by: user.id,
+    ...(isPlatform ? { is_platform: true } : { is_platform: false }),
+  };
 
-  const { data, error } = await supabase
+  const db = isPlatform ? getServiceClient() : supabase;
+  const { data, error } = await db
     .from("browse_categories")
-    .insert({
-      slug: slugCheck.slug,
-      name,
-      seo_title: seoTitle,
-      seo_description: seoDesc,
-      keywords: kw.length ? kw : [],
-      created_by: user.id,
-    })
+    .insert(insertRow)
     .select()
     .single();
 

@@ -174,12 +174,20 @@ export function computeDesignOverlayBox(input: OverlayInput): ComputedOverlay {
    * straight from the cached `print_area_*_px` / `mockup_*_px` values.
    */
   const pxRect = input.printAreaPixelRect;
+  const isUsablePxRect = Boolean(
+    pxRect &&
+      pxRect.mockupWidthPx > 0 &&
+      pxRect.mockupHeightPx > 0 &&
+      pxRect.wPx > 0 &&
+      pxRect.hPx > 0 &&
+      pxRect.xPx >= 0 &&
+      pxRect.yPx >= 0 &&
+      pxRect.xPx + pxRect.wPx <= pxRect.mockupWidthPx &&
+      pxRect.yPx + pxRect.hPx <= pxRect.mockupHeightPx,
+  );
   if (
     pxRect &&
-    pxRect.mockupWidthPx > 0 &&
-    pxRect.mockupHeightPx > 0 &&
-    pxRect.wPx > 0 &&
-    pxRect.hPx > 0
+    isUsablePxRect
   ) {
     const topPct = (pxRect.yPx / pxRect.mockupHeightPx) * 100;
     const leftPct = (pxRect.xPx / pxRect.mockupWidthPx) * 100;

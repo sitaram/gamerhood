@@ -30,11 +30,13 @@ export default function DMCAPage() {
             We&apos;ve received your DMCA takedown notice. Our team will review and
             respond within 48 hours to the email address you provided.
           </p>
-          <Link href="/" className="mt-8 inline-block">
-            <Button variant="outline" className="border-border/50">
-              Back to Home
-            </Button>
-          </Link>
+          <Button
+            render={<Link href="/" />}
+            variant="outline"
+            className="mt-8 border-border/50"
+          >
+            Back to Home
+          </Button>
         </div>
       </div>
     );

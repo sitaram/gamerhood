@@ -222,38 +222,41 @@ export function Navbar({
 
         <nav className="hidden flex-1 justify-center gap-1 md:flex md:items-center">
           {NAV_LINKS.map((link) => (
-            <Link key={link.href} href={link.href}>
-              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-                <link.icon className="h-4 w-4" />
-                {link.label}
-              </Button>
-            </Link>
+            <Button
+              key={link.href}
+              render={<Link href={link.href} />}
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-muted-foreground hover:text-foreground"
+            >
+              <link.icon className="h-4 w-4" />
+              {link.label}
+            </Button>
           ))}
           {user && (
-            <Link href="/dashboard">
-              <Button
-                variant="ghost"
-                size="sm"
-                title={
-                  stripeOnboarded === false
-                    ? "Connect your bank account to start earning"
-                    : undefined
-                }
-                className={cn(
-                  "gap-2 text-muted-foreground hover:text-foreground",
-                  sellerDashboardNavActive(pathname) && "text-foreground",
-                )}
-              >
-                <LayoutDashboard className="h-4 w-4" />
-                Seller Dashboard
-                {stripeOnboarded === false && (
-                  <span
-                    aria-hidden
-                    className="ml-0.5 h-2 w-2 animate-pulse rounded-full bg-amber-400"
-                  />
-                )}
-              </Button>
-            </Link>
+            <Button
+              render={<Link href="/dashboard" />}
+              variant="ghost"
+              size="sm"
+              title={
+                stripeOnboarded === false
+                  ? "Connect your bank account to start earning"
+                  : undefined
+              }
+              className={cn(
+                "gap-2 text-muted-foreground hover:text-foreground",
+                sellerDashboardNavActive(pathname) && "text-foreground",
+              )}
+            >
+              <LayoutDashboard className="h-4 w-4" />
+              Seller Dashboard
+              {stripeOnboarded === false && (
+                <span
+                  aria-hidden
+                  className="ml-0.5 h-2 w-2 animate-pulse rounded-full bg-amber-400"
+                />
+              )}
+            </Button>
           )}
           {user && (
             <div ref={storefrontRef} className="relative">
@@ -302,16 +305,19 @@ export function Navbar({
         </nav>
 
         <div className="flex shrink-0 items-center gap-2">
-          <Link href="/cart">
-            <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">
-              <ShoppingCart className="h-5 w-5" />
-              {cartCount > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
-                  {cartCount}
-                </span>
-              )}
-            </Button>
-          </Link>
+          <Button
+            render={<Link href="/cart" />}
+            variant="ghost"
+            size="icon"
+            className="relative text-muted-foreground hover:text-foreground"
+          >
+            <ShoppingCart className="h-5 w-5" />
+            {cartCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                {cartCount}
+              </span>
+            )}
+          </Button>
 
           {user ? (
             <div ref={menuRef} className="relative hidden sm:block">
@@ -444,21 +450,26 @@ export function Navbar({
               )}
             </div>
           ) : (
-            <Link href="/auth/login" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
-                <LogIn className="h-4 w-4" />
-                Sign In
-              </Button>
-            </Link>
+            <Button
+              render={<Link href="/auth/login" />}
+              variant="ghost"
+              size="sm"
+              className="hidden gap-2 text-muted-foreground hover:text-foreground sm:inline-flex"
+            >
+              <LogIn className="h-4 w-4" />
+              Sign In
+            </Button>
           )}
 
           {!user && (
-            <Link href="/create" className="hidden sm:block">
-              <Button size="sm" className="gap-2 bg-primary hover:bg-primary/90">
-                <Sparkles className="h-4 w-4" />
-                Start Creating
-              </Button>
-            </Link>
+            <Button
+              render={<Link href="/create" />}
+              size="sm"
+              className="hidden gap-2 bg-primary hover:bg-primary/90 sm:inline-flex"
+            >
+              <Sparkles className="h-4 w-4" />
+              Start Creating
+            </Button>
           )}
 
           <Sheet open={open} onOpenChange={setOpen}>
@@ -503,27 +514,29 @@ export function Navbar({
 
               <nav className="mt-6 flex flex-col gap-2">
                 {NAV_LINKS.map((link) => (
-                  <Link key={link.href} href={link.href} onClick={() => setOpen(false)}>
-                    <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
-                      <link.icon className="h-5 w-5" />
-                      {link.label}
-                    </Button>
-                  </Link>
+                  <Button
+                    key={link.href}
+                    render={<Link href={link.href} onClick={() => setOpen(false)} />}
+                    variant="ghost"
+                    className="w-full justify-start gap-3 text-muted-foreground"
+                  >
+                    <link.icon className="h-5 w-5" />
+                    {link.label}
+                  </Button>
                 ))}
                 {user && (
                   <div className="flex flex-col">
-                    <Link href="/dashboard" onClick={() => setOpen(false)}>
-                      <Button
-                        variant="ghost"
-                        className={cn(
-                          "w-full justify-start gap-3",
-                          sellerDashboardNavActive(pathname) ? "bg-primary/5 text-foreground" : "text-muted-foreground",
-                        )}
-                      >
-                        <LayoutDashboard className="h-5 w-5 shrink-0" />
-                        Seller Dashboard
-                      </Button>
-                    </Link>
+                    <Button
+                      render={<Link href="/dashboard" onClick={() => setOpen(false)} />}
+                      variant="ghost"
+                      className={cn(
+                        "w-full justify-start gap-3",
+                        sellerDashboardNavActive(pathname) ? "bg-primary/5 text-foreground" : "text-muted-foreground",
+                      )}
+                    >
+                      <LayoutDashboard className="h-5 w-5 shrink-0" />
+                      Seller Dashboard
+                    </Button>
                     {stripeOnboarded === false && (
                       <p className="-mt-1 pl-12 pr-3 pb-1 text-xs text-muted-foreground">
                         Connect your bank account for profits
@@ -532,35 +545,29 @@ export function Navbar({
                   </div>
                 )}
                 {user && (
-                  <Link href="/dashboard/designs" onClick={() => setOpen(false)}>
-                    <Button
-                      variant="ghost"
-                      className={cn(
-                        "w-full justify-start gap-3",
-                        sellerNavItemActive(pathname, "/dashboard/designs")
-                          ? "bg-primary/5 text-foreground"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      <Images className="h-5 w-5 shrink-0" />
-                      My Images &amp; Uploads
-                    </Button>
-                  </Link>
+                  <Button
+                    render={<Link href="/dashboard/designs" onClick={() => setOpen(false)} />}
+                    variant="ghost"
+                    className={cn(
+                      "w-full justify-start gap-3",
+                      sellerNavItemActive(pathname, "/dashboard/designs")
+                        ? "bg-primary/5 text-foreground"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    <Images className="h-5 w-5 shrink-0" />
+                    My Images &amp; Uploads
+                  </Button>
                 )}
                 {user && (
-                  <Link
-                    href={CREATE_STOREFRONT_HREF}
-                    onClick={() => setOpen(false)}
-                    className="mt-2 block"
+                  <Button
+                    render={<Link href={CREATE_STOREFRONT_HREF} onClick={() => setOpen(false)} />}
+                    variant="outline"
+                    className="mt-2 w-full justify-start gap-3 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10"
                   >
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start gap-3 border-primary/30 bg-primary/5 text-primary hover:bg-primary/10"
-                    >
-                      <Plus className="h-5 w-5 shrink-0" />
-                      Create another storefront
-                    </Button>
-                  </Link>
+                    <Plus className="h-5 w-5 shrink-0" />
+                    Create another storefront
+                  </Button>
                 )}
                 {user && (
                   <div className="mt-4 border-t border-border/40 pt-4">
@@ -580,12 +587,14 @@ export function Navbar({
                     </div>
                   </div>
                 )}
-                <Link href="/cart" onClick={() => setOpen(false)}>
-                  <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
-                    <ShoppingCart className="h-5 w-5" />
-                    Cart{cartCount > 0 && ` (${cartCount})`}
-                  </Button>
-                </Link>
+                <Button
+                  render={<Link href="/cart" onClick={() => setOpen(false)} />}
+                  variant="ghost"
+                  className="w-full justify-start gap-3 text-muted-foreground"
+                >
+                  <ShoppingCart className="h-5 w-5" />
+                  Cart{cartCount > 0 && ` (${cartCount})`}
+                </Button>
                 {user ? (
                   <Button
                     variant="ghost"
@@ -596,19 +605,22 @@ export function Navbar({
                     Sign Out
                   </Button>
                 ) : (
-                  <Link href="/auth/login" onClick={() => setOpen(false)}>
-                    <Button variant="ghost" className="w-full justify-start gap-3 text-muted-foreground">
-                      <LogIn className="h-5 w-5" />
-                      Sign In
-                    </Button>
-                  </Link>
-                )}
-                <Link href="/create" onClick={() => setOpen(false)}>
-                  <Button className="mt-4 w-full gap-2 bg-primary">
-                    <Sparkles className="h-4 w-4" />
-                    Start Creating
+                  <Button
+                    render={<Link href="/auth/login" onClick={() => setOpen(false)} />}
+                    variant="ghost"
+                    className="w-full justify-start gap-3 text-muted-foreground"
+                  >
+                    <LogIn className="h-5 w-5" />
+                    Sign In
                   </Button>
-                </Link>
+                )}
+                <Button
+                  render={<Link href="/create" onClick={() => setOpen(false)} />}
+                  className="mt-4 w-full gap-2 bg-primary"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Start Creating
+                </Button>
               </nav>
             </SheetContent>
           </Sheet>

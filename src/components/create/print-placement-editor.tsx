@@ -75,6 +75,8 @@ interface Props {
   onAspectDetected?: (aspect: number) => void;
   /** Hide the note about sharing framing across types (single-item tuning dialogs). */
   hideBatchPlacementNote?: boolean;
+  /** Fired when the artwork image fails to load (e.g. deleted library design). */
+  onArtworkError?: () => void;
 }
 
 export function PrintPlacementEditor({
@@ -84,6 +86,7 @@ export function PrintPlacementEditor({
   onChange,
   onAspectDetected,
   hideBatchPlacementNote = false,
+  onArtworkError,
 }: Props) {
   const singleSelected =
     selectedProductTypes.size === 1 ? [...selectedProductTypes][0]! : undefined;
@@ -121,10 +124,19 @@ export function PrintPlacementEditor({
     }
   }, [previewType, blankPhotoUrl, blankPhotoLoading]);
 
-  /** Flat photo backdrop swaps in the per-SKU print band tune (different framing than the silhouette). */
-  const layout = blankPhotoUrl && baseLayout.photoBand
-    ? { ...baseLayout, ...baseLayout.photoBand }
-    : baseLayout;
+  /**
+   * Match the preview frame to the mockup-templates coordinate space when
+   * Printful gave us pixel coords; otherwise fall back to photoBand tuning
+   * for legacy flat mockups without a template rect.
+   */
+  const layout = blankPixelRect
+    ? {
+        ...baseLayout,
+        garmentAspect: blankPixelRect.mockupWidthPx / blankPixelRect.mockupHeightPx,
+      }
+    : blankPhotoUrl && baseLayout.photoBand
+      ? { ...baseLayout, ...baseLayout.photoBand }
+      : baseLayout;
 
   /**
    * Unified overlay geometry: same helper drives every preview surface so
@@ -249,6 +261,7 @@ export function PrintPlacementEditor({
         className="object-contain object-center"
         unoptimized
         draggable={false}
+        onError={() => onArtworkError?.()}
       />
     </div>
   );

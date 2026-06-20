@@ -32,13 +32,49 @@ Gamerhood gives kids (supervised by parents) the power to:
 
 ## Getting Started
 
+**Prerequisites:** Node 20+, [pnpm](https://pnpm.io), access to the team Supabase/Vercel projects.
+
 ```bash
+git clone https://github.com/sitaram/gamerhood.git
+cd gamerhood
 pnpm install
-cp .env.example .env.local  # fill in your keys
+cp .env.example .env.local   # then paste real keys (see below)
 pnpm dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
+
+### New machine / Cursor on another computer
+
+1. **Clone from GitHub** — code lives in [github.com/sitaram/gamerhood](https://github.com/sitaram/gamerhood). Production deploys do **not** auto-sync to Git unless you commit and push.
+2. **Secrets are not in git** — copy `.env.local` from your password manager, or pull Production env vars from [Vercel → gamerhood → Settings → Environment Variables](https://vercel.com) and paste into `.env.local`.
+3. **Link Vercel CLI** (only if you deploy from that machine):
+   ```bash
+   pnpm dlx vercel link
+   ```
+   The `.vercel/` folder is gitignored; each machine links once.
+4. **Open the folder in Cursor** — run `pnpm dev` in the integrated terminal. No extra Cursor config required.
+
+If `git status` on your main machine shows modified files, those changes are **local only** until you `git add`, `commit`, and `push`.
+
+### Environment variables
+
+See `.env.example` for the full list. Minimum for local dev: Supabase trio + Stripe + Printful. AI generation needs `GEMINI_API_KEY`.
+
+## Deploy
+
+See [RELEASE.md](./RELEASE.md) for the full release routine.
+
+| Command | When to use | ~Time |
+|---------|-------------|-------|
+| `pnpm dev` | Day-to-day development (instant reload) | — |
+| `pnpm run deploy:preview` | Quick test on Vercel preview URL, no local lint/build | ~1 min |
+| `pnpm run deploy:prod` | Ship to [gamerhood.gg](https://www.gamerhood.gg), no local lint/build | ~1 min |
+| `pnpm run release:deploy` | Final gate: lint + build + print-area check, then prod | ~2–3 min |
+
+**Tip:** Use `deploy:prod` while iterating; run `release:check` once before you call a cycle done. There is no way to hot-swap a single file on Vercel — every deploy rebundles the Next.js app.
+
+**Git push:** If the repo is connected to Vercel, pushing to `main` also triggers a production build (no local CLI needed).
 
 ## Project Structure
 

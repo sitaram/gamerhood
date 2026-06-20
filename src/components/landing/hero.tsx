@@ -63,19 +63,24 @@ export function Hero() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
           >
-            <Link href="/create">
-              <Button size="lg" className="gap-2 bg-primary px-8 text-lg hover:bg-primary/90">
-                <Sparkles className="h-5 w-5" />
-                Start Creating — It&apos;s Free
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
-            <Link href="/shop">
-              <Button size="lg" variant="outline" className="gap-2 px-8 text-lg border-border hover:bg-secondary">
-                <ShoppingBag className="h-5 w-5" />
-                Browse the Shop
-              </Button>
-            </Link>
+            <Button
+              render={<Link href="/create" />}
+              size="lg"
+              className="gap-2 bg-primary px-8 text-lg hover:bg-primary/90"
+            >
+              <Sparkles className="h-5 w-5" />
+              Start Creating — It&apos;s Free
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            <Button
+              render={<Link href="/shop" />}
+              size="lg"
+              variant="outline"
+              className="gap-2 border-border px-8 text-lg hover:bg-secondary"
+            >
+              <ShoppingBag className="h-5 w-5" />
+              Browse the Shop
+            </Button>
           </motion.div>
 
           <motion.p

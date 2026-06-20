@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -21,8 +21,12 @@ import type { Product } from "@/lib/types";
 import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
 import { PhotographicColorMockup } from "@/components/storefront/photographic-color-mockup";
 
+const subscribeNoop = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
+
 export default function CartPage() {
-  const [mounted, setMounted] = useState(false);
+  const mounted = useSyncExternalStore(subscribeNoop, getClientSnapshot, getServerSnapshot);
   const [checkingOut, setCheckingOut] = useState(false);
   const items = useCartStore((s) => s.items);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
@@ -31,7 +35,6 @@ export default function CartPage() {
   const totalPrice = useCartStore((s) => s.totalPrice);
   const totalItems = useCartStore((s) => s.totalItems);
 
-  useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
   async function handleCheckout() {
@@ -81,12 +84,14 @@ export default function CartPage() {
         <p className="mt-3 text-muted-foreground">
           Looks like you haven&apos;t added anything yet. Go discover some amazing creator merch!
         </p>
-        <Link href="/shop" className="mt-8 inline-block">
-          <Button size="lg" className="gap-2 bg-primary hover:bg-primary/90">
-            <ShoppingCart className="h-5 w-5" />
-            Browse the Shop
-          </Button>
-        </Link>
+        <Button
+          render={<Link href="/shop" />}
+          size="lg"
+          className="mt-8 gap-2 bg-primary hover:bg-primary/90"
+        >
+          <ShoppingCart className="h-5 w-5" />
+          Browse the Shop
+        </Button>
       </div>
     );
   }
@@ -183,12 +188,14 @@ export default function CartPage() {
             </Card>
           ))}
 
-          <Link href="/shop">
-            <Button variant="ghost" className="gap-2 text-muted-foreground hover:text-foreground mt-2">
-              <ArrowLeft className="h-4 w-4" />
-              Continue Shopping
-            </Button>
-          </Link>
+          <Button
+            render={<Link href="/shop" />}
+            variant="ghost"
+            className="mt-2 gap-2 text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Continue Shopping
+          </Button>
         </div>
 
         <div>

@@ -7,7 +7,7 @@ import {
 } from "@/lib/supabase/queries";
 import { toDashboardDesignCard } from "@/lib/design-image-url";
 import { normalizeUploadedDesignDataUrl } from "@/lib/design/persist-upload";
-import { uploadDesignImage } from "@/lib/storage";
+import { uploadDesignAssetDerivatives } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -125,7 +125,10 @@ export async function POST(request: NextRequest) {
 
   let publicImageUrl = normalized.value.imageForPersist;
   try {
-    publicImageUrl = await uploadDesignImage(design.id, normalized.value.imageForPersist);
+    const assets = await uploadDesignAssetDerivatives(design.id, normalized.value.imageForPersist, {
+      sourceSvgDataUrl: normalized.value.sourceSvgDataUrl,
+    });
+    publicImageUrl = assets.printUrl;
     if (publicImageUrl !== normalized.value.imageForPersist) {
       await supabase
         .from("designs")

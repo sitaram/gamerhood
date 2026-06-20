@@ -297,7 +297,6 @@ function ListingCard({
 }) {
   const previewDesignUrl = `/api/designs/${row.designId}/image?v=${encodeURIComponent(row.createdAt)}&pv=1&rev=20260608b`;
   const hasDesignPreview = Boolean(row.designId);
-  const defaultColor = row.productType === "tshirt" ? "White" : null;
   /**
    * Prefer persisted listing mockups in card grids so previews render
    * immediately instead of waiting for client-side composition.
@@ -332,7 +331,6 @@ function ListingCard({
             imageUrl={previewDesignUrl}
             productType={row.productType}
             placement={row.printPlacement ?? DEFAULT_STORED}
-            blankColorName={defaultColor}
             showPrintAreaFrame={false}
             transparentBlankBackdrop
           />

@@ -134,6 +134,29 @@ async function readCachedBlank(
       typeof w === "number" && typeof h === "number" && w > 0 && h > 0
         ? { width: w, height: h }
         : null;
+    const rectIssue = pixelRectValidationIssue(data);
+    if (rectIssue) {
+      console.error("[blank-mockup] invalid template pixel rect in cache row — deleting", {
+        productType,
+        colorName,
+        reason: rectIssue,
+        catalogVariantId: data.catalog_variant_id ?? null,
+        source: data.source ?? null,
+        mockupWidthPx: data.mockup_width_px ?? null,
+        mockupHeightPx: data.mockup_height_px ?? null,
+        xPx: data.print_area_x_px ?? null,
+        yPx: data.print_area_y_px ?? null,
+        wPx: data.print_area_w_px ?? null,
+        hPx: data.print_area_h_px ?? null,
+      });
+      if (data.catalog_variant_id) {
+        await supabase
+          .from("printful_blank_mockups")
+          .delete()
+          .eq("catalog_variant_id", data.catalog_variant_id);
+      }
+      return null;
+    }
     const printAreaPixelRect = extractRowPixelRect(data);
     const aligned = await isTemplateAlignedBlankRow(
       {
@@ -389,6 +412,58 @@ function extractRowPrintArea(
   return null;
 }
 
+function hasAnyPixelRectColumns(row: {
+  mockup_width_px?: number | null;
+  mockup_height_px?: number | null;
+  print_area_x_px?: number | null;
+  print_area_y_px?: number | null;
+  print_area_w_px?: number | null;
+  print_area_h_px?: number | null;
+}): boolean {
+  return (
+    row.mockup_width_px != null ||
+    row.mockup_height_px != null ||
+    row.print_area_x_px != null ||
+    row.print_area_y_px != null ||
+    row.print_area_w_px != null ||
+    row.print_area_h_px != null
+  );
+}
+
+function pixelRectValidationIssue(
+  row: {
+    mockup_width_px?: number | null;
+    mockup_height_px?: number | null;
+    print_area_x_px?: number | null;
+    print_area_y_px?: number | null;
+    print_area_w_px?: number | null;
+    print_area_h_px?: number | null;
+    source?: string | null;
+  } | null,
+): string | null {
+  if (!row || row.source !== "template_backdrop") return null;
+  if (!hasAnyPixelRectColumns(row)) return null;
+
+  const mw = row.mockup_width_px;
+  const mh = row.mockup_height_px;
+  const xPx = row.print_area_x_px;
+  const yPx = row.print_area_y_px;
+  const wPx = row.print_area_w_px;
+  const hPx = row.print_area_h_px;
+  const allNumeric =
+    typeof mw === "number" &&
+    typeof mh === "number" &&
+    typeof xPx === "number" &&
+    typeof yPx === "number" &&
+    typeof wPx === "number" &&
+    typeof hPx === "number";
+  if (!allNumeric) return "pixel rect fields are partially missing or non-numeric";
+  if (mw <= 0 || mh <= 0 || wPx <= 0 || hPx <= 0) return "pixel rect dimensions must be > 0";
+  if (xPx < 0 || yPx < 0) return "pixel rect origin is negative";
+  if (xPx + wPx > mw || yPx + hPx > mh) return "pixel rect exceeds mockup bounds";
+  return null;
+}
+
 /**
  * Pull the mockup/print pixel rect from a cache row, when all six values
  * are present and positive. The `source` filter keeps us from handing
@@ -425,6 +500,8 @@ function extractRowPixelRect(
     typeof hPx === "number";
   if (!allNumeric) return null;
   if (mw <= 0 || mh <= 0 || wPx <= 0 || hPx <= 0) return null;
+  if (xPx < 0 || yPx < 0) return null;
+  if (xPx + wPx > mw || yPx + hPx > mh) return null;
   return {
     mockupWidthPx: mw,
     mockupHeightPx: mh,

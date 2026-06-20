@@ -55,9 +55,12 @@ export default function EditListingError({
           <Button onClick={() => reset()} className="bg-primary hover:bg-primary/90">
             Retry
           </Button>
-          <Link href="/dashboard/listings">
-            <Button variant="outline">Back to listings</Button>
-          </Link>
+          <Button
+            render={<Link href="/dashboard/listings" />}
+            variant="outline"
+          >
+            Back to listings
+          </Button>
         </div>
       </div>
     </div>

@@ -3,13 +3,17 @@ import sharp from "sharp";
 /**
  * Result of inspecting a raster design for "is the background transparent?"
  *
- * `transparent: true` only when the file has an alpha channel AND at least
- * one pixel is sub-255 (semi-transparent or fully clear). `transparent: false`
- * covers everything else, with a `reason` we surface in logs:
+ * `transparent: true` only when a meaningful share of pixels are fully clear
+ * (see `MIN_CLEAR_PIXEL_FRACTION`). A handful of anti-aliased edge pixels on
+ * an otherwise opaque export must NOT pass — that was causing SVG uploads with
+ * baked-in backgrounds to show "Transparency detected."
  *
- *   - `no_alpha`           — no alpha channel at all (e.g. JPEG, flat PNG)
- *   - `alpha_fully_opaque` — alpha channel exists but every pixel is 255
- *   - `decode_failed`      — sharp couldn't read the file (corrupt, weird format)
+ * `transparent: false` covers everything else, with a `reason` we surface in logs:
+ *
+ *   - `no_alpha`            — no alpha channel at all (e.g. JPEG, flat PNG)
+ *   - `alpha_fully_opaque`  — alpha channel exists but every pixel is 255
+ *   - `insufficient_alpha`  — some non-opaque pixels, but not enough clear area
+ *   - `decode_failed`       — sharp couldn't read the file (corrupt, weird format)
  *
  * The `decode_failed` case is treated like "solid background" for the badge
  * UI: better to nudge the creator to re-upload than to silently report
@@ -17,38 +21,64 @@ import sharp from "sharp";
  */
 export type DesignTransparency =
   | { transparent: true }
-  | { transparent: false; reason: "no_alpha" | "alpha_fully_opaque" | "decode_failed" };
+  | {
+      transparent: false;
+      reason: "no_alpha" | "alpha_fully_opaque" | "insufficient_alpha" | "decode_failed";
+    };
+
+/** Fully clear pixels (alpha below this) must cover at least this share of the canvas. */
+const MIN_CLEAR_PIXEL_FRACTION = 0.005;
+const CLEAR_ALPHA = 16;
+const ANALYSIS_MAX_DIMENSION = 800;
 
 /**
- * Inspect raster bytes (PNG, WebP, JPEG, GIF) and answer: would Printful
- * see ANY transparency, or will the design print as a solid rectangle?
+ * Inspect raster bytes (PNG, WebP, JPEG, GIF) and answer: will areas without
+ * artwork actually print as clear, or will the design print as a solid rectangle?
  *
- * We do a two-step check to stay cheap on huge designs:
- *   1. `metadata().hasAlpha` rules out JPEGs and flat PNGs without touching pixels.
- *   2. When alpha is present we extract just the alpha channel as raw bytes
- *      and look for any value < 255. This is the only way to catch the
- *      common AI-generator case of "PNG technically has an alpha channel,
- *      but every pixel is opaque + the background is painted as a literal
- *      checker pattern."
- *
- * SVG is intentionally unsupported here — `rasterizeSvgForPrinting` always
- * calls `.ensureAlpha()` so the resulting PNG is guaranteed to carry alpha,
- * and we run this check on the rasterized output, not the source SVG.
+ * We downsample first so huge print files stay cheap, then count how much of
+ * the canvas is fully transparent. SVG uploads are checked on the rasterized
+ * PNG from `rasterizeSvgForPrinting`, not the raw vector source.
  */
 export async function detectDesignTransparency(
   input: Buffer,
 ): Promise<DesignTransparency> {
   try {
-    const img = sharp(input);
-    const meta = await img.metadata();
+    const meta = await sharp(input).metadata();
     if (!meta.hasAlpha) {
       return { transparent: false, reason: "no_alpha" };
     }
-    const alpha = await img.extractChannel("alpha").raw().toBuffer();
-    for (let i = 0; i < alpha.length; i++) {
-      if (alpha[i] < 255) return { transparent: true };
+
+    const { data, info } = await sharp(input)
+      .resize(ANALYSIS_MAX_DIMENSION, ANALYSIS_MAX_DIMENSION, {
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const ch = info.channels;
+    const n = info.width * info.height;
+    if (n === 0) {
+      return { transparent: false, reason: "decode_failed" };
     }
-    return { transparent: false, reason: "alpha_fully_opaque" };
+
+    let clear = 0;
+    let nonOpaque = 0;
+    for (let p = 0; p < n; p += 1) {
+      const a = data[p * ch + 3];
+      if (a < CLEAR_ALPHA) clear += 1;
+      if (a < 255) nonOpaque += 1;
+    }
+
+    const clearFraction = clear / n;
+    if (clearFraction >= MIN_CLEAR_PIXEL_FRACTION) {
+      return { transparent: true };
+    }
+    if (nonOpaque === 0) {
+      return { transparent: false, reason: "alpha_fully_opaque" };
+    }
+    return { transparent: false, reason: "insufficient_alpha" };
   } catch (err) {
     console.warn("[transparency] decode failed:", err instanceof Error ? err.message : err);
     return { transparent: false, reason: "decode_failed" };
@@ -83,7 +113,7 @@ export async function detectDesignTransparencyFromAnySource(
     try {
       const buf = isBase64
         ? Buffer.from(body.replace(/\s/g, ""), "base64")
-        : Buffer.from(decodeURIComponent(body.replace(/\+/g, "%20")), "utf8");
+        : Buffer.from(decodeURIComponent(body), "utf8");
       return detectDesignTransparency(buf);
     } catch (err) {
       console.warn(

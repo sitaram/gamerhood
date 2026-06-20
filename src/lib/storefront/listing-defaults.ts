@@ -103,22 +103,51 @@ export async function getListingDefaultsForStorefront(
     };
   }
 
-  // Most recent published listing on this storefront. We also accept
-  // legacy rows on the owner's default storefront where storefront_id
-  // was never backfilled — same union the public shop reader uses in
-  // queries.ts so the UX stays consistent.
+  // Most recent published listing on this storefront. Prefer the
+  // multi-storefront join table, then fall back to legacy storefront_id
+  // rows while older data migrates.
   const ownerProfileId = storefront.owner_profile_id as string | null;
   const isDefault = Boolean(storefront.is_default);
 
-  const { data: linked } = await admin
-    .from("products")
-    .select("description, tags, category, created_at")
-    .eq("storefront_id", storefrontId)
-    .eq("is_published", true)
-    .order("created_at", { ascending: false })
-    .limit(1);
+  let candidate: {
+    description?: string | null;
+    tags?: unknown;
+    category?: string | null;
+    created_at?: string;
+  } | null = null;
 
-  let candidate = (linked ?? [])[0] ?? null;
+  const { data: links } = await admin
+    .from("product_storefronts")
+    .select("product_id")
+    .eq("storefront_id", storefrontId);
+  const linkedIds = Array.from(
+    new Set(
+      (links ?? [])
+        .map((r) => (r as { product_id?: string }).product_id ?? "")
+        .filter((id) => id.length > 0),
+    ),
+  );
+  if (linkedIds.length > 0) {
+    const { data: linkedRows } = await admin
+      .from("products")
+      .select("description, tags, category, created_at")
+      .in("id", linkedIds)
+      .eq("is_published", true)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    candidate = (linkedRows ?? [])[0] ?? null;
+  }
+
+  if (!candidate) {
+    const { data: legacyLinked } = await admin
+      .from("products")
+      .select("description, tags, category, created_at")
+      .eq("storefront_id", storefrontId)
+      .eq("is_published", true)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    candidate = (legacyLinked ?? [])[0] ?? null;
+  }
 
   if (!candidate && isDefault && ownerProfileId) {
     const { data: legacy } = await admin

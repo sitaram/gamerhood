@@ -65,7 +65,7 @@ const only = [...productFilters, ...positional];
 const targets = only.length ? ALL_TYPES.filter((t) => only.includes(t)) : ALL_TYPES;
 
 let okVariants = 0;
-let skippedVariants = 0;
+const skippedVariants = 0;
 let failedVariants = 0;
 let cachedVariants = 0;
 

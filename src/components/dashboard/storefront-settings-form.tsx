@@ -17,7 +17,8 @@ import { Card } from "@/components/ui/card";
 import { toast } from "sonner";
 import { siteUrl } from "@/lib/site";
 import type { ProfileRow } from "@/lib/supabase/queries";
-import { sanitizeSlugInput, MAX_STORE_SLUG_LEN } from "@/lib/slug-utils";
+import { SlugTextInput } from "@/components/ui/slug-text-input";
+import { MAX_STORE_SLUG_LEN } from "@/lib/slug-utils";
 import { showXpToasts } from "@/components/xp/show-xp-toasts";
 
 type Props = {
@@ -92,11 +93,12 @@ export function StorefrontSettingsForm({ initial, shopPath }: Props) {
             <Label>Slug</Label>
             <div className="flex items-center gap-2 text-sm">
               <span className="text-muted-foreground whitespace-nowrap">{baseUrl}/shop/</span>
-              <Input
+              <SlugTextInput
                 value={slug}
-                onChange={(e) => setSlug(sanitizeSlugInput(e.target.value, MAX_STORE_SLUG_LEN))}
+                onChange={setSlug}
                 className="font-mono text-sm"
                 placeholder="my-shop-name"
+                maxLength={MAX_STORE_SLUG_LEN}
               />
             </div>
           </div>

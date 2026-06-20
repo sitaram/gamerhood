@@ -33,7 +33,7 @@ export function ActiveStorefrontBar({
   className?: string;
 }) {
   const pathname = usePathname();
-  const [activeId, setActiveId] = useState<string>("");
+  const [manualActiveId, setManualActiveId] = useState<string | null>(null);
 
   const viewingSlug = slugFromShopPathname(pathname);
   const viewingStorefront = viewingSlug
@@ -42,18 +42,21 @@ export function ActiveStorefrontBar({
 
   const fallback = defaultStorefront(storefronts);
 
-  useEffect(() => {
-    if (viewingStorefront) {
-      setActiveId(viewingStorefront.id);
-      writeActiveStorefrontId(viewingStorefront.id);
-      return;
-    }
+  const activeId = useMemo(() => {
+    if (viewingStorefront) return viewingStorefront.id;
+    if (manualActiveId) return manualActiveId;
     const stored = readActiveStorefrontId();
     const fromStorage = stored
       ? storefronts.find((s) => s.id === stored)
       : undefined;
-    setActiveId((fromStorage ?? fallback)?.id ?? "");
-  }, [viewingStorefront, storefronts, fallback]);
+    return (fromStorage ?? fallback)?.id ?? "";
+  }, [viewingStorefront, manualActiveId, storefronts, fallback]);
+
+  useEffect(() => {
+    if (viewingStorefront) {
+      writeActiveStorefrontId(viewingStorefront.id);
+    }
+  }, [viewingStorefront]);
 
   const active = useMemo(
     () => storefronts.find((s) => s.id === activeId) ?? fallback,
@@ -67,7 +70,7 @@ export function ActiveStorefrontBar({
   const showSwitcher = storefronts.length > 1;
 
   function handleSelect(id: string) {
-    setActiveId(id);
+    setManualActiveId(id);
     writeActiveStorefrontId(id);
   }
 
@@ -105,7 +108,7 @@ export function ActiveStorefrontBar({
           {showSwitcher ? (
             <Select value={active.id} onValueChange={(v) => v && handleSelect(v)}>
               <SelectTrigger className="h-8 min-w-[10rem] max-w-[14rem] border-border/60 bg-background text-sm font-semibold">
-                <SelectValue />
+                <SelectValue>{active.displayName}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {storefronts.map((s) => (
@@ -142,25 +145,25 @@ export function ActiveStorefrontBar({
           >
             <Copy className="h-3.5 w-3.5" />
           </Button>
-          <Link
-            href={`/shop/${active.slug}`}
-            target={onPublicShop ? undefined : "_blank"}
-            rel={onPublicShop ? undefined : "noopener"}
-            className="inline-flex shrink-0"
+          <Button
+            render={
+              <Link
+                href={`/shop/${active.slug}`}
+                target={onPublicShop ? undefined : "_blank"}
+                rel={onPublicShop ? undefined : "noopener"}
+              />
+            }
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-8 shrink-0 gap-1 text-xs",
+              onPublicShop && "border-primary/40 bg-primary/5",
+            )}
           >
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className={cn(
-                "h-8 gap-1 text-xs",
-                onPublicShop && "border-primary/40 bg-primary/5",
-              )}
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              {onPublicShop ? "You are here" : "Open shop"}
-            </Button>
-          </Link>
+            <ExternalLink className="h-3.5 w-3.5" />
+            {onPublicShop ? "You are here" : "Open shop"}
+          </Button>
         </div>
       </div>
     </div>

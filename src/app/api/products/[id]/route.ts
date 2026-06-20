@@ -77,6 +77,7 @@ export async function PATCH(
   }
 
   const row: Record<string, unknown> = {};
+  let storefrontIdsToSet: string[] | undefined;
 
   // ── Price update (post-publish editor) ──
   // Server-side floor enforcement: the listing price must cover wholesale +
@@ -150,28 +151,70 @@ export async function PATCH(
     row.is_published = body.isPublished;
   }
 
-  // ── Move between storefronts ──
-  // Re-verify ownership of the target storefront here so a hand-crafted
-  // PATCH can't reassign someone else's product into a different shop.
-  // `null` is allowed and clears the link (legacy/default behavior).
-  if (body.storefrontId !== undefined) {
-    if (body.storefrontId === null) {
-      row.storefront_id = null;
+  // ── Storefront assignment (multi-shop) ──
+  // Accepts either the new `storefrontIds: string[]` payload or legacy
+  // `storefrontId: string | null`. Every id is ownership-verified.
+  if (body.storefrontIds !== undefined || body.storefrontId !== undefined) {
+    let requestedIds: string[] = [];
+    if (Array.isArray(body.storefrontIds)) {
+      requestedIds = Array.from(
+        new Set(
+          body.storefrontIds.filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          ),
+        ),
+      );
+    } else if (body.storefrontId === null) {
+      requestedIds = [];
     } else if (typeof body.storefrontId === "string" && body.storefrontId.length > 0) {
-      const target = await getStorefrontById(supabase, body.storefrontId);
+      requestedIds = [body.storefrontId];
+    } else if (body.storefrontId !== undefined) {
+      return NextResponse.json(
+        { error: "storefrontId must be a string id or null." },
+        { status: 400 },
+      );
+    } else {
+      return NextResponse.json(
+        { error: "storefrontIds must be an array of storefront ids." },
+        { status: 400 },
+      );
+    }
+
+    if (requestedIds.length === 0) {
+      const { data: owned } = await supabase
+        .from("storefronts")
+        .select("id, is_default")
+        .eq("owner_profile_id", profile.id)
+        .order("is_default", { ascending: false })
+        .order("created_at", { ascending: true });
+      const fallback =
+        (owned ?? []).find((s) => Boolean((s as { is_default?: boolean }).is_default)) ??
+        (owned ?? [])[0] ??
+        null;
+      if (!fallback) {
+        return NextResponse.json(
+          { error: "Create a storefront before assigning listings." },
+          { status: 400 },
+        );
+      }
+      requestedIds = [(fallback as { id: string }).id];
+    }
+
+    const verified: string[] = [];
+    for (const storefrontId of requestedIds) {
+      const target = await getStorefrontById(supabase, storefrontId);
       if (!target || target.owner_profile_id !== profile.id) {
         return NextResponse.json(
           { error: "That storefront isn't yours to move products into." },
           { status: 403 },
         );
       }
-      row.storefront_id = target.id;
-    } else {
-      return NextResponse.json(
-        { error: "storefrontId must be a string id or null." },
-        { status: 400 },
-      );
+      verified.push(target.id);
     }
+
+    storefrontIdsToSet = verified;
+    // Keep the legacy single-storefront column populated for fallback readers.
+    row.storefront_id = verified[0] ?? null;
   }
 
   if (body.printPlacement !== undefined) {
@@ -266,7 +309,7 @@ export async function PATCH(
     }
   }
 
-  if (Object.keys(row).length === 0) {
+  if (Object.keys(row).length === 0 && storefrontIdsToSet === undefined) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
@@ -281,18 +324,65 @@ export async function PATCH(
     scopedToOwnerProfile = false;
   }
 
-  let updateQ = writer.from("products").update(row).eq("id", productId);
-  if (scopedToOwnerProfile) {
-    updateQ = updateQ.eq("profile_id", profile.id);
-  }
-  const { data: updated, error } = await updateQ.select().single();
+  let updated = null;
+  if (Object.keys(row).length > 0) {
+    let updateQ = writer.from("products").update(row).eq("id", productId);
+    if (scopedToOwnerProfile) {
+      updateQ = updateQ.eq("profile_id", profile.id);
+    }
+    const { data, error } = await updateQ.select().single();
 
-  if (error) {
-    console.error("[products PATCH]", error.message, error.code, error.details);
-    return NextResponse.json(
-      { error: error.message || "Update failed", code: error.code },
-      { status: 500 },
+    if (error) {
+      console.error("[products PATCH]", error.message, error.code, error.details);
+      return NextResponse.json(
+        { error: error.message || "Update failed", code: error.code },
+        { status: 500 },
+      );
+    }
+    updated = data;
+  }
+
+  if (storefrontIdsToSet !== undefined) {
+    const { data: existingLinks, error: linksErr } = await writer
+      .from("product_storefronts")
+      .select("storefront_id")
+      .eq("product_id", productId);
+    if (linksErr) {
+      console.error("[products PATCH] storefront links read failed", linksErr);
+      return NextResponse.json({ error: "Could not update storefronts" }, { status: 500 });
+    }
+    const existingSet = new Set(
+      (existingLinks ?? [])
+        .map((r) => (r as { storefront_id?: string }).storefront_id ?? "")
+        .filter((id) => id.length > 0),
     );
+    const targetSet = new Set(storefrontIdsToSet);
+    const toInsert = storefrontIdsToSet.filter((id) => !existingSet.has(id));
+    const toDelete = Array.from(existingSet).filter((id) => !targetSet.has(id));
+
+    if (toInsert.length > 0) {
+      const { error: insertErr } = await writer.from("product_storefronts").insert(
+        toInsert.map((storefrontId) => ({
+          product_id: productId,
+          storefront_id: storefrontId,
+        })),
+      );
+      if (insertErr) {
+        console.error("[products PATCH] storefront link insert failed", insertErr);
+        return NextResponse.json({ error: "Could not update storefronts" }, { status: 500 });
+      }
+    }
+    if (toDelete.length > 0) {
+      const { error: deleteErr } = await writer
+        .from("product_storefronts")
+        .delete()
+        .eq("product_id", productId)
+        .in("storefront_id", toDelete);
+      if (deleteErr) {
+        console.error("[products PATCH] storefront link delete failed", deleteErr);
+        return NextResponse.json({ error: "Could not update storefronts" }, { status: 500 });
+      }
+    }
   }
 
   let responseProduct = updated;

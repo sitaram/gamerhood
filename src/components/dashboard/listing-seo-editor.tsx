@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { SlugTextInput } from "@/components/ui/slug-text-input";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { sanitizeSlugInput, MAX_PRODUCT_CATEGORY_SLUG_LEN } from "@/lib/slug-utils";
+import { MAX_PRODUCT_CATEGORY_SLUG_LEN } from "@/lib/slug-utils";
 import { ImageIcon, Upload, RefreshCw, Trash2 } from "lucide-react";
 import { showXpToasts } from "@/components/xp/show-xp-toasts";
 
@@ -281,15 +282,12 @@ function ListingEditorCard({
         </div>
         <div>
           <label className="text-xs text-muted-foreground">Category</label>
-          <Input
+          <SlugTextInput
             value={row.category}
-            onChange={(e) =>
-              patchRow({
-                category: sanitizeSlugInput(e.target.value, MAX_PRODUCT_CATEGORY_SLUG_LEN),
-              })
-            }
+            onChange={(category) => patchRow({ category })}
             placeholder="lowercase-and-hyphens"
             className="mt-1"
+            maxLength={MAX_PRODUCT_CATEGORY_SLUG_LEN}
           />
         </div>
       </div>

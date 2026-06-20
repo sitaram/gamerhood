@@ -18,11 +18,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SlugTextInput } from "@/components/ui/slug-text-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { sanitizeSlugInput, MAX_STORE_SLUG_LEN } from "@/lib/slug-utils";
+import { finalizeSlugInput, MAX_STORE_SLUG_LEN } from "@/lib/slug-utils";
 
 export interface StorefrontSummary {
   id: string;
@@ -356,7 +357,7 @@ function StorefrontEditorDialog({ open, mode, target, onClose, onSaved }: Editor
     setError(null);
 
     const payload = {
-      slug: form.slug,
+      slug: finalizeSlugInput(form.slug, MAX_STORE_SLUG_LEN),
       displayName: form.displayName.trim(),
       catchphrase: form.catchphrase.trim() || null,
       avatarUrl: form.avatarUrl.trim() || null,
@@ -406,15 +407,10 @@ function StorefrontEditorDialog({ open, mode, target, onClose, onSaved }: Editor
             <Label htmlFor="sf-slug">Shop URL</Label>
             <div className="flex items-center gap-2 rounded-md border border-input bg-background pl-3">
               <span className="text-sm text-muted-foreground">/shop/</span>
-              <Input
+              <SlugTextInput
                 id="sf-slug"
                 value={form.slug}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    slug: sanitizeSlugInput(e.target.value, MAX_STORE_SLUG_LEN),
-                  }))
-                }
+                onChange={(slug) => setForm((p) => ({ ...p, slug }))}
                 placeholder="the-ohye-family"
                 className="border-0 bg-transparent px-1 shadow-none focus-visible:ring-0"
                 maxLength={MAX_STORE_SLUG_LEN}

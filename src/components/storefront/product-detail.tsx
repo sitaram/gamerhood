@@ -26,7 +26,10 @@ import {
   computeDesignOverlayBox,
   getDefaultPrintAreaInches,
 } from "@/lib/print/overlay-geometry";
-import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
+import {
+  usePrintfulBlankPhoto,
+  type BlankPrintRect,
+} from "@/lib/printful/use-blank-photo";
 import { PhotographicColorMockup } from "@/components/storefront/photographic-color-mockup";
 import { DesignPrintSizeIndicator } from "@/components/create/design-print-size-indicator";
 import { cn } from "@/lib/utils";
@@ -400,14 +403,9 @@ function MockupBlankLayer({
   onReady: (id: string) => void;
 }) {
   const [photoReady, setPhotoReady] = useState(false);
-  const [designReady, setDesignReady] = useState(false);
   const designUrl = product.designImageUrl ?? undefined;
   const hasDesign = Boolean(designUrl);
-
-  useEffect(() => {
-    setPhotoReady(false);
-    setDesignReady(!hasDesign);
-  }, [layerId, hasDesign, designUrl, photoUrl]);
+  const [designReady, setDesignReady] = useState(!hasDesign);
 
   const markPhotoReady = useCallback(() => setPhotoReady(true), []);
   const markDesignReady = useCallback(() => setDesignReady(true), []);
@@ -442,7 +440,16 @@ function MockupBlankLayer({
  */
 type MockupLayer =
   | { id: string; kind: "mockup"; url: string; loaded: boolean; colorLabel: string }
-  | { id: string; kind: "blank"; url: string; loaded: boolean; colorLabel: string }
+  | {
+      id: string;
+      kind: "blank";
+      url: string;
+      loaded: boolean;
+      colorLabel: string;
+      /** Snapshotted when the layer is created — must not track live hook values. */
+      printAreaInches: { width: number; height: number } | null;
+      printAreaPixelRect: BlankPrintRect | null;
+    }
   | {
       id: string;
       kind: "silhouette";
@@ -484,12 +491,19 @@ function ProductMockupImage({
   );
   const hasDesign = !!product.designImageUrl?.trim();
 
+  /**
+   * Listing thumbnails (dashboard + storefront grid) composite on the
+   * env-default blank, not the per-color catalog photo. Match that here
+   * for the published default swatch; non-default colors still use their
+   * own photographic blanks so the color picker stays accurate.
+   */
+  const blankPhotoColor = isDefaultColor ? null : selectedColor;
   const {
     url: blankPhotoUrl,
     loading: blankLoading,
     area: printAreaInches,
     pixelRect: blankPixelRect,
-  } = usePrintfulBlankPhoto(product.productType, selectedColor);
+  } = usePrintfulBlankPhoto(product.productType, blankPhotoColor);
 
   /**
    * The layer we *want* to display for the current selection. Per-color
@@ -506,6 +520,8 @@ function ProductMockupImage({
         url: blankPhotoUrl,
         loaded: false,
         colorLabel: selectedColor,
+        printAreaInches,
+        printAreaPixelRect: blankPixelRect,
       };
     }
     /**
@@ -542,6 +558,8 @@ function ProductMockupImage({
     product.mockupUrl,
     selectedColor,
     swatch,
+    printAreaInches,
+    blankPixelRect,
   ]);
 
   /**
@@ -675,12 +693,13 @@ function ProductMockupImage({
             )}
             {layer.kind === "blank" && (
               <MockupBlankLayer
+                key={layer.id}
                 layerId={layer.id}
                 product={product}
                 photoUrl={layer.url}
                 colorName={layer.colorLabel}
-                printAreaInches={printAreaInches}
-                printAreaPixelRect={blankPixelRect}
+                printAreaInches={layer.printAreaInches}
+                printAreaPixelRect={layer.printAreaPixelRect}
                 onReady={markLoaded}
               />
             )}

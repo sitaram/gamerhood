@@ -9,6 +9,7 @@ import {
   getDefaultProfileForAuthUser,
   getDesignsByProfile,
   getProductsByProfile,
+  listProductStorefrontIdsByProductIds,
   listStorefrontsByOwner,
   type ProductRow,
 } from "@/lib/supabase/queries";
@@ -28,6 +29,7 @@ import { toDashboardDesignCard } from "@/lib/design-image-url";
 import { getDisplayAvatar, profileInitials } from "@/lib/profile-avatar";
 import { siteUrl } from "@/lib/site";
 import { getEarnedOneShotRuleKeys } from "@/lib/xp/award";
+import { isAdminEmail } from "@/lib/auth/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -62,9 +64,17 @@ export default async function DashboardPage() {
     : [{ data: [] }, { data: null }, []];
 
   const designList = (designs ?? []).map(toDashboardDesignCard);
+  const productRows = (productsRes.data ?? []) as ProductRow[];
+  const storefrontIdsByProductId =
+    profile && productRows.length > 0
+      ? await listProductStorefrontIdsByProductIds(
+          supabase,
+          productRows.map((r) => r.id),
+        )
+      : new Map<string, string[]>();
 
   const listingRows = profile
-    ? toManagedListings((productsRes.data ?? []) as ProductRow[], storefronts)
+    ? toManagedListings(productRows, storefronts, storefrontIdsByProductId)
     : [];
   const storefrontOptions = profile
     ? toManagedStorefrontOptions(storefronts)
@@ -75,6 +85,7 @@ export default async function DashboardPage() {
   const earnedXpRuleKeys = profile?.id
     ? await getEarnedOneShotRuleKeys(profile.id)
     : new Set<never>();
+  const isAdmin = isAdminEmail(user.email);
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
@@ -101,12 +112,14 @@ export default async function DashboardPage() {
             )}
           </div>
         </div>
-        <Link href="/create">
-          <Button size="lg" className="gap-2 bg-primary px-8 text-base hover:bg-primary/90">
-            <Sparkles className="h-5 w-5" />
-            Start Creating
-          </Button>
-        </Link>
+        <Button
+          render={<Link href="/create" />}
+          size="lg"
+          className="gap-2 bg-primary px-8 text-base hover:bg-primary/90"
+        >
+          <Sparkles className="h-5 w-5" />
+          Start Creating
+        </Button>
       </div>
 
       {profile && (
@@ -118,35 +131,35 @@ export default async function DashboardPage() {
       <div className="mt-8 flex flex-wrap gap-3">
         {profile && (
           <>
-            <Link href={`/shop/${profile.slug}`}>
-              <Button variant="outline" className="gap-2" size="lg">
-                <ExternalLink className="h-4 w-4" />
-                View my shop
+            <Button render={<Link href={`/shop/${profile.slug}`} />} variant="outline" className="gap-2" size="lg">
+              <ExternalLink className="h-4 w-4" />
+              View my shop
+            </Button>
+            <Button render={<Link href="/dashboard/designs" />} variant="secondary" className="gap-2" size="lg">
+              <Images className="h-4 w-4" />
+              My Images &amp; Uploads
+            </Button>
+            <Button render={<Link href="/dashboard/listings" />} variant="secondary" className="gap-2" size="lg">
+              <LayoutGrid className="h-4 w-4" />
+              Manage listings
+            </Button>
+            <Button render={<Link href="/dashboard/storefront" />} variant="outline" className="gap-2" size="lg">
+              <Store className="h-4 w-4" />
+              Storefront settings
+            </Button>
+            <Button render={<Link href="/dashboard/categories" />} variant="outline" className="gap-2" size="lg">
+              SEO categories
+            </Button>
+            {isAdmin && (
+              <Button
+                render={<Link href="/dashboard/admin/browse-categories" />}
+                variant="secondary"
+                className="gap-2"
+                size="lg"
+              >
+                Tag merch categories
               </Button>
-            </Link>
-            <Link href="/dashboard/designs">
-              <Button variant="secondary" className="gap-2" size="lg">
-                <Images className="h-4 w-4" />
-                My Images &amp; Uploads
-              </Button>
-            </Link>
-            <Link href="/dashboard/listings">
-              <Button variant="secondary" className="gap-2" size="lg">
-                <LayoutGrid className="h-4 w-4" />
-                Manage listings
-              </Button>
-            </Link>
-            <Link href="/dashboard/storefront">
-              <Button variant="outline" className="gap-2" size="lg">
-                <Store className="h-4 w-4" />
-                Storefront settings
-              </Button>
-            </Link>
-            <Link href="/dashboard/categories">
-              <Button variant="outline" className="gap-2" size="lg">
-                SEO categories
-              </Button>
-            </Link>
+            )}
           </>
         )}
       </div>
@@ -203,12 +216,15 @@ export default async function DashboardPage() {
               My Images &amp; Uploads
             </Link>
           </div>
-          <Link href="/create">
-            <Button variant="outline" size="sm" className="gap-2 shrink-0">
-              <Wand2 className="h-4 w-4" />
-              Create new image
-            </Button>
-          </Link>
+          <Button
+            render={<Link href="/create" />}
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-2"
+          >
+            <Wand2 className="h-4 w-4" />
+            Create new image
+          </Button>
         </div>
 
         {designList.length === 0 ? (
@@ -220,12 +236,13 @@ export default async function DashboardPage() {
             <p className="mt-2 max-w-sm text-sm text-muted-foreground">
               Your creations will show up here. Start with a prompt and let the AI bring your idea to life.
             </p>
-            <Link href="/create" className="mt-6">
-              <Button className="gap-2 bg-primary hover:bg-primary/90">
-                <Wand2 className="h-4 w-4" />
-                Create your first design
-              </Button>
-            </Link>
+            <Button
+              render={<Link href="/create" />}
+              className="mt-6 gap-2 bg-primary hover:bg-primary/90"
+            >
+              <Wand2 className="h-4 w-4" />
+              Create your first design
+            </Button>
           </Card>
         ) : (
           <DashboardDesignsGrid designs={designList} />
@@ -244,12 +261,14 @@ export default async function DashboardPage() {
               )}
             </h2>
             <div className="flex shrink-0 items-center gap-3">
-              <Link href="/create">
-                <Button size="sm" className="gap-2 bg-primary hover:bg-primary/90">
-                  <Plus className="h-4 w-4" />
-                  Add an item
-                </Button>
-              </Link>
+              <Button
+                render={<Link href="/create" />}
+                size="sm"
+                className="gap-2 bg-primary hover:bg-primary/90"
+              >
+                <Plus className="h-4 w-4" />
+                Add an item
+              </Button>
               <Link
                 href="/dashboard/listings"
                 className="text-sm font-medium text-primary hover:underline"

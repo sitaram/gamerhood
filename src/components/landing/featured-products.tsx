@@ -23,12 +23,13 @@ export function FeaturedProducts({ products }: { products: Product[] }) {
             <p className="mt-3 max-w-xl mx-auto text-muted-foreground">
               No products yet. Be the first creator to publish something. Your design could be the one that kicks it all off.
             </p>
-            <Link href="/create" className="mt-6 inline-block">
-              <Button className="gap-2 bg-primary hover:bg-primary/90">
-                <Sparkles className="h-4 w-4" />
-                Create the First Drop
-              </Button>
-            </Link>
+            <Button
+              render={<Link href="/create" />}
+              className="mt-6 gap-2 bg-primary hover:bg-primary/90"
+            >
+              <Sparkles className="h-4 w-4" />
+              Create the First Drop
+            </Button>
           </div>
         </div>
       </section>
@@ -50,12 +51,14 @@ export function FeaturedProducts({ products }: { products: Product[] }) {
               The latest designs from our community of young creators
             </p>
           </div>
-          <Link href="/shop" className="hidden sm:block">
-            <Button variant="ghost" className="gap-2 text-muted-foreground hover:text-foreground">
-              View All
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button
+            render={<Link href="/shop" />}
+            variant="ghost"
+            className="hidden gap-2 text-muted-foreground hover:text-foreground sm:inline-flex"
+          >
+            View All
+            <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
 
         <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
@@ -73,12 +76,10 @@ export function FeaturedProducts({ products }: { products: Product[] }) {
         </div>
 
         <div className="mt-8 text-center sm:hidden">
-          <Link href="/shop">
-            <Button variant="outline" className="gap-2">
-              View All Products
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button render={<Link href="/shop" />} variant="outline" className="gap-2">
+            View All Products
+            <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </section>

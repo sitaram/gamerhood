@@ -81,12 +81,12 @@ export function DashboardDesignsGrid({ designs }: { designs: DashboardDesignCard
             key={d.id}
             className="group overflow-hidden border-border/50 bg-card transition-all hover:border-primary/40"
           >
-            <div className="relative aspect-square overflow-hidden bg-secondary">
+            <div className="relative aspect-square overflow-hidden bg-muted">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={d.image_url}
                 alt={d.title}
-                className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                className="h-full w-full object-contain object-center"
               />
             </div>
             <div className="p-4">
@@ -101,12 +101,15 @@ export function DashboardDesignsGrid({ designs }: { designs: DashboardDesignCard
                   <span className="text-xs text-muted-foreground">{timeAgo(d.created_at)}</span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Link href={`/create?designId=${d.id}`}>
-                    <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs">
-                      <Pencil className="h-3.5 w-3.5" />
-                      Edit
-                    </Button>
-                  </Link>
+                  <Button
+                    render={<Link href={`/create?designId=${d.id}`} />}
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 gap-1 px-2 text-xs"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </Button>
                   <Button
                     type="button"
                     variant="ghost"

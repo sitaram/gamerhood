@@ -228,8 +228,19 @@ function VariantTile({
           <Check className="h-3 w-3" />
         </div>
       )}
-      <div className="relative mx-auto mb-2 h-24 w-24 overflow-hidden rounded-lg bg-secondary">
-        <MerchPlacementPreview imageUrl={imageUrl} productType={type} placement={placement} />
+      <div className="relative mx-auto mb-3 h-28 w-full max-w-[11rem] overflow-hidden rounded-lg bg-secondary sm:h-32">
+        <MerchPlacementPreview
+          imageUrl={imageUrl}
+          productType={type}
+          placement={placement}
+          /**
+           * For frame-bearing create tiles, always use the default variant path.
+           * Per-color catalog photos don't carry authoritative template pixel
+           * rects, which makes the guide box drift off-garment.
+           */
+          blankColorName={null}
+          showPrintAreaFrame={false}
+        />
       </div>
       <div className="pointer-events-none text-center">
         <h4 className="text-sm font-semibold leading-tight">{variantLabel(type)}</h4>

@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 interface Props {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ debugPreview?: string }>;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -46,13 +47,21 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function ProductPage({ params }: Props) {
+export default async function ProductPage({ params, searchParams }: Props) {
   const { id } = await params;
+  const { debugPreview } = await searchParams;
   const supabase = await createClient();
   const product = await getProductByIdWithCreator(supabase, id);
 
   if (!product) notFound();
 
   const shareUrl = `${siteUrl()}/product/${id}`;
-  return <ProductDetail product={product} shareUrl={shareUrl} />;
+  const showPreviewDebug = debugPreview === "1";
+  return (
+    <ProductDetail
+      product={product}
+      shareUrl={shareUrl}
+      showPreviewDebug={showPreviewDebug}
+    />
+  );
 }

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
+import { SlugTextInput } from "@/components/ui/slug-text-input";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import {
@@ -23,6 +24,7 @@ import {
   X,
   Trash2,
   Images,
+  Check,
 } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -35,12 +37,14 @@ import {
   addAnonDesign,
   getAnonDesigns,
 } from "@/lib/anon-designs";
-import { sanitizeSlugInput, MAX_PRODUCT_CATEGORY_SLUG_LEN } from "@/lib/slug-utils";
+import { MAX_PRODUCT_CATEGORY_SLUG_LEN } from "@/lib/slug-utils";
 import { PrintPlacementEditor } from "@/components/create/print-placement-editor";
 import { CategoryProductPicker } from "@/components/create/category-product-picker";
 import { PRODUCT_TYPE_LABELS } from "@/components/storefront/product-card";
 import { TransparencyBadge } from "@/components/design/transparency-badge";
 import { TransparencyStatus } from "@/components/design/transparency-status";
+import { TransparencyPreviewBackdrop } from "@/components/create/transparency-preview-backdrop";
+import { designPreviewImageSrc } from "@/lib/design-image-url";
 import { isSvgDataUrl } from "@/lib/design/source-format";
 import {
   GenerationProgress,
@@ -60,7 +64,6 @@ import { showXpToasts } from "@/components/xp/show-xp-toasts";
 import { XP_RULES } from "@/lib/xp/rules";
 import { DesignLibraryInfiniteGrid } from "@/components/designs/design-library-infinite-grid";
 import type { DashboardDesignCard } from "@/components/dashboard/dashboard-designs-grid";
-import { Progress } from "@/components/ui/progress";
 
 const STYLES: { value: DesignStyle; label: string; emoji: string }[] = [
   { value: "anime", label: "Anime", emoji: "⚔️" },
@@ -87,6 +90,7 @@ const PROMPTS = [
 ];
 
 type AuthState = "unknown" | "anon" | "signed-in";
+type PublishStage = "uploading" | "creating" | "finalizing";
 
 /**
  * Shape of the `event: done` payload from /api/designs/generate. Mirrors the
@@ -156,6 +160,10 @@ function inferImageSourceFromUrl(imageUrl: unknown): "ai" | "upload" {
   return "ai";
 }
 
+function isInlineDesignUrl(imageUrl: string): boolean {
+  return imageUrl.startsWith("data:") || imageUrl.startsWith("blob:");
+}
+
 const MERCH_DRAFT_STORAGE_KEY = "gh:create:merch-draft:v1";
 const MERCH_DRAFT_AUTOSAVE_MS = 30_000;
 const MERCH_DRAFT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
@@ -178,7 +186,7 @@ type CreateMerchDraft = {
   productTags: string;
   productCategory: string;
   merchPricing: Record<string, MerchPricingRow>;
-  selectedStorefrontId: string | null;
+  selectedStorefrontIds: string[];
   savedDesignId: string | null;
 };
 
@@ -321,6 +329,7 @@ function CreatePageInner() {
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishProgress, setPublishProgress] = useState(0);
+  const [publishStage, setPublishStage] = useState<PublishStage>("uploading");
   const [publishStatus, setPublishStatus] = useState("");
   const [deletingImage, setDeletingImage] = useState(false);
   /** Optional shopper-facing copy + discovery fields applied to each product in this publish batch. */
@@ -382,9 +391,7 @@ function CreatePageInner() {
   const [ownedStorefronts, setOwnedStorefronts] = useState<
     { id: string; slug: string; display_name: string; is_default: boolean }[]
   >([]);
-  const [selectedStorefrontId, setSelectedStorefrontId] = useState<string | null>(
-    null,
-  );
+  const [selectedStorefrontIds, setSelectedStorefrontIds] = useState<string[]>([]);
 
   const formatPublishError = useCallback((err: unknown): string => {
     const base =
@@ -415,23 +422,76 @@ function CreatePageInner() {
   const lastPrefilledStorefrontIdRef = useRef<string | null>(null);
   /** Prevents restoring the same local merch draft more than once per mount. */
   const merchDraftHydratedRef = useRef(false);
+  /** Exact uploaded file bytes for API calls (data URL from FileReader). */
+  const uploadDataUrlRef = useRef<string | null>(null);
+  /** Object URL for faithful on-screen preview of the picked file. */
+  const uploadObjectUrlRef = useRef<string | null>(null);
   const [hasAttemptedMerch, setHasAttemptedMerch] = useState(false);
+
+  const revokeUploadObjectUrl = useCallback(() => {
+    if (uploadObjectUrlRef.current) {
+      URL.revokeObjectURL(uploadObjectUrlRef.current);
+      uploadObjectUrlRef.current = null;
+    }
+  }, []);
 
   const clearMerchDraft = useCallback(() => {
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(MERCH_DRAFT_STORAGE_KEY);
   }, []);
 
+  const clearDesignIdFromUrl = useCallback(() => {
+    if (!searchParams.get("designId")) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("designId");
+    const qs = next.toString();
+    router.replace(qs ? `/create?${qs}` : "/create", { scroll: false });
+  }, [router, searchParams]);
+
+  const resetCreateFlow = useCallback(() => {
+    revokeUploadObjectUrl();
+    uploadDataUrlRef.current = null;
+    setPrompt("");
+    setRefinePrompt("");
+    setStep("prompt");
+    setGeneratedImage(null);
+    setImageSource("ai");
+    setHasTransparency(null);
+    setUploadedAsSvg(false);
+    setPlaceholderNotice(null);
+    setSelectedProducts(
+      new Set([
+        "hoodie",
+        "kids-hoodie",
+        "kids-tshirt",
+        "kids-heavyweight-tee",
+        "kids-long-sleeve",
+        "kids-sports-tee",
+        "tshirt",
+      ]),
+    );
+    setPrintPlacement({ ...DEFAULT_STORED });
+    setPlacementOverrides({});
+    setTuningType(null);
+    setEditingPublishedDesign(false);
+    setSavedDesignId(null);
+    setError(null);
+    setHasAttemptedMerch(false);
+    clearMerchDraft();
+    clearDesignIdFromUrl();
+  }, [clearMerchDraft, clearDesignIdFromUrl, revokeUploadObjectUrl]);
+
   const saveMerchDraft = useCallback(() => {
     if (typeof window === "undefined") return;
-    if (!hasAttemptedMerch || !generatedImage) return;
+    const draftImage = uploadDataUrlRef.current ?? generatedImage;
+    if (!hasAttemptedMerch || !draftImage) return;
     const payload: CreateMerchDraft = {
       version: 1,
       savedAtMs: Date.now(),
       prompt,
       style,
       step: step === "prompt" || step === "generating" ? "preview" : step,
-      generatedImage,
+      generatedImage: draftImage,
       imageSource,
       hasTransparency,
       uploadedAsSvg,
@@ -443,7 +503,7 @@ function CreatePageInner() {
       productTags,
       productCategory,
       merchPricing,
-      selectedStorefrontId,
+      selectedStorefrontIds,
       savedDesignId,
     };
     try {
@@ -465,7 +525,7 @@ function CreatePageInner() {
     productTags,
     productCategory,
     merchPricing,
-    selectedStorefrontId,
+    selectedStorefrontIds,
     savedDesignId,
     prompt,
     style,
@@ -491,18 +551,29 @@ function CreatePageInner() {
   }, [step]);
 
   useEffect(() => {
+    return () => {
+      revokeUploadObjectUrl();
+    };
+  }, [revokeUploadObjectUrl]);
+
+  useEffect(() => {
     if (!publishing) {
       setPublishProgress(0);
+      setPublishStage("uploading");
       setPublishStatus("");
       return;
     }
 
     const startedAt = Date.now();
+    setPublishStage("uploading");
     setPublishStatus("Uploading design and creating listings…");
     setPublishProgress((prev) => Math.max(prev, 8));
 
     const timer = window.setInterval(() => {
       const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs > 3_000) {
+        setPublishStage("creating");
+      }
       setPublishProgress((prev) => {
         const cap = elapsedMs < 15_000 ? 72 : elapsedMs < 45_000 ? 90 : 96;
         const stepSize = elapsedMs < 15_000 ? 3 : elapsedMs < 45_000 ? 1.2 : 0.4;
@@ -510,6 +581,8 @@ function CreatePageInner() {
       });
       if (elapsedMs > 30_000) {
         setPublishStatus("Still publishing — slow connection detected.");
+      } else if (elapsedMs > 3_000) {
+        setPublishStatus("Creating product listings…");
       }
     }, 1000);
 
@@ -531,79 +604,123 @@ function CreatePageInner() {
       return;
     }
 
-    let raw: string | null = null;
-    try {
-      raw = window.localStorage.getItem(MERCH_DRAFT_STORAGE_KEY);
-    } catch {
-      merchDraftHydratedRef.current = true;
-      return;
-    }
-    if (!raw) {
-      merchDraftHydratedRef.current = true;
-      return;
-    }
+    void (async () => {
+      try {
+        let raw: string | null = null;
+        try {
+          raw = window.localStorage.getItem(MERCH_DRAFT_STORAGE_KEY);
+        } catch {
+          return;
+        }
+        if (!raw) return;
 
-    try {
-      const parsed = JSON.parse(raw) as CreateMerchDraft | null;
-      if (
-        !parsed ||
-        parsed.version !== 1 ||
-        typeof parsed.generatedImage !== "string" ||
-        parsed.generatedImage.length === 0
-      ) {
-        clearMerchDraft();
-        merchDraftHydratedRef.current = true;
-        return;
-      }
-      if (
-        typeof parsed.savedAtMs !== "number" ||
-        Date.now() - parsed.savedAtMs > MERCH_DRAFT_MAX_AGE_MS
-      ) {
-        clearMerchDraft();
-        merchDraftHydratedRef.current = true;
-        return;
-      }
+        const parsed = JSON.parse(raw) as CreateMerchDraft | null;
+        if (
+          !parsed ||
+          parsed.version !== 1 ||
+          typeof parsed.generatedImage !== "string" ||
+          parsed.generatedImage.length === 0
+        ) {
+          clearMerchDraft();
+          return;
+        }
+        if (
+          typeof parsed.savedAtMs !== "number" ||
+          Date.now() - parsed.savedAtMs > MERCH_DRAFT_MAX_AGE_MS
+        ) {
+          clearMerchDraft();
+          return;
+        }
 
-      setPrompt(parsed.prompt ?? "");
-      setStyle(parsed.style ?? "anime");
-      setGeneratedImage(parsed.generatedImage);
-      setImageSource(inferImageSourceFromUrl(parsed.generatedImage));
-      setHasTransparency(
-        typeof parsed.hasTransparency === "boolean" ? parsed.hasTransparency : null,
-      );
-      setUploadedAsSvg(Boolean(parsed.uploadedAsSvg));
-      setPlaceholderNotice(parsed.placeholderNotice ?? null);
-      setSelectedProducts(new Set(parsed.selectedProducts ?? ["hoodie", "tshirt"]));
-      setPrintPlacement(
-        parsed.printPlacement && typeof parsed.printPlacement === "object"
-          ? parsed.printPlacement
-          : { ...DEFAULT_STORED },
-      );
-      setPlacementOverrides(
-        parsed.placementOverrides && typeof parsed.placementOverrides === "object"
-          ? parsed.placementOverrides
-          : {},
-      );
-      setListingDescription(parsed.listingDescription ?? "");
-      setProductTags(parsed.productTags ?? "");
-      setProductCategory(parsed.productCategory ?? "");
-      setMerchPricing(
-        parsed.merchPricing && typeof parsed.merchPricing === "object"
-          ? parsed.merchPricing
-          : {},
-      );
-      setSelectedStorefrontId(parsed.selectedStorefrontId ?? null);
-      setSavedDesignId(parsed.savedDesignId ?? null);
-      setStep(parsed.step ?? "products");
-      setHasAttemptedMerch(true);
-      setError(null);
-      toast.success("Restored your merch draft");
-    } catch {
-      clearMerchDraft();
-    } finally {
-      merchDraftHydratedRef.current = true;
-    }
+        if (parsed.savedDesignId) {
+          try {
+            const res = await fetch(`/api/designs/${parsed.savedDesignId}`);
+            if (!res.ok) {
+              clearMerchDraft();
+              toast.info("Your saved merch draft pointed at a removed design — starting fresh.");
+              return;
+            }
+          } catch {
+            clearMerchDraft();
+            return;
+          }
+        }
+
+        setPrompt(parsed.prompt ?? "");
+        setStyle(parsed.style ?? "anime");
+        setGeneratedImage(parsed.generatedImage);
+        uploadDataUrlRef.current =
+          parsed.imageSource === "upload" ? parsed.generatedImage : null;
+        revokeUploadObjectUrl();
+        setImageSource(inferImageSourceFromUrl(parsed.generatedImage));
+        setHasTransparency(
+          typeof parsed.hasTransparency === "boolean" ? parsed.hasTransparency : null,
+        );
+        setUploadedAsSvg(Boolean(parsed.uploadedAsSvg));
+        setPlaceholderNotice(parsed.placeholderNotice ?? null);
+        setSelectedProducts(new Set(parsed.selectedProducts ?? ["hoodie", "tshirt"]));
+        setPrintPlacement(
+          parsed.printPlacement && typeof parsed.printPlacement === "object"
+            ? parsed.printPlacement
+            : { ...DEFAULT_STORED },
+        );
+        setPlacementOverrides(
+          parsed.placementOverrides && typeof parsed.placementOverrides === "object"
+            ? parsed.placementOverrides
+            : {},
+        );
+        setListingDescription(parsed.listingDescription ?? "");
+        setProductTags(parsed.productTags ?? "");
+        setProductCategory(parsed.productCategory ?? "");
+        setMerchPricing(
+          parsed.merchPricing && typeof parsed.merchPricing === "object"
+            ? parsed.merchPricing
+            : {},
+        );
+        const legacySelectedStorefrontId =
+          typeof (parsed as { selectedStorefrontId?: unknown }).selectedStorefrontId === "string"
+            ? (parsed as { selectedStorefrontId?: string }).selectedStorefrontId ?? null
+            : null;
+        setSelectedStorefrontIds(
+          Array.isArray(parsed.selectedStorefrontIds)
+            ? parsed.selectedStorefrontIds.filter(
+                (id): id is string => typeof id === "string" && id.length > 0,
+              )
+            : legacySelectedStorefrontId
+              ? [legacySelectedStorefrontId]
+              : [],
+        );
+        setSavedDesignId(parsed.savedDesignId ?? null);
+        setStep(parsed.step ?? "products");
+        setHasAttemptedMerch(true);
+        setError(null);
+        toast.success("Restored your merch draft");
+      } catch {
+        clearMerchDraft();
+      } finally {
+        merchDraftHydratedRef.current = true;
+      }
+    })();
   }, [authState, clearMerchDraft, generatedImage, searchParams]);
+
+  /** Drop stale drafts when the linked library design was deleted server-side. */
+  useEffect(() => {
+    if (authState !== "signed-in" || !savedDesignId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/designs/${savedDesignId}`);
+        if (cancelled || res.ok) return;
+        resetCreateFlow();
+        toast.info("That design was removed — starting fresh.");
+      } catch {
+        // Network blip — don't wipe a valid in-progress draft.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authState, resetCreateFlow, savedDesignId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -676,11 +793,13 @@ function CreatePageInner() {
         }) => {
           if (cancelled || !Array.isArray(j.storefronts)) return;
           setOwnedStorefronts(j.storefronts);
-          setSelectedStorefrontId((prev) => {
-            if (prev) return prev;
+          setSelectedStorefrontIds((prev) => {
+            const ownedIds = new Set(j.storefronts!.map((s) => s.id));
+            const retained = prev.filter((id) => ownedIds.has(id));
+            if (retained.length > 0) return retained;
             const def =
               j.storefronts!.find((s) => s.is_default) ?? j.storefronts![0];
-            return def?.id ?? null;
+            return def?.id ? [def.id] : [];
           });
         },
       )
@@ -698,10 +817,9 @@ function CreatePageInner() {
   // toast offering a one-tap apply.
   useEffect(() => {
     if (authState !== "signed-in") return;
-    if (!selectedStorefrontId) return;
-    if (lastPrefilledStorefrontIdRef.current === selectedStorefrontId) return;
-
-    const storefrontId = selectedStorefrontId;
+    const storefrontId = selectedStorefrontIds[0] ?? null;
+    if (!storefrontId) return;
+    if (lastPrefilledStorefrontIdRef.current === storefrontId) return;
     let cancelled = false;
 
     (async () => {
@@ -804,7 +922,7 @@ function CreatePageInner() {
     return () => {
       cancelled = true;
     };
-  }, [authState, selectedStorefrontId, ownedStorefronts]);
+  }, [authState, selectedStorefrontIds, ownedStorefronts]);
 
   useEffect(() => {
     if (
@@ -834,13 +952,20 @@ function CreatePageInner() {
     (async () => {
       try {
         const res = await fetch(`/api/designs/${designId}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) {
+            resetCreateFlow();
+          }
+          return;
+        }
         const data = await res.json();
         if (cancelled) return;
         setPrompt(data.prompt || "");
         if (data.style) setStyle(data.style);
         setGeneratedImage(data.imageUrl);
-        setImageSource(inferImageSourceFromUrl(data.imageUrl));
+        setImageSource(data.prompt ? "ai" : "upload");
+        uploadDataUrlRef.current = null;
+        revokeUploadObjectUrl();
         setHasTransparency(
           typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
         );
@@ -855,7 +980,7 @@ function CreatePageInner() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [searchParams, resetCreateFlow]);
 
   // Hydrate latest anon design from localStorage on mount (so refresh doesn't kill work)
   useEffect(() => {
@@ -900,6 +1025,10 @@ function CreatePageInner() {
     setStep("generating");
     setGenerationStep(null);
     setError(null);
+    if (!isRefine) {
+      setSavedDesignId(null);
+      clearDesignIdFromUrl();
+    }
 
     const returnStepOnCancel: typeof step = isRefine ? "preview" : "prompt";
     const nextPrompt = isRefine
@@ -1008,7 +1137,9 @@ function CreatePageInner() {
       setPrompt(data.prompt || "");
       if (data.style) setStyle(data.style as DesignStyle);
       setGeneratedImage(data.imageUrl);
-      setImageSource(inferImageSourceFromUrl(data.imageUrl));
+      setImageSource(data.prompt ? "ai" : "upload");
+      uploadDataUrlRef.current = null;
+      revokeUploadObjectUrl();
       setHasTransparency(
         typeof data.hasTransparency === "boolean" ? data.hasTransparency : null,
       );
@@ -1054,20 +1185,24 @@ function CreatePageInner() {
           setError("Couldn't read that image — try a different file.");
           return;
         }
-        let nextUrl = dataUrl;
+        // Show the exact picked file in the UI; send the data URL to the server.
+        uploadDataUrlRef.current = dataUrl;
+        revokeUploadObjectUrl();
+        const objectUrl = URL.createObjectURL(file);
+        uploadObjectUrlRef.current = objectUrl;
         let aspect = 1;
         try {
-          const { trimImageToContent } = await import("@/lib/print/image-content-bounds");
-          const trimmed = await trimImageToContent(dataUrl);
-          nextUrl = trimmed.imageUrl;
-          aspect = trimmed.aspect;
+          const { detectContentAspect } = await import("@/lib/print/image-content-bounds");
+          aspect = await detectContentAspect(objectUrl);
         } catch {
           //
         }
-        setGeneratedImage(nextUrl);
+        setGeneratedImage(objectUrl);
         setPrintPlacement((prev) =>
           prev.imageAspect === aspect ? prev : { ...prev, imageAspect: aspect },
         );
+        setSavedDesignId(null);
+        clearDesignIdFromUrl();
         setImageSource("upload");
         setUploadedAsSvg(
           file.type === "image/svg+xml" || isSvgDataUrl(dataUrl),
@@ -1083,7 +1218,7 @@ function CreatePageInner() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                imageUrl: nextUrl,
+                imageUrl: uploadDataUrlRef.current ?? dataUrl,
                 style,
                 prompt: prompt.trim() || null,
                 title: file.name.replace(/\.[^.]+$/, "").slice(0, 80) || "Uploaded artwork",
@@ -1092,10 +1227,6 @@ function CreatePageInner() {
             const saved = await saveRes.json().catch(() => ({}));
             if (saveRes.ok && typeof saved.designId === "string") {
               setSavedDesignId(saved.designId);
-              if (typeof saved.imageUrl === "string") {
-                setGeneratedImage(saved.imageUrl);
-                setImageSource(inferImageSourceFromUrl(saved.imageUrl));
-              }
               if (typeof saved.hasTransparency === "boolean") {
                 setHasTransparency(saved.hasTransparency);
               }
@@ -1158,6 +1289,13 @@ function CreatePageInner() {
     setSavedDesignId(null);
     setHasAttemptedMerch(false);
     clearMerchDraft();
+    clearDesignIdFromUrl();
+  }
+
+  function handleDesignDeletedFromLibrary(designId: string) {
+    if (savedDesignId !== designId) return;
+    resetCreateFlow();
+    toast.info("Design removed — starting fresh.");
   }
 
   async function handleDeleteImage() {
@@ -1197,32 +1335,12 @@ function CreatePageInner() {
   }
 
   function handleReset() {
-    setPrompt("");
-    setRefinePrompt("");
-    setStep("prompt");
-    setGeneratedImage(null);
-    setImageSource("ai");
-    setHasTransparency(null);
-    setUploadedAsSvg(false);
-    setSelectedProducts(
-      new Set([
-        "hoodie",
-        "kids-hoodie",
-        "kids-tshirt",
-        "kids-heavyweight-tee",
-        "kids-long-sleeve",
-        "kids-sports-tee",
-        "tshirt",
-      ]),
-    );
-    setPrintPlacement({ ...DEFAULT_STORED });
-    setPlacementOverrides({});
-    setTuningType(null);
-    setEditingPublishedDesign(false);
-    setSavedDesignId(null);
-    setError(null);
-    setHasAttemptedMerch(false);
-    clearMerchDraft();
+    resetCreateFlow();
+  }
+
+  function handleStaleArtworkPreview() {
+    resetCreateFlow();
+    toast.info("That design is no longer available — starting fresh.");
   }
 
   function handleDownload() {
@@ -1240,23 +1358,22 @@ function CreatePageInner() {
     setPublishing(true);
     setError(null);
     setPublishProgress(8);
+    setPublishStage("uploading");
     setPublishStatus("Uploading design and creating listings…");
 
     try {
       const normalizedImageUrl =
-        typeof generatedImage === "string" ? generatedImage.trim() : generatedImage;
+        uploadDataUrlRef.current ??
+        (typeof generatedImage === "string" ? generatedImage.trim() : generatedImage);
       const publishImageSource =
         imageSource === "upload" && typeof normalizedImageUrl === "string"
           ? inferImageSourceFromUrl(normalizedImageUrl)
           : imageSource;
-      const useDesignImageServerSide =
-        typeof savedDesignId === "string" &&
-        savedDesignId.length > 0 &&
-        typeof normalizedImageUrl === "string" &&
-        normalizedImageUrl.startsWith("data:");
+      const useSavedDesign =
+        typeof savedDesignId === "string" && savedDesignId.length > 0;
       const requestBody = {
-        ...(useDesignImageServerSide ? {} : { imageUrl: normalizedImageUrl }),
-        imageSource: publishImageSource,
+        ...(useSavedDesign ? {} : { imageUrl: normalizedImageUrl }),
+        imageSource: useSavedDesign ? imageSource : publishImageSource,
         designId: savedDesignId ?? undefined,
         prompt: prompt || null,
         style,
@@ -1268,8 +1385,8 @@ function CreatePageInner() {
         ...(Object.keys(placementOverrides).length > 0
           ? { printPlacementsByType: placementOverrides }
           : {}),
-        ...(selectedStorefrontId
-          ? { storefrontId: selectedStorefrontId }
+        ...(selectedStorefrontIds.length > 0
+          ? { storefrontIds: selectedStorefrontIds }
           : {}),
         ...(Object.keys(merchPricing).length > 0
           ? {
@@ -1310,6 +1427,7 @@ function CreatePageInner() {
 
       const data = await res.json();
       setPublishProgress((prev) => Math.max(prev, 95));
+      setPublishStage("finalizing");
       setPublishStatus("Finalizing publish…");
 
       const failures = Array.isArray((data as { failures?: unknown }).failures)
@@ -1324,12 +1442,12 @@ function CreatePageInner() {
       }
 
       toast.success(
-        `${data.count} product${data.count > 1 ? "s" : ""} published to your shop!`,
+        `${data.count} product${data.count > 1 ? "s" : ""} published to your shop${selectedStorefrontIds.length > 1 ? "s" : ""}!`,
         {
           description:
             failures.length > 0
               ? `Skipped: ${failures.map((f) => `${f.productType}`).join(", ")} (${failures[0]?.message ?? "error"}${failures.length > 1 ? ", …" : ""})`
-              : "Head to your dashboard to manage them.",
+              : "Head to My Listings to manage them.",
         },
       );
       if (Array.isArray((data as { xpAwards?: unknown }).xpAwards)) {
@@ -1340,7 +1458,7 @@ function CreatePageInner() {
       setPublishProgress(100);
       clearMerchDraft();
       setHasAttemptedMerch(false);
-      router.push("/dashboard");
+      router.push("/dashboard/listings");
     } catch (err) {
       setError(formatPublishError(err));
       setPublishing(false);
@@ -1352,6 +1470,20 @@ function CreatePageInner() {
   const canRefine =
     imageSource === "ai" && Boolean(prompt) && !placeholderNotice && !uploadedAsSvg;
   const hasAttachment = Boolean(generatedImage);
+  /**
+   * Compositing URL — preview derivative when showing a saved/hosted design;
+   * inline data URLs (fresh upload before/during save) must win over stale ids.
+   */
+  const artworkPreviewSrc =
+    imageSource === "upload" && generatedImage
+      ? generatedImage
+      : savedDesignId != null &&
+          generatedImage &&
+          !isInlineDesignUrl(generatedImage)
+        ? designPreviewImageSrc(savedDesignId)
+        : generatedImage;
+  const useTransparencyBackdrop =
+    imageSource === "upload" || hasTransparency === true || uploadedAsSvg;
   const attachmentLabel =
     imageSource === "upload" ? "Uploaded artwork" : "Current design";
 
@@ -1483,15 +1615,18 @@ function CreatePageInner() {
               {hasAttachment && generatedImage && (
                 <Card className="border-border/50 bg-card p-4">
                   <div className="flex items-start gap-4">
-                    <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border/60 bg-muted">
+                    <TransparencyPreviewBackdrop
+                      active={useTransparencyBackdrop}
+                      className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border/60"
+                    >
                       <Image
-                        src={generatedImage}
+                        src={artworkPreviewSrc ?? generatedImage}
                         alt={attachmentLabel}
                         fill
-                        className="object-cover"
+                        className="object-contain"
                         unoptimized
                       />
-                    </div>
+                    </TransparencyPreviewBackdrop>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold">{attachmentLabel} attached</p>
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
@@ -1615,15 +1750,18 @@ function CreatePageInner() {
               )}
               <div className="grid gap-8 lg:grid-cols-2">
                 <Card className="border-border/50 bg-card overflow-hidden">
-                  <div className="relative aspect-square">
+                  <TransparencyPreviewBackdrop
+                    active={useTransparencyBackdrop}
+                    className="relative aspect-square"
+                  >
                     <Image
-                      src={generatedImage}
+                      src={artworkPreviewSrc ?? generatedImage}
                       alt={placeholderNotice ? "Placeholder design (AI not configured)" : "Generated design"}
                       fill
-                      className="object-cover"
+                      className="object-contain"
                       unoptimized
                     />
-                  </div>
+                  </TransparencyPreviewBackdrop>
                 </Card>
 
                 <div className="space-y-6">
@@ -1758,13 +1896,18 @@ function CreatePageInner() {
             >
               <Card className="border-border/50 bg-card p-6 sm:p-8">
                 <PrintPlacementEditor
-                  imageUrl={generatedImage}
+                  imageUrl={artworkPreviewSrc ?? generatedImage}
                   selectedProductTypes={selectedProducts}
                   value={printPlacement}
                   onChange={setPrintPlacement}
                   onAspectDetected={handleAspectDetected}
+                  onArtworkError={handleStaleArtworkPreview}
                 />
                 <div className="mt-8 flex flex-wrap justify-center gap-3 border-t border-border/60 pt-6">
+                  <Button variant="outline" onClick={handleReset} className="gap-2">
+                    <RotateCcw className="h-4 w-4" />
+                    Start over
+                  </Button>
                   <Button variant="outline" onClick={() => setStep("preview")} className="gap-2">
                     Back to flat preview
                   </Button>
@@ -1794,10 +1937,16 @@ function CreatePageInner() {
                   publish. Each preview shows your batch framing — use Fine-tune to adjust a single item without
                   changing the rest.
                 </p>
+                <div className="mt-4 flex justify-center">
+                  <Button variant="outline" size="sm" onClick={handleReset} className="gap-2">
+                    <RotateCcw className="h-4 w-4" />
+                    Start over
+                  </Button>
+                </div>
               </div>
 
               <CategoryProductPicker
-                imageUrl={generatedImage}
+                imageUrl={artworkPreviewSrc ?? generatedImage}
                 selected={selectedProducts}
                 onToggle={toggleProduct}
                 basePlacement={printPlacement}
@@ -1814,12 +1963,13 @@ function CreatePageInner() {
                   </DialogHeader>
                   {generatedImage && tuningType && (
                     <PrintPlacementEditor
-                      imageUrl={generatedImage}
+                      imageUrl={artworkPreviewSrc ?? generatedImage}
                       selectedProductTypes={new Set<ProductType>([tuningType])}
                       value={dialogPlacement}
                       onChange={setDialogPlacement}
                       onAspectDetected={handleDialogAspectDetected}
                       hideBatchPlacementNote
+                      onArtworkError={handleStaleArtworkPreview}
                     />
                   )}
                   <div className="flex flex-col-reverse gap-2 pt-4 sm:flex-row sm:justify-end">
@@ -1946,19 +2096,18 @@ function CreatePageInner() {
                         Category slug{' '}
                         <span className="font-normal text-muted-foreground">(single line)</span>
                       </Label>
-                      <Input
+                      <SlugTextInput
                         id="create-product-category"
                         list="browse-seo-categories"
                         value={productCategory}
-                        onChange={(e) => {
+                        onChange={(value) => {
                           categoryTouchedRef.current = true;
-                          setProductCategory(
-                            sanitizeSlugInput(e.target.value, MAX_PRODUCT_CATEGORY_SLUG_LEN),
-                          );
+                          setProductCategory(value);
                         }}
                         placeholder="Type a category, e.g. streetwear-style"
                         className="h-9 bg-background text-sm shadow-sm"
                         aria-describedby="create-product-category-hint"
+                        maxLength={MAX_PRODUCT_CATEGORY_SLUG_LEN}
                       />
                       <datalist id="browse-seo-categories">
                         {browseCategorySlugs.map((s) => (
@@ -1981,20 +2130,31 @@ function CreatePageInner() {
                 <Card className="border-border/50 bg-card p-6 text-left">
                   <h3 className="flex items-center gap-2 text-base font-semibold tracking-tight">
                     <Store className="h-4 w-4 text-primary" />
-                    Publish to which storefront?
+                    Publish to which storefronts?
                   </h3>
                   <p className="mt-1 text-xs text-muted-foreground">
                     Each storefront has its own URL and audience. Your default is
-                    pre-selected — change it here if this batch belongs somewhere else.
+                    pre-selected — add or remove storefronts for this batch.
                   </p>
                   <div className="mt-4 grid gap-2 sm:grid-cols-2">
                     {ownedStorefronts.map((s) => {
-                      const active = s.id === selectedStorefrontId;
+                      const active = selectedStorefrontIds.includes(s.id);
                       return (
                         <button
                           key={s.id}
                           type="button"
-                          onClick={() => setSelectedStorefrontId(s.id)}
+                          onClick={() =>
+                            setSelectedStorefrontIds((prev) => {
+                              if (prev.includes(s.id)) {
+                                if (prev.length <= 1) {
+                                  toast.error("Choose at least one storefront");
+                                  return prev;
+                                }
+                                return prev.filter((id) => id !== s.id);
+                              }
+                              return [...prev, s.id];
+                            })
+                          }
                           aria-pressed={active}
                           className={`rounded-lg border p-3 text-left transition ${
                             active
@@ -2016,10 +2176,19 @@ function CreatePageInner() {
                           <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                             /shop/{s.slug}
                           </span>
+                          {active && (
+                            <span className="mt-2 inline-flex rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                              Included
+                            </span>
+                          )}
                         </button>
                       );
                     })}
                   </div>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {selectedStorefrontIds.length} storefront
+                    {selectedStorefrontIds.length === 1 ? "" : "s"} selected
+                  </p>
                 </Card>
               )}
 
@@ -2029,7 +2198,16 @@ function CreatePageInner() {
                     title="Sign in to publish your merch"
                     description="Publishing creates a real shop where people can buy this. We'll save your designs the moment you sign in."
                   />
-                  <div className="flex justify-center">
+                  <div className="flex flex-wrap justify-center gap-3">
+                    <Button
+                      variant="outline"
+                      onClick={() => void handleDeleteImage()}
+                      disabled={deletingImage}
+                      className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      {deletingImage ? "Deleting..." : "Delete image"}
+                    </Button>
                     <Button variant="outline" onClick={() => setStep("placement")} className="gap-2">
                       Back to print layout
                     </Button>
@@ -2038,17 +2216,80 @@ function CreatePageInner() {
               ) : (
                 <div className="flex w-full flex-col items-center justify-center gap-4">
                   {publishing && (
-                    <div className="w-full max-w-xl rounded-lg border border-primary/20 bg-primary/5 p-3">
+                    <div
+                      className="w-full max-w-xl rounded-lg border border-primary/30 bg-primary/10 p-3"
+                      aria-live="polite"
+                    >
                       <div className="mb-2 flex items-center justify-between gap-3 text-xs">
                         <span className="font-medium text-foreground">{publishStatus}</span>
-                        <span className="tabular-nums text-muted-foreground">
+                        <span className="tabular-nums text-foreground/90">
                           {Math.round(publishProgress)}%
                         </span>
                       </div>
-                      <Progress value={publishProgress} className="w-full" />
+                      <div className="mb-2 grid grid-cols-3 gap-2 text-[11px]">
+                        {(
+                          [
+                            { key: "uploading", label: "Uploading" },
+                            { key: "creating", label: "Creating products" },
+                            { key: "finalizing", label: "Finalizing" },
+                          ] as const
+                        ).map((s) => {
+                          const order: Record<PublishStage, number> = {
+                            uploading: 0,
+                            creating: 1,
+                            finalizing: 2,
+                          };
+                          const state =
+                            order[publishStage] > order[s.key]
+                              ? "done"
+                              : order[publishStage] === order[s.key]
+                                ? "active"
+                                : "pending";
+                          return (
+                            <div
+                              key={s.key}
+                              className={`flex items-center gap-1.5 rounded-md border px-2 py-1 ${
+                                state === "done"
+                                  ? "border-primary/40 bg-primary/15 text-primary"
+                                  : state === "active"
+                                    ? "border-primary/50 bg-primary/20 text-foreground"
+                                    : "border-border/60 bg-background/30 text-muted-foreground"
+                              }`}
+                            >
+                              {state === "done" ? (
+                                <Check className="h-3 w-3 shrink-0" />
+                              ) : (
+                                <span
+                                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                                    state === "active" ? "bg-primary" : "bg-muted-foreground/70"
+                                  }`}
+                                />
+                              )}
+                              <span className="truncate">{s.label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-primary/20">
+                        <div
+                          className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out"
+                          style={{
+                            width: `${Math.max(6, Math.min(100, publishProgress))}%`,
+                          }}
+                        />
+                      </div>
                     </div>
                   )}
                   <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+                  <Button
+                    variant="outline"
+                    onClick={() => void handleDeleteImage()}
+                    disabled={deletingImage || publishing}
+                    className="gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    {deletingImage ? "Deleting..." : "Delete image"}
+                  </Button>
                   <Button variant="outline" onClick={() => setStep("placement")} className="gap-2">
                     Back to print layout
                   </Button>
@@ -2062,12 +2303,24 @@ function CreatePageInner() {
                       )
                     }
                       onClick={handlePublish}
-                      className="gap-2 bg-primary px-8 hover:bg-primary/90"
+                      className="relative gap-2 overflow-hidden bg-primary px-8 hover:bg-primary/90"
                     >
+                      {publishing && (
+                        <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-primary-foreground/20">
+                          <span
+                            className="block h-full bg-primary-foreground/80 transition-[width] duration-700 ease-out"
+                            style={{
+                              width: `${Math.max(6, Math.min(100, publishProgress))}%`,
+                            }}
+                          />
+                        </span>
+                      )}
                       {publishing ? (
                         <>
                           <Wand2 className="h-4 w-4 animate-spin" />
-                          Publishing...
+                          <span>
+                            Publishing... ({Math.round(publishProgress)}%)
+                          </span>
                         </>
                       ) : (
                         <>
@@ -2097,6 +2350,7 @@ function CreatePageInner() {
             showActions
             refreshKey={libraryRefreshKey}
             onPick={(d) => void loadDesignFromLibrary(d)}
+            onDeleted={handleDesignDeletedFromLibrary}
             title="Your saved designs"
             description="Everything you've generated or uploaded is kept here. Click any image to pick it back up — scroll for more."
           />

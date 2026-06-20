@@ -217,7 +217,7 @@ function PlacementRowCard({
     <Card className="border-border/50 bg-card p-4">
       <div className="flex gap-4">
         <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-lg bg-secondary">
-          {hasRenderableListingMockup(row.mockupUrl, row.designImageUrl) ? (
+          {hasRenderableListingMockup(row.mockupUrl, row.designImageUrl) && !row.designImageUrl ? (
             <Image
               src={row.mockupUrl!}
               alt=""
@@ -231,6 +231,8 @@ function PlacementRowCard({
               imageUrl={row.designImageUrl}
               productType={row.productType}
               placement={placement}
+              showPrintAreaFrame={false}
+              transparentBlankBackdrop
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center p-2 text-center text-[10px] text-muted-foreground">

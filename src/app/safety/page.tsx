@@ -183,12 +183,14 @@ export default function SafetyPage() {
               Report a Concern
             </Button>
           </a>
-          <Link href="/privacy">
-            <Button variant="ghost" className="gap-2 text-muted-foreground">
-              Read Our Privacy Policy
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button
+            render={<Link href="/privacy" />}
+            variant="ghost"
+            className="gap-2 text-muted-foreground"
+          >
+            Read Our Privacy Policy
+            <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
       </section>
     </div>

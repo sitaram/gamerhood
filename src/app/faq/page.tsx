@@ -620,12 +620,14 @@ export default function FAQPage() {
               Contact Support
             </Button>
           </a>
-          <Link href="/safety">
-            <Button variant="ghost" className="gap-2 text-muted-foreground">
-              Kid Safety Info
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button
+            render={<Link href="/safety" />}
+            variant="ghost"
+            className="gap-2 text-muted-foreground"
+          >
+            Kid Safety Info
+            <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
       </div>
     </div>

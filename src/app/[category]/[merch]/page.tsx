@@ -5,6 +5,7 @@ import { ProductCard } from "@/components/storefront/product-card";
 import { createClient } from "@/lib/supabase/server";
 import {
   getPublishedProductsForBrowse,
+  getPublishedProductsForBrowseMerchHub,
   getBrowseCategoryBySlug,
 } from "@/lib/supabase/queries";
 import {
@@ -12,7 +13,9 @@ import {
   normalizeBrowseCategorySegment,
   merchSegmentToProductType,
   formatBrowseHeading,
+  isBrowseMerchHubSegment,
 } from "@/lib/browse-routes";
+import { formatTagBrowseHubTitle } from "@/lib/browse-categories/platform";
 import { siteUrl } from "@/lib/site";
 import { blockedSlugLanguageReason } from "@/lib/slug-content-policy";
 
@@ -25,10 +28,11 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { category, merch } = await params;
   const cat = normalizeBrowseCategorySegment(category);
+  const merchHub = isBrowseMerchHubSegment(merch);
   const type = merchSegmentToProductType(merch);
   if (
     !cat ||
-    !type ||
+    (!type && !merchHub) ||
     RESERVED_BROWSE_FIRST_SEGMENTS.has(cat) ||
     blockedSlugLanguageReason(cat)
   ) {
@@ -44,7 +48,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 
-  const defaultTitle = `${formatBrowseHeading(cat, type)} | Gamerhood`;
+  const defaultTitle = merchHub
+    ? `${formatTagBrowseHubTitle(cat, seo?.name)} | Gamerhood`
+    : `${formatBrowseHeading(cat, type!)} | Gamerhood`;
   const baseHuman = cat
     .split("-")
     .filter(Boolean)
@@ -57,7 +63,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const description =
     seo?.seo_description?.trim() ||
-    `Shop ${baseHuman} ${merchPretty.toLowerCase()} designs on Gamerhood — independent creator merch.`;
+    (merchHub
+      ? `Shop ${baseHuman} merch — hoodies, tees, mugs, and more from independent creators on Gamerhood.`
+      : `Shop ${baseHuman} ${merchPretty.toLowerCase()} designs on Gamerhood — independent creator merch.`);
 
   const path = `/${cat}/${merch.trim().toLowerCase()}`;
   const canonical = `${siteUrl()}${path}`;
@@ -81,9 +89,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function BrowseCategoryMerchPage({ params }: Props) {
   const { category, merch } = await params;
   const cat = normalizeBrowseCategorySegment(category);
+  const merchHub = isBrowseMerchHubSegment(merch);
   const productType = merchSegmentToProductType(merch);
 
-  if (!cat || !productType) {
+  if (!cat || (!productType && !merchHub)) {
     notFound();
   }
 
@@ -97,9 +106,13 @@ export default async function BrowseCategoryMerchPage({ params }: Props) {
 
   const supabase = await createClient();
   const seo = await getBrowseCategoryBySlug(supabase, cat);
-  const products = await getPublishedProductsForBrowse(supabase, cat, productType);
+  const products = merchHub
+    ? await getPublishedProductsForBrowseMerchHub(supabase, cat)
+    : await getPublishedProductsForBrowse(supabase, cat, productType!);
 
-  const heading = formatBrowseHeading(cat, productType);
+  const heading = merchHub
+    ? formatTagBrowseHubTitle(cat, seo?.name)
+    : formatBrowseHeading(cat, productType!);
   const merchPretty = merch
     .split("-")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -153,10 +166,20 @@ export default async function BrowseCategoryMerchPage({ params }: Props) {
         )}
       </h1>
       <p className="mt-2 max-w-2xl text-muted-foreground">
-        Listings match your store <strong className="font-medium text-foreground">category</strong> or a{" "}
-        <strong className="font-medium text-foreground">tag</strong> named{" "}
-        <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{cat}</code> — set them when you publish or in
-        storefront settings.
+        {merchHub ? (
+          <>
+            All product types tagged <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{cat}</code> — set{" "}
+            <strong className="font-medium text-foreground">category</strong> or a matching{" "}
+            <strong className="font-medium text-foreground">tag</strong> when you publish.
+          </>
+        ) : (
+          <>
+            Listings match your store <strong className="font-medium text-foreground">category</strong> or a{" "}
+            <strong className="font-medium text-foreground">tag</strong> named{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{cat}</code> — set them when you publish or in
+            storefront settings.
+          </>
+        )}
       </p>
 
       <p className="mt-4 text-sm text-muted-foreground">
@@ -173,8 +196,8 @@ export default async function BrowseCategoryMerchPage({ params }: Props) {
         <div className="mt-16 rounded-2xl border border-dashed border-border/50 bg-card/40 px-6 py-14 text-center">
           <p className="text-lg font-medium text-muted-foreground">No products in this browse view yet</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Use category <strong>{cat}</strong> (or tag it on your listings) and publish{" "}
-            <strong>{merchPretty}</strong> merch.
+            Use category <strong>{cat}</strong> (or tag it on your listings) and publish
+            {merchHub ? " merch" : <> <strong>{merchPretty}</strong> merch</>}.
           </p>
           <Link href="/create" className="mt-6 inline-block text-primary hover:underline text-sm font-medium">
             Create a design →

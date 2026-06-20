@@ -30,7 +30,6 @@ export { hasRenderableListingMockup, PRODUCT_TYPE_LABELS };
 export function ProductCard({ product }: ProductCardProps) {
   const previewDesignUrl = `/api/designs/${product.designId}/image?v=${encodeURIComponent(product.createdAt)}&pv=1&rev=20260608b`;
   const hasDesignImage = Boolean(product.designId);
-  const defaultColor = product.colors[0] ?? null;
   /**
    * Storefront grid should paint instantly: when a publish-time mockup exists,
    * prefer it over live client-side composition (which waits on blank-photo +
@@ -63,7 +62,6 @@ export function ProductCard({ product }: ProductCardProps) {
               imageUrl={previewDesignUrl}
               productType={product.productType}
               placement={product.printPlacement ?? DEFAULT_STORED}
-              blankColorName={defaultColor}
               showPrintAreaFrame={false}
               transparentBlankBackdrop
               className="transition-transform duration-300 group-hover:scale-[1.02]"

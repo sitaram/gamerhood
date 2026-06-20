@@ -30,6 +30,7 @@ export function PhotographicColorMockup({
   printAreaPixelRect = null,
   sizes = "(max-width: 1024px) 100vw, 50vw",
   onPhotoLoad,
+  onDesignLoad,
 }: {
   product: Product;
   photoUrl: string;
@@ -63,6 +64,8 @@ export function PhotographicColorMockup({
    * to fade in (so the design overlay never appears without its garment).
    */
   onPhotoLoad?: () => void;
+  /** Fires once the overlaid design image has decoded. */
+  onDesignLoad?: () => void;
 }) {
   const baseLayout = getMerchPreviewLayout(product.productType);
   const layout = baseLayout.photoBand
@@ -143,6 +146,9 @@ export function PhotographicColorMockup({
               className="object-contain object-center"
               unoptimized
               draggable={false}
+              loading="eager"
+              fetchPriority="high"
+              onLoad={onDesignLoad}
             />
           </div>
         </div>

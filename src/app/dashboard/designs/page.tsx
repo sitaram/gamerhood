@@ -51,12 +51,13 @@ export default async function MyDesignsPage() {
             Pick any image to put it on merch again or publish a new listing.
           </p>
         </div>
-        <Link href="/create" className="shrink-0">
-          <Button className="gap-2 bg-primary hover:bg-primary/90">
-            <Wand2 className="h-4 w-4" />
-            Create new
-          </Button>
-        </Link>
+        <Button
+          render={<Link href="/create" />}
+          className="shrink-0 gap-2 bg-primary hover:bg-primary/90"
+        >
+          <Wand2 className="h-4 w-4" />
+          Create new
+        </Button>
       </div>
 
       <div className="mt-10">
