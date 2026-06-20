@@ -32,6 +32,7 @@ import {
   capRasterIfHuge,
   isSvgMime,
   rasterizeSvgForPrinting,
+  trimPrintMargins,
 } from "@/lib/print/normalize-upload";
 import {
   uploadDesignAssetDerivatives,
@@ -317,6 +318,18 @@ export async function POST(request: NextRequest) {
             ? "Couldn't process this SVG — check that it's valid, or export as PNG."
             : "Couldn't process uploaded image.";
         return NextResponse.json({ error: msg }, { status: 400 });
+      }
+
+      // Crop fully-transparent padding so the visible artwork — not its empty
+      // canvas — fills the print area. Without this, a PNG with the art in a
+      // corner prints (and previews) off-center. Conservative: no-ops on
+      // opaque images and on negligible margins.
+      try {
+        const trimmed = await trimPrintMargins(uploadBytes, uploadMime);
+        uploadBytes = trimmed.buffer;
+        uploadMime = trimmed.mimeOut;
+      } catch {
+        // Non-fatal — keep the untrimmed bytes.
       }
 
       try {
