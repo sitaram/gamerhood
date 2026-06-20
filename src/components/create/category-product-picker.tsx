@@ -132,9 +132,16 @@ export function CategoryProductPicker({
                   <SingleVariantBadge selected={singleSelected} />
                 ) : (
                   <>
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {selectedCount}/{totalCount}
-                    </span>
+                    {selectedCount > 0 ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-primary tabular-nums">
+                        <Check className="h-3.5 w-3.5" />
+                        {selectedCount} selected
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {totalCount} styles
+                      </span>
+                    )}
                     {open ? (
                       <ChevronUp className="h-4 w-4 text-muted-foreground" />
                     ) : (
