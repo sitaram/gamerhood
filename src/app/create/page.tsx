@@ -400,7 +400,7 @@ function CreatePageInner() {
     // Keep generic publish-only messages from reaching the UI.
     const normalized = base.trim().toLowerCase();
     if (normalized === "publish failed" || normalized.startsWith("publish failed (")) {
-      return "Publish failed, but the server returned no details. Please retry and inspect /api/designs/publish in Network.";
+      return "Something went wrong publishing your design. Please try again in a moment.";
     }
     return base;
   }, []);
