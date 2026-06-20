@@ -133,7 +133,7 @@ export function CategoryProductPicker({
                 ) : (
                   <>
                     {selectedCount > 0 ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-primary tabular-nums">
+                      <span className="inline-flex h-7 items-center gap-1 rounded-full bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground shadow-sm tabular-nums">
                         <Check className="h-3.5 w-3.5" />
                         {selectedCount} selected
                       </span>
