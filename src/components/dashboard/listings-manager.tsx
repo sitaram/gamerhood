@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Search, Pencil, ExternalLink, Sparkles, Wand2, Filter, ChevronDown } from "lucide-react";
+import { Search, Pencil, ExternalLink, Sparkles, Wand2, Filter, ChevronDown, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -298,19 +298,14 @@ function ListingCard({
   const previewDesignUrl = `/api/designs/${row.designId}/image?v=${encodeURIComponent(row.createdAt)}&pv=1&rev=20260608b`;
   const hasDesignPreview = Boolean(row.designId);
   /**
-   * Prefer persisted listing mockups in card grids so previews render
-   * immediately instead of waiting for client-side composition.
+   * Prefer the real (re-hosted) Printful mockup — it's what actually prints.
+   * `hasRenderableListingMockup` only trusts our permanent re-hosted URLs, so
+   * this safely falls back to live composition when no real mockup exists yet.
    */
-  const showRealMockup = !hasDesignPreview
-    ? hasRenderableListingMockup(
-        row.mockupUrl,
-        row.designImageUrl,
-        {
-          designUploadedAsSvg: row.designUploadedAsSvg,
-          designHasTransparency: row.designHasTransparency ?? null,
-        },
-      )
-    : false;
+  const showRealMockup = hasRenderableListingMockup(row.mockupUrl, row.designImageUrl, {
+    designUploadedAsSvg: row.designUploadedAsSvg,
+    designHasTransparency: row.designHasTransparency ?? null,
+  });
   const productLabel =
     PRODUCT_TYPE_LABELS[row.productType] || row.productType;
 
@@ -407,6 +402,22 @@ function ListingCard({
             <ExternalLink className="h-3.5 w-3.5" />
             View
           </Button>
+          {row.designId && (
+            <Button
+              render={
+                <Link
+                  href={`/create?designId=${row.designId}`}
+                  aria-label={`Add more products with the ${row.title} design`}
+                />
+              }
+              size="sm"
+              variant="ghost"
+              className="gap-1.5"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add more
+            </Button>
+          )}
         </div>
       </div>
     </Card>

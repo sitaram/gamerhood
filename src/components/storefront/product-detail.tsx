@@ -513,6 +513,22 @@ function ProductMockupImage({
    * hasn't warmed yet (or is unavailable) for the default color.
    */
   const target = useMemo<MockupLayer | null>(() => {
+    /**
+     * Default (published) color: prefer the real re-hosted Printful mockup —
+     * it's exactly what prints, correctly placed. `canRenderStoredMockup`
+     * only trusts our permanent re-hosted URLs (not raw printful.com / SVG),
+     * so this is safe; other colors fall through to live blank composition
+     * since a real mockup only exists for the published color.
+     */
+    if (isDefaultColor && canRenderStoredMockup) {
+      return {
+        id: `mockup::${product.mockupUrl}`,
+        kind: "mockup",
+        url: product.mockupUrl,
+        loaded: false,
+        colorLabel: selectedColor,
+      };
+    }
     if (hasDesign && blankPhotoUrl) {
       return {
         id: `blank::${selectedColor}::${blankPhotoUrl}`,
@@ -522,20 +538,6 @@ function ProductMockupImage({
         colorLabel: selectedColor,
         printAreaInches,
         printAreaPixelRect: blankPixelRect,
-      };
-    }
-    /**
-     * Stored listing mockups may include legacy overlay artifacts (dashed
-     * print guides / checker backgrounds). On storefront surfaces we prefer
-     * live blank-photo composition when design bytes are available.
-     */
-    if (!hasDesign && isDefaultColor && canRenderStoredMockup) {
-      return {
-        id: `mockup::${product.mockupUrl}`,
-        kind: "mockup",
-        url: product.mockupUrl,
-        loaded: false,
-        colorLabel: selectedColor,
       };
     }
     /** Cache terminal (unavailable) → fall back to the tinted silhouette so we don't keep showing a different color. */

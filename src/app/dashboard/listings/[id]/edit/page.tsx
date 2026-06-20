@@ -150,10 +150,9 @@ export default async function EditListingPage({ params }: Props) {
   const previewDesignUrl = product.design_id
     ? `/api/designs/${product.design_id}/image?v=${encodeURIComponent(product.created_at)}&pv=1`
     : designImageUrl;
-  const showRealMockup = !previewDesignUrl && hasRenderableListingMockup(
-    product.mockup_url,
-    designImageUrl,
-  );
+  const showRealMockup = hasRenderableListingMockup(product.mockup_url, designImageUrl, {
+    designUploadedAsSvg: Boolean(product.designs?.uploaded_as_svg),
+  });
 
   /**
    * Alpha-channel badge data. We prefer the persisted column (set by the
