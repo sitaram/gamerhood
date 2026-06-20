@@ -2,10 +2,9 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Check, ChevronDown, ChevronUp, Plus, SlidersHorizontal } from "lucide-react";
-import { toast } from "sonner";
+import { Check, ChevronDown, ChevronUp, SlidersHorizontal } from "lucide-react";
 import { MerchPlacementPreview } from "@/components/create/merch-placement-preview";
-import { MERCH_CATEGORIES, isSingleVariantCategory } from "@/lib/merch/categories";
+import { MERCH_CATEGORIES } from "@/lib/merch/categories";
 import type { MerchCategory } from "@/lib/merch/categories";
 import { PRODUCT_TYPE_LABELS } from "@/components/storefront/product-card";
 import type { ProductType } from "@/lib/types";
@@ -48,7 +47,6 @@ export function CategoryProductPicker({
   onTune,
 }: Props) {
   const [openCategoryId, setOpenCategoryId] = useState<string | null>(() => "hoodies");
-  const [pulseCategoryId, setPulseCategoryId] = useState<string | null>(null);
   /** Map of category id → expansion panel ref so we can scroll the just-opened
    *  panel into view. Without this, tapping `Accessories` quietly expands
    *  below the fold on phones and looks like nothing happened. */
@@ -72,51 +70,32 @@ export function CategoryProductPicker({
     return () => window.clearTimeout(id);
   }, [openCategoryId]);
 
-  useEffect(() => {
-    if (!pulseCategoryId) return;
-    const id = window.setTimeout(() => setPulseCategoryId(null), 600);
-    return () => window.clearTimeout(id);
-  }, [pulseCategoryId]);
-
   return (
     <div className="space-y-3">
       {MERCH_CATEGORIES.map((cat) => {
-        const isSingle = isSingleVariantCategory(cat);
-        const onlyVariant = isSingle ? cat.variants[0] : null;
-        const singleSelected =
-          isSingle && onlyVariant ? selected.has(onlyVariant) : false;
         const open = openCategoryId === cat.id;
         const selectedCount = selectedCountByCategory[cat.id] ?? 0;
         const totalCount = cat.variants.length;
-        const pulse = pulseCategoryId === cat.id;
 
         return (
           <div
             key={cat.id}
             className={`rounded-2xl border transition-all duration-200 ${
-              (isSingle ? singleSelected : selectedCount > 0)
+              selectedCount > 0
                 ? "border-primary bg-primary/10 shadow-sm shadow-primary/10"
                 : "border-border/60 bg-card"
-            } ${pulse ? "ring-2 ring-primary/40" : ""}`}
+            }`}
           >
+            {/* Every category expands the same way — even single-option ones —
+                so you always see the product preview and the status wording
+                ("N selected" / "N option(s)") is consistent across the list. */}
             <button
               type="button"
-              onClick={() => {
-                if (isSingle && onlyVariant) {
-                  const wasSelected = selected.has(onlyVariant);
-                  onToggle(onlyVariant);
-                  setPulseCategoryId(cat.id);
-                  toast.success(
-                    wasSelected
-                      ? `Removed ${cat.label.toLowerCase()} from your batch`
-                      : `Added ${cat.label.toLowerCase()} to your batch`,
-                  );
-                } else {
-                  setOpenCategoryId((cur) => (cur === cat.id ? null : cat.id));
-                }
-              }}
+              onClick={() =>
+                setOpenCategoryId((cur) => (cur === cat.id ? null : cat.id))
+              }
               className="flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-primary"
-              aria-expanded={isSingle ? undefined : open}
+              aria-expanded={open}
             >
               <div className="flex items-center gap-3">
                 <span className="text-2xl leading-none" aria-hidden>
@@ -128,31 +107,25 @@ export function CategoryProductPicker({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                {isSingle ? (
-                  <SingleVariantBadge selected={singleSelected} />
+                {selectedCount > 0 ? (
+                  <span className="inline-flex h-7 items-center gap-1 rounded-full bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground shadow-sm tabular-nums">
+                    <Check className="h-3.5 w-3.5" />
+                    {selectedCount} selected
+                  </span>
                 ) : (
-                  <>
-                    {selectedCount > 0 ? (
-                      <span className="inline-flex h-7 items-center gap-1 rounded-full bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground shadow-sm tabular-nums">
-                        <Check className="h-3.5 w-3.5" />
-                        {selectedCount} selected
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {totalCount} styles
-                      </span>
-                    )}
-                    {open ? (
-                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {totalCount === 1 ? "1 option" : `${totalCount} styles`}
+                  </span>
+                )}
+                {open ? (
+                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 )}
               </div>
             </button>
 
-            {!isSingle && open && (
+            {open && (
               <div
                 ref={(el) => {
                   expansionRefs.current[cat.id] = el;
@@ -180,20 +153,6 @@ export function CategoryProductPicker({
 
       <SelectionSummary categories={MERCH_CATEGORIES} selected={selected} />
     </div>
-  );
-}
-
-function SingleVariantBadge({ selected }: { selected: boolean }) {
-  return selected ? (
-    <span className="inline-flex h-7 items-center gap-1 rounded-full bg-primary px-2.5 text-[11px] font-semibold text-primary-foreground shadow-sm">
-      <Check className="h-3.5 w-3.5" />
-      Added
-    </span>
-  ) : (
-    <span className="inline-flex h-7 items-center gap-1 rounded-full border border-primary/40 bg-primary/5 px-2.5 text-[11px] font-medium text-primary">
-      <Plus className="h-3 w-3" />
-      Tap to add
-    </span>
   );
 }
 
