@@ -33,7 +33,11 @@ import {
   isSvgMime,
   rasterizeSvgForPrinting,
 } from "@/lib/print/normalize-upload";
-import { uploadDesignAssetDerivatives, decodeDesignDataUrl } from "@/lib/storage";
+import {
+  uploadDesignAssetDerivatives,
+  decodeDesignDataUrl,
+  rehostListingMockupFromUrl,
+} from "@/lib/storage";
 import { moderateImageBase64 } from "@/lib/moderation";
 import { detectDesignTransparencyFromAnySource } from "@/lib/print/transparency";
 import { detectBakedCheckerboard } from "@/lib/print/artifact-strip";
@@ -539,6 +543,9 @@ export async function POST(request: NextRequest) {
       );
 
       let listingMockupUrl = publicImageUrl;
+      // Raw (temporary) Printful mockup URL, re-hosted after the product row
+      // exists so we have a stable storage key (productId).
+      let printfulMockupToRehost: string | null = null;
       // Printful fetches the design by URL, so we can only call mockup generation
       // when `publicImageUrl` is a real http(s) URL — not when we fell back to an
       // inline data URL because Storage wasn't configured.
@@ -560,7 +567,10 @@ export async function POST(request: NextRequest) {
             designUrl: publicImageUrl,
             storedPlacement: storedPlacementForRow,
           });
-          if (pfListing) listingMockupUrl = pfListing;
+          if (pfListing) {
+            listingMockupUrl = pfListing;
+            printfulMockupToRehost = pfListing;
+          }
           await mockupThrottle();
         } catch (err) {
           console.warn("[Publish] listing mockup generation failed:", {
@@ -625,6 +635,19 @@ export async function POST(request: NextRequest) {
         });
         await supabase.from("products").delete().eq("id", product.id);
         continue;
+      }
+
+      // Re-host the (temporary) Printful mockup onto our Storage so the
+      // storefront can display the real render — what actually prints —
+      // instead of a CSS imitation, and so the URL survives CDN expiry.
+      if (printfulMockupToRehost) {
+        const hosted = await rehostListingMockupFromUrl(
+          product.id,
+          printfulMockupToRehost,
+        ).catch(() => null);
+        if (hosted) {
+          await supabase.from("products").update({ mockup_url: hosted }).eq("id", product.id);
+        }
       }
 
       // sellingPrice is intentionally unused here — it's the public-facing

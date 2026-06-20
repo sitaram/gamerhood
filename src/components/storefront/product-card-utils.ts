@@ -34,24 +34,23 @@ export function hasRenderableListingMockup(
   designImageUrl: string | null | undefined,
   opts?: { designUploadedAsSvg?: boolean; designHasTransparency?: boolean | null },
 ): boolean {
-  // If we have a source design image, prefer live composition everywhere.
-  // This avoids legacy mockups with baked checker backgrounds and keeps
-  // storefront cards aligned with the current saved print placement.
-  if (designImageUrl?.trim()) return false;
   const m = mockupUrl?.trim();
   if (!m) return false;
   if (m.startsWith("data:")) return false;
-  // Legacy Printful listing mockups can preserve opaque SVG backgrounds.
-  // Prefer live sanitized design composition for SVG-origin artwork.
+  if (!/^https?:\/\//i.test(m)) return false;
+  // Raw printful.com URLs are temporary (CDN expiry) — only our re-hosted
+  // copies are safe to display. Legacy rows with a printful.com mockup fall
+  // back to live composition until they're re-published / refreshed.
+  if (/printful\.com/i.test(m)) return false;
+  // SVG-origin artwork can carry an opaque vector background that Printful
+  // bakes into the render; keep live sanitized composition for those.
   if (opts?.designUploadedAsSvg) return false;
-  // Opaque design sources (often checker-filled PNG/SVG exports) should render
-  // via live design composition so cleanup paths can run.
-  if (opts?.designHasTransparency === false) return false;
-  // Unknown transparency on legacy rows is also unsafe; prefer live composition
-  // until we have a verified transparency flag.
-  if (opts && opts.designHasTransparency == null) return false;
+  // A `mockup_url` equal to the design itself isn't a real product mockup.
   const d = designImageUrl?.trim();
   if (d && m === d) return false;
+  // A re-hosted Printful mockup IS what gets printed — prefer it everywhere.
+  // (No transparency gate: the real render is the truthful representation of
+  // the print, whether the art is transparent or a solid rectangle.)
   return true;
 }
 

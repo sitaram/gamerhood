@@ -303,6 +303,51 @@ export async function uploadProductListingMockup(
   return data.publicUrl;
 }
 
+/**
+ * Re-host a remote (Printful) mockup URL into our own Storage.
+ *
+ * Printful's mockup-generator URLs are short-lived — storing them raw means
+ * storefront cards 404 within days. We fetch the bytes once at publish/refresh
+ * time and serve a permanent copy, which is also what lets us safely DISPLAY
+ * the real Printful render (preview == print) instead of a CSS imitation.
+ *
+ * Returns the permanent public URL (cache-busted so a regenerated mockup at
+ * the same path refreshes clients), or `null` when re-hosting isn't possible
+ * (Storage unconfigured, fetch failed, non-image) so callers fall back rather
+ * than persisting a URL that will rot.
+ */
+export async function rehostListingMockupFromUrl(
+  productId: string,
+  remoteUrl: string,
+): Promise<string | null> {
+  if (remoteUrl.startsWith("data:")) {
+    return uploadProductListingMockup(productId, remoteUrl);
+  }
+  if (!/^https?:\/\//i.test(remoteUrl)) return null;
+  if (!isStorageConfigured()) return null;
+
+  try {
+    const res = await fetch(remoteUrl);
+    if (!res.ok) {
+      console.warn(`[storage] rehost mockup fetch ${res.status} for ${productId}`);
+      return null;
+    }
+    const contentType = (res.headers.get("content-type") || "image/jpeg")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    if (!contentType.startsWith("image/")) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length === 0) return null;
+    const path = `${LISTING_MOCKUPS_PREFIX}/${productId}.${mimeToExtension(contentType)}`;
+    const publicUrl = await uploadStorageBytes(path, bytes, contentType);
+    return `${publicUrl}?v=${Date.now()}`;
+  } catch (err) {
+    console.warn("[storage] rehost listing mockup failed:", err);
+    return null;
+  }
+}
+
 const STOREFRONT_PREFIX = "storefront";
 
 /**

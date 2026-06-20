@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getServiceClient } from "@/lib/supabase/admin";
 import { getDefaultProfileForAuthUser } from "@/lib/supabase/queries";
 import { augmentMerchFromPrintfulCatalog } from "@/lib/printful/catalog-meta";
+import { refreshPrintfulListingMockupForProduct } from "@/lib/printful/mockups";
 import { isPrintfulConfigured } from "@/lib/printful/client";
 import type { ProductType } from "@/lib/types";
 
@@ -87,5 +89,15 @@ export async function POST(
     return NextResponse.json({ error: "Update failed" }, { status: 500 });
   }
 
-  return NextResponse.json({ product: updated });
+  // Backfill the real (re-hosted) Printful mockup so existing listings show
+  // the accurate preview==print render. Idempotent: skips rows that already
+  // have a re-hosted mockup. Best-effort — never fails the metadata refresh.
+  let mockupUrl: string | null = null;
+  try {
+    mockupUrl = await refreshPrintfulListingMockupForProduct(getServiceClient(), productId);
+  } catch (err) {
+    console.warn("[refresh-printful] mockup refresh skipped:", err);
+  }
+
+  return NextResponse.json({ product: updated, mockupUrl });
 }

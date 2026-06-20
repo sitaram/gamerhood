@@ -5,6 +5,7 @@ import type { StoredPrintPlacement } from "@/lib/print/placement";
 import { printfulRequest, type PrintfulFileLayer, isPrintfulConfigured } from "@/lib/printful/client";
 import type { PrintfulCatalogConfig } from "@/lib/printful/catalog";
 import { getCatalogConfig } from "@/lib/printful/catalog";
+import { rehostListingMockupFromUrl } from "@/lib/storage";
 
 /** Placement grouping from GET /v2/catalog-products/{id}/mockup-styles */
 interface CatalogMockupStyleGroup {
@@ -562,7 +563,13 @@ export async function refreshPrintfulListingMockupForProduct(
   });
 
   if (url) {
-    await supabase.from("products").update({ mockup_url: url }).eq("id", productId);
+    // Re-host onto our own Storage so the URL survives Printful's CDN expiry
+    // and is safe to display directly. Fall back to the raw URL if re-hosting
+    // fails — readers treat printful.com URLs as non-displayable anyway.
+    const hosted = await rehostListingMockupFromUrl(productId, url).catch(() => null);
+    const finalUrl = hosted ?? url;
+    await supabase.from("products").update({ mockup_url: finalUrl }).eq("id", productId);
+    return finalUrl;
   }
 
   return url;
