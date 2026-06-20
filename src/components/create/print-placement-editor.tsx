@@ -160,7 +160,21 @@ export function PrintPlacementEditor({
   const Aw = overlay.printAreaInches.width;
   const Ah = overlay.printAreaInches.height;
 
-  const drag = useRef<{ lastX: number; lastY: number } | null>(null);
+  const frameRef = useRef<HTMLDivElement | null>(null);
+  const printRectRef = useRef<HTMLDivElement | null>(null);
+  const drag = useRef<{
+    mode: "move" | "resize";
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
+    startZoom: number;
+    bandW: number;
+    bandH: number;
+    centerX: number;
+    centerY: number;
+    startDist: number;
+  } | null>(null);
 
   useEffect(() => {
     if (!imageUrl || !onAspectDetected) return;
@@ -178,27 +192,88 @@ export function PrintPlacementEditor({
     };
   }, [imageUrl, onAspectDetected]);
 
-  const onPointerDown = (e: React.PointerEvent) => {
-    drag.current = { lastX: e.clientX, lastY: e.clientY };
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  const clampZoom = (z: number) =>
+    Math.min(PLACEMENT_ZOOM_MAX, Math.max(PLACEMENT_ZOOM_MIN, z));
+
+  const captureToFrame = (e: React.PointerEvent) => {
+    try {
+      frameRef.current?.setPointerCapture(e.pointerId);
+    } catch {
+      //
+    }
+  };
+
+  const beginMove = (e: React.PointerEvent) => {
+    const rect = printRectRef.current?.getBoundingClientRect();
+    drag.current = {
+      mode: "move",
+      startX: e.clientX,
+      startY: e.clientY,
+      startPanX: value.panX,
+      startPanY: value.panY,
+      startZoom: value.zoom,
+      bandW: rect?.width ?? 1,
+      bandH: rect?.height ?? 1,
+      centerX: 0,
+      centerY: 0,
+      startDist: 1,
+    };
+    captureToFrame(e);
+  };
+
+  /** Corner-handle resize: proportional (uniform) scale about the art's
+   *  centre, so the artwork is never distorted — what you see is what prints. */
+  const beginResize = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    const rect = printRectRef.current?.getBoundingClientRect();
+    let centerX = e.clientX;
+    let centerY = e.clientY;
+    if (rect) {
+      centerX =
+        rect.left + ((overlay.design.leftPct + overlay.design.widthPct / 2) / 100) * rect.width;
+      centerY =
+        rect.top + ((overlay.design.topPct + overlay.design.heightPct / 2) / 100) * rect.height;
+    }
+    drag.current = {
+      mode: "resize",
+      startX: e.clientX,
+      startY: e.clientY,
+      startPanX: value.panX,
+      startPanY: value.panY,
+      startZoom: value.zoom,
+      bandW: rect?.width ?? 1,
+      bandH: rect?.height ?? 1,
+      centerX,
+      centerY,
+      startDist: Math.max(8, Math.hypot(e.clientX - centerX, e.clientY - centerY)),
+    };
+    captureToFrame(e);
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!drag.current) return;
-    const dx = e.clientX - drag.current.lastX;
-    const dy = e.clientY - drag.current.lastY;
-    drag.current.lastX = e.clientX;
-    drag.current.lastY = e.clientY;
-    onChange((prev) => ({
-      ...prev,
-      panX: clampPan(prev.panX + dx / 180),
-      panY: clampPan(prev.panY + dy / 180),
-    }));
+    const d = drag.current;
+    if (!d) return;
+    if (d.mode === "move") {
+      // Pixels the art travels per 1.0 of pan: in the normal range
+      // `left = slack/2 + pan·slack/2`, so it moves ((1−designFrac)/2)·bandPx
+      // per unit. Using that divisor makes the drag track the pointer 1:1
+      // (vs. the old ÷180 crawl). Band size cached at gesture start.
+      const sensX = Math.max(1, ((1 - overlay.design.widthPct / 100) / 2) * d.bandW);
+      const sensY = Math.max(1, ((1 - overlay.design.heightPct / 100) / 2) * d.bandH);
+      onChange((prev) => ({
+        ...prev,
+        panX: clampPan(d.startPanX + (e.clientX - d.startX) / sensX),
+        panY: clampPan(d.startPanY + (e.clientY - d.startY) / sensY),
+      }));
+    } else {
+      const dist = Math.hypot(e.clientX - d.centerX, e.clientY - d.centerY);
+      onChange((prev) => ({ ...prev, zoom: clampZoom(d.startZoom * (dist / d.startDist)) }));
+    }
   };
 
   const onPointerUp = (e: React.PointerEvent) => {
     try {
-      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      frameRef.current?.releasePointerCapture(e.pointerId);
     } catch {
       //
     }
@@ -273,7 +348,7 @@ export function PrintPlacementEditor({
       <div>
         <h3 className="text-lg font-semibold">Line up your art on the merch</h3>
         <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-          Drag to nudge placement and zoom to crop. The dashed frame matches Printful&apos;s printable box (
+          Drag the art to move it, drag a corner to resize. The faint dashed frame is Printful&apos;s printable box (
           {Aw}&quot;×{Ah}&quot;) for{" "}
           <span className="font-medium text-foreground">
             {PRODUCT_TYPE_LABELS[previewType] ?? previewType.replace(/-/g, " ")}
@@ -330,10 +405,14 @@ export function PrintPlacementEditor({
 
         {!layout.showGarment ? (
           <div
+            ref={(el) => {
+              frameRef.current = el;
+              printRectRef.current = el;
+            }}
             className="relative w-full cursor-grab touch-none overflow-hidden rounded-xl border-2 border-dashed border-primary/60 bg-muted/70 shadow-inner outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-primary active:cursor-grabbing"
             style={{ aspectRatio: `${Aw} / ${Ah}` }}
             tabIndex={0}
-            onPointerDown={onPointerDown}
+            onPointerDown={beginMove}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
@@ -346,16 +425,16 @@ export function PrintPlacementEditor({
         ) : (
           <div className="overflow-hidden rounded-xl border border-border/60 bg-gradient-to-b from-secondary/80 via-muted/90 to-muted shadow-inner">
             <div
-              className="relative w-full cursor-grab touch-none outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-primary active:cursor-grabbing"
+              ref={frameRef}
+              className="relative w-full touch-none outline-none ring-offset-2 ring-offset-background focus-visible:ring-2 focus-visible:ring-primary"
               style={{ aspectRatio: `${layout.garmentAspect}` }}
               tabIndex={0}
-              onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
               onPointerCancel={onPointerUp}
               onKeyDown={onKeyDown}
               role="application"
-              aria-label="Adjust design position — drag, or focus and use arrow keys (hold Shift for bigger steps)"
+              aria-label="Adjust design position — drag the art to move, drag a corner to resize, or use arrow keys (hold Shift for bigger steps)"
             >
               <div className="pointer-events-none absolute inset-0">
                 {blankPhotoUrl ? (
@@ -423,20 +502,18 @@ export function PrintPlacementEditor({
                   }}
                 >
                   {/**
-                    * Print boundary: a dashed cyan outline marks the printable
-                    * area. The artwork is rendered twice in the same position
-                    * relative to the box — once dimmed (30 %) without
-                    * clipping, so any overhang past the cyan frame is visible
-                    * but clearly "this will be cropped"; and again at full
-                    * opacity clipped to the box, showing exactly what gets
-                    * printed. The frame itself has no fill so the design's
-                    * transparent pixels reveal the real garment color from
-                    * the Printful flat mockup underneath. Cyan corner dots +
-                    * mid-edge handles render on top, matching Printful's
-                    * selection-state affordance.
+                    * The faint dashed rect marks Printful's printable area (a
+                    * static guide). The artwork is rendered twice in the same
+                    * position relative to it — once dimmed (30 %) unclipped so
+                    * overhang reads as "will be cropped", and again clipped at
+                    * full opacity showing exactly what prints. Dragging anywhere
+                    * here moves the art (pan); the bright selection box below
+                    * tracks the art and its corners scale it proportionally.
                     */}
                   <div
-                    className="relative max-h-full overflow-visible rounded-sm border border-dashed border-cyan-400/80 ring-1 ring-cyan-300/20"
+                    ref={printRectRef}
+                    onPointerDown={beginMove}
+                    className="relative max-h-full cursor-grab touch-none overflow-visible rounded-sm border border-dashed border-cyan-400/40 active:cursor-grabbing"
                     style={{
                       aspectRatio: overlay.band.aspectRatio,
                       width:
@@ -452,38 +529,38 @@ export function PrintPlacementEditor({
                       {renderArtwork(1)}
                     </div>
 
-                    {/** Four cyan corner handles + 4 mid-edge dots, Printful-style. */}
-                    {[
-                      { className: "-top-1 -left-1" },
-                      { className: "-top-1 -right-1" },
-                      { className: "-bottom-1 -left-1" },
-                      { className: "-bottom-1 -right-1" },
-                    ].map((p) => (
-                      <span
-                        key={p.className}
-                        aria-hidden
-                        className={`pointer-events-none absolute h-2 w-2 rounded-full bg-cyan-400 ring-1 ring-white ${p.className}`}
-                      />
-                    ))}
-                    {[
-                      { className: "left-1/2 -top-[3px] -translate-x-1/2" },
-                      { className: "left-1/2 -bottom-[3px] -translate-x-1/2" },
-                      { className: "top-1/2 -left-[3px] -translate-y-1/2" },
-                      { className: "top-1/2 -right-[3px] -translate-y-1/2" },
-                    ].map((p) => (
-                      <span
-                        key={p.className}
-                        aria-hidden
-                        className={`pointer-events-none absolute h-1.5 w-1.5 rounded-full bg-cyan-300/90 ${p.className}`}
-                      />
-                    ))}
+                    {/* Bright selection box tracks the artwork; corner handles
+                        scale it proportionally (uniform — never distorts). */}
+                    <div
+                      className="pointer-events-none absolute rounded-sm border-2 border-cyan-400/90"
+                      style={{
+                        left: `${overlay.design.leftPct}%`,
+                        top: `${overlay.design.topPct}%`,
+                        width: `${overlay.design.widthPct}%`,
+                        height: `${overlay.design.heightPct}%`,
+                      }}
+                    >
+                      {[
+                        { className: "-top-1.5 -left-1.5 cursor-nwse-resize" },
+                        { className: "-top-1.5 -right-1.5 cursor-nesw-resize" },
+                        { className: "-bottom-1.5 -left-1.5 cursor-nesw-resize" },
+                        { className: "-bottom-1.5 -right-1.5 cursor-nwse-resize" },
+                      ].map((p) => (
+                        <span
+                          key={p.className}
+                          onPointerDown={beginResize}
+                          aria-label="Resize artwork"
+                          className={`pointer-events-auto absolute h-3 w-3 touch-none rounded-full bg-cyan-400 ring-2 ring-white ${p.className}`}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
 
             <p className="px-2 py-2 text-center text-[10px] leading-snug text-muted-foreground/90">
-              Drag or use arrow keys (Shift = bigger step) • Zoom out for whitespace, in to crop • Cyan frame = printable area • Drag partially outside the frame to intentionally crop the print
+              Drag the art to move it • Drag a corner dot to resize • Arrow keys nudge (Shift = bigger) • Faint frame = printable area; anything outside it is cropped
             </p>
           </div>
         )}
