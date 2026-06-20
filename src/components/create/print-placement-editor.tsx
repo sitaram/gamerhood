@@ -5,13 +5,10 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Slider } from "@/components/ui/slider";
 import { MerchGarmentSilhouette } from "@/components/create/merch-garment-silhouette";
 import { getMerchPreviewLayout } from "@/lib/create/merch-preview-layout";
 import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
 import {
-  PLACEMENT_PAN_MAX,
-  PLACEMENT_ZOOM_MAX,
   PLACEMENT_ZOOM_MIN,
   PLACEMENT_ZOOM_DEFAULT,
 } from "@/lib/print/placement";
@@ -63,8 +60,14 @@ function previewGuideLine(previewType: ProductType): string {
  * smaller of `box` / `design` always overlaps with the print box, i.e.
  * the design can never be dragged entirely off-frame.
  */
+/**
+ * Keep the whole artwork inside the printable area. At |pan| = 1 an artwork
+ * edge sits exactly on the box edge; beyond that it would overhang, so we
+ * clamp to ±1 (combined with the zoom ≤ 1 "contain" cap, the full design is
+ * always inside the frame).
+ */
 function clampPan(n: number): number {
-  return Math.min(PLACEMENT_PAN_MAX, Math.max(-PLACEMENT_PAN_MAX, n));
+  return Math.min(1, Math.max(-1, n));
 }
 
 interface Props {
@@ -192,8 +195,9 @@ export function PrintPlacementEditor({
     };
   }, [imageUrl, onAspectDetected]);
 
-  const clampZoom = (z: number) =>
-    Math.min(PLACEMENT_ZOOM_MAX, Math.max(PLACEMENT_ZOOM_MIN, z));
+  /** Cap at 1.0 = "contain" so the art can scale down to the minimum but
+   *  never grow past the printable area (no overhang / crop). */
+  const clampZoom = (z: number) => Math.min(1, Math.max(PLACEMENT_ZOOM_MIN, z));
 
   const captureToFrame = (e: React.PointerEvent) => {
     try {
@@ -305,10 +309,6 @@ export function PrintPlacementEditor({
       panY: clampPan(prev.panY + dy),
     }));
   };
-
-  const zoomMinPct = Math.round(PLACEMENT_ZOOM_MIN * 100);
-  const zoomMaxPct = Math.round(PLACEMENT_ZOOM_MAX * 100);
-  const zoomPercent = Math.round(value.zoom * 100);
 
   /**
    * Artwork box — positioned in the cyan-frame's coord system (left/top/
@@ -515,7 +515,7 @@ export function PrintPlacementEditor({
                   <div
                     ref={printRectRef}
                     onPointerDown={beginMove}
-                    className="pointer-events-auto relative max-h-full cursor-grab touch-none select-none overflow-visible rounded-sm border-2 border-cyan-400/70 active:cursor-grabbing"
+                    className="pointer-events-auto relative max-h-full cursor-grab touch-none select-none overflow-visible rounded-sm border-2 border-dashed border-cyan-400/70 active:cursor-grabbing"
                     style={{
                       aspectRatio: overlay.band.aspectRatio,
                       width:
@@ -581,28 +581,10 @@ export function PrintPlacementEditor({
         )}
       </div>
 
-      <div className="space-y-3 rounded-lg border border-border/60 bg-card/80 p-4">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm">Zoom</Label>
-            <span className="text-xs tabular-nums text-muted-foreground">{zoomPercent}%</span>
-          </div>
-          <Slider
-            min={zoomMinPct}
-            max={zoomMaxPct}
-            step={5}
-            value={[Math.min(zoomMaxPct, Math.max(zoomMinPct, zoomPercent))]}
-            onValueChange={(vals) => {
-              const z = Array.isArray(vals) ? vals[0] : vals;
-              if (z === undefined || typeof z !== "number") return;
-              onChange((prev) => ({
-                ...prev,
-                zoom: Math.min(PLACEMENT_ZOOM_MAX, Math.max(PLACEMENT_ZOOM_MIN, z / 100)),
-              }));
-            }}
-            className="w-full"
-          />
-        </div>
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card/80 p-4">
+        <p className="text-xs text-muted-foreground">
+          Drag the art to move • drag a corner to resize
+        </p>
         <Button
           type="button"
           variant="outline"
@@ -616,7 +598,7 @@ export function PrintPlacementEditor({
             }))
           }
         >
-          Reset position & zoom
+          Reset position & size
         </Button>
       </div>
     </div>
