@@ -7,7 +7,10 @@ import {
   getDefaultProfileForAuthUser,
   getStorefrontById,
   listStorefrontsByOwner,
+  ensureDefaultStorefront,
+  type ProfileRow,
 } from "@/lib/supabase/queries";
+import { getServiceClient } from "@/lib/supabase/admin";
 import { getCatalogConfig, printfulCatalogVariantEnvName } from "@/lib/printful/catalog";
 import { isPrintfulConfigured } from "@/lib/printful/client";
 import { generateListingMockupUrl } from "@/lib/printful/mockups";
@@ -216,6 +219,22 @@ export async function POST(request: NextRequest) {
       storefrontIds = [body.storefrontId];
     } else {
       const owned = await listStorefrontsByOwner(supabase, profileId);
+      const def = owned.find((s) => s.is_default) ?? owned[0] ?? null;
+      storefrontIds = def?.id ? [def.id] : [];
+    }
+    if (storefrontIds.length === 0) {
+      // Self-heal: a creator whose profile predates the storefront
+      // auto-provision (029 backfill / signup bootstrap) has a legacy
+      // profile-shop but no `storefronts` row. Materialize it now rather
+      // than dead-ending the publish.
+      let writer = supabase;
+      try {
+        writer = getServiceClient();
+      } catch {
+        // fall back to the user-scoped client; RLS lets owners insert.
+      }
+      await ensureDefaultStorefront(writer, profile as ProfileRow);
+      const owned = await listStorefrontsByOwner(writer, profileId);
       const def = owned.find((s) => s.is_default) ?? owned[0] ?? null;
       storefrontIds = def?.id ? [def.id] : [];
     }

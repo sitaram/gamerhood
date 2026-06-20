@@ -4,7 +4,9 @@ import {
   upsertParent,
   upsertProfile,
   getParentByAuthUserId,
+  ensureDefaultStorefront,
 } from "@/lib/supabase/queries";
+import { getServiceClient } from "@/lib/supabase/admin";
 import { blockedSlugLanguageReason } from "@/lib/slug-content-policy";
 import { sanitizeSlugInput, MAX_STORE_SLUG_LEN } from "@/lib/slug-utils";
 import { awardXp } from "@/lib/xp/award";
@@ -84,6 +86,22 @@ export async function bootstrapAccount(
   if (profileError) {
     console.error("[Bootstrap] upsertProfile error:", profileError);
     return { ok: false, isNew, error: profileError.message };
+  }
+
+  // Every creator needs a row in `storefronts` to publish. The 029 backfill
+  // only covered profiles that predated it, so provision one here for anyone
+  // who signed up afterwards. Prefer the service client because the SSR
+  // client's cookies may not be hydrated yet on the signup request.
+  if (profile?.id) {
+    let writer: SupabaseClient = supabase;
+    try {
+      writer = getServiceClient();
+    } catch {
+      // fall back to the user-scoped client; RLS lets owners insert.
+    }
+    await ensureDefaultStorefront(writer, profile).catch((err) =>
+      console.error("[Bootstrap] ensureDefaultStorefront failed:", err),
+    );
   }
 
   if (isNew && user.email) {

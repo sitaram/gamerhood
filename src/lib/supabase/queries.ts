@@ -897,6 +897,39 @@ export async function listStorefrontsByOwner(
 }
 
 /**
+ * Materialize the legacy profile-as-storefront into the `storefronts` table
+ * when the owner has none yet. Mirrors the one-time backfill in migration
+ * 029 so creators who signed up *after* that migration still get a
+ * publishable storefront (without it, publish returns "Create a storefront
+ * before publishing listings"). Idempotent: no-op when one already exists,
+ * and the slug upsert guard keeps concurrent signup calls safe.
+ */
+export async function ensureDefaultStorefront(
+  writer: SupabaseClient,
+  profile: ProfileRow,
+): Promise<void> {
+  if (!profile.slug) return;
+
+  const existing = await listStorefrontsByOwner(writer, profile.id);
+  if (existing.length > 0) return;
+
+  const { error } = await writer.from("storefronts").upsert(
+    {
+      owner_profile_id: profile.id,
+      slug: profile.slug,
+      display_name: profile.display_name,
+      catchphrase: profile.catchphrase ?? null,
+      avatar_url: profile.storefront_avatar_url ?? profile.avatar_url ?? null,
+      banner_url: profile.storefront_banner_url ?? null,
+      hero_image_url: profile.storefront_hero_image_url ?? null,
+      is_default: true,
+    },
+    { onConflict: "slug", ignoreDuplicates: true },
+  );
+  if (error) console.error("[ensureDefaultStorefront]", error);
+}
+
+/**
  * Read storefront links for a batch of products.
  * Returns product_id -> [storefront_id, ...].
  */

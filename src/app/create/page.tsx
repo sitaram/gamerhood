@@ -327,6 +327,7 @@ function CreatePageInner() {
   const [placeholderNotice, setPlaceholderNotice] = useState<string | null>(null);
   const [selectedProducts, setSelectedProducts] = useState<Set<ProductType>>(new Set(["hoodie", "tshirt"]));
   const [error, setError] = useState<string | null>(null);
+  const publishErrorRef = useRef<HTMLDivElement | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishProgress, setPublishProgress] = useState(0);
   const [publishStage, setPublishStage] = useState<PublishStage>("uploading");
@@ -1462,6 +1463,12 @@ function CreatePageInner() {
     } catch (err) {
       setError(formatPublishError(err));
       setPublishing(false);
+      requestAnimationFrame(() =>
+        publishErrorRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        }),
+      );
     }
   }
 
@@ -1532,7 +1539,7 @@ function CreatePageInner() {
         className="hidden"
       />
 
-      {error && (
+      {error && step !== "products" && (
         <div className="mt-6 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
           <AlertCircle className="h-4 w-4 shrink-0" />
           {error}
@@ -1937,12 +1944,6 @@ function CreatePageInner() {
                   publish. Each preview shows your batch framing — use Fine-tune to adjust a single item without
                   changing the rest.
                 </p>
-                <div className="mt-4 flex justify-center">
-                  <Button variant="outline" size="sm" onClick={handleReset} className="gap-2">
-                    <RotateCcw className="h-4 w-4" />
-                    Start over
-                  </Button>
-                </div>
               </div>
 
               <CategoryProductPicker
@@ -2280,7 +2281,21 @@ function CreatePageInner() {
                       </div>
                     </div>
                   )}
+                  {error && (
+                    <div
+                      ref={publishErrorRef}
+                      role="alert"
+                      className="mb-4 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+                    >
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      {error}
+                    </div>
+                  )}
                   <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+                  <Button variant="outline" onClick={handleReset} className="gap-2">
+                    <RotateCcw className="h-4 w-4" />
+                    Start over
+                  </Button>
                   <Button
                     variant="outline"
                     onClick={() => void handleDeleteImage()}
