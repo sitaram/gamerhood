@@ -10,8 +10,10 @@ export interface StoredPrintPlacement {
   imageAspect: number;
 }
 
-/** 1 = "contain" the print rectangle (artwork fits fully inside the print box). */
-export const PLACEMENT_ZOOM_MIN = 0.3;
+/** 1 = "contain" the print rectangle (artwork fits fully inside the print box).
+ *  Floor is tiny so creators can place a small motif (e.g. a left-chest logo)
+ *  rather than being forced to ~⅓ of the printable area. */
+export const PLACEMENT_ZOOM_MIN = 0.05;
 export const PLACEMENT_ZOOM_MAX = 2.5;
 
 /**
