@@ -9,7 +9,9 @@ import { MerchGarmentSilhouette } from "@/components/create/merch-garment-silhou
 import { getMerchPreviewLayout } from "@/lib/create/merch-preview-layout";
 import { usePrintfulBlankPhoto } from "@/lib/printful/use-blank-photo";
 import {
+  PLACEMENT_PAN_MAX,
   PLACEMENT_ZOOM_MIN,
+  PLACEMENT_ZOOM_MAX,
   PLACEMENT_ZOOM_DEFAULT,
 } from "@/lib/print/placement";
 import type { StoredPrintPlacement } from "@/lib/print/placement";
@@ -61,13 +63,14 @@ function previewGuideLine(previewType: ProductType): string {
  * the design can never be dragged entirely off-frame.
  */
 /**
- * Keep the whole artwork inside the printable area. At |pan| = 1 an artwork
- * edge sits exactly on the box edge; beyond that it would overhang, so we
- * clamp to ±1 (combined with the zoom ≤ 1 "contain" cap, the full design is
- * always inside the frame).
+ * Allow the artwork to extend past the printable frame on purpose: |pan| ≤ 1
+ * keeps an edge within the box, and 1 < |pan| ≤ PLACEMENT_PAN_MAX pushes it
+ * outside for a deliberate bleed/crop — Printful clips anything past the
+ * print area when it renders. The cap guarantees the design always keeps
+ * some overlap so it can't be dragged entirely off-frame.
  */
 function clampPan(n: number): number {
-  return Math.min(1, Math.max(-1, n));
+  return Math.min(PLACEMENT_PAN_MAX, Math.max(-PLACEMENT_PAN_MAX, n));
 }
 
 interface Props {
@@ -195,9 +198,10 @@ export function PrintPlacementEditor({
     };
   }, [imageUrl, onAspectDetected]);
 
-  /** Cap at 1.0 = "contain" so the art can scale down to the minimum but
-   *  never grow past the printable area (no overhang / crop). */
-  const clampZoom = (z: number) => Math.min(1, Math.max(PLACEMENT_ZOOM_MIN, z));
+  /** Art may scale from tiny up past "contain" (zoom > 1 crops/bleeds beyond
+   *  the printable frame; Printful clips the overhang). */
+  const clampZoom = (z: number) =>
+    Math.min(PLACEMENT_ZOOM_MAX, Math.max(PLACEMENT_ZOOM_MIN, z));
 
   const captureToFrame = (e: React.PointerEvent) => {
     try {
@@ -350,7 +354,7 @@ export function PrintPlacementEditor({
       <div>
         <h3 className="text-lg font-semibold">Line up your art on the merch</h3>
         <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-          Drag the art to move it, drag a corner to resize. The solid frame is Printful&apos;s printable box (
+          Drag the art to move it, drag a corner to resize. The dashed cyan frame is Printful&apos;s printable box — anything you push outside it won&apos;t print (
           {Aw}&quot;×{Ah}&quot;) for{" "}
           <span className="font-medium text-foreground">
             {PRODUCT_TYPE_LABELS[previewType] ?? previewType.replace(/-/g, " ")}
@@ -563,7 +567,7 @@ export function PrintPlacementEditor({
             </div>
 
             <p className="px-2 py-2 text-center text-[10px] leading-snug text-muted-foreground/90">
-              Drag the art to move it • Drag a corner dot to resize • Arrow keys nudge (Shift = bigger) • Solid frame = printable area; the dashed box is your art
+              Drag the art to move it • Drag a corner dot to resize • Arrow keys nudge (Shift = bigger) • Cyan frame = printable area; art pushed outside it won&apos;t print
             </p>
           </div>
         )}

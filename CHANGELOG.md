@@ -31,8 +31,8 @@
 - Rebuilt the interaction: you now drag the artwork itself to move it (1:1 with the cursor) instead of nudging it slowly.
 - Added corner handles that resize the art proportionally (no distortion).
 - The selection box now wraps and follows the artwork, instead of being a fixed frame the art moved inside of.
-- The artwork is now constrained to stay fully inside the printable area, so nothing can accidentally get cropped off.
-- Clarified the visuals: the dashed frame is Printful's printable area, and the dashed box is your art.
+- The artwork can be pushed past the printable frame on purpose for a bleed/crop — the part outside the cyan frame simply won't print.
+- Clarified the visuals: the dashed cyan frame is Printful's printable area, and the dashed box is your art.
 - Removed the separate zoom slider, since the corner-dot resizing now handles sizing.
 - Made the corner handles smaller.
 - Fixed a bug where dragging the art did nothing (it inherited a "not clickable" state from its container).
@@ -41,9 +41,7 @@
 
 ### Merch picker (choosing which products)
 - Replaced the cryptic "X/Y" counter with a clear "N selected" pill once you've picked something.
-- Multi-option categories show "N styles" when collapsed and expand so you can choose which ones.
-- Single-option categories (joggers, mug, pet sweater) now show "Select style"; clicking the row both opens it (showing the preview) and selects the item in one tap.
-- Single-option categories now reveal their preview tile when opened, instead of toggling invisibly — so you can see the product.
+- Categories show a consistent count when collapsed ("1 style" / "N styles") and expand to reveal their preview tile(s); selection is by tapping a tile, the same for one-option and multi-option categories.
 - Made the "selected" status pill look identical across all categories.
 
 ### Infrastructure / deploys
