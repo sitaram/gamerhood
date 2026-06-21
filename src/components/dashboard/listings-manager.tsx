@@ -311,7 +311,11 @@ function ListingCard({
 
   return (
     <Card className="flex flex-col overflow-hidden border-border/50 bg-card transition-colors hover:border-primary/30">
-      <div className="relative aspect-square bg-secondary">
+      <Link
+        href={`/dashboard/listings/${row.id}/edit`}
+        aria-label={`Edit ${row.title}`}
+        className="relative block aspect-square bg-secondary"
+      >
         {showRealMockup ? (
           <Image
             src={row.mockupUrl!}
@@ -340,7 +344,7 @@ function ListingCard({
         <div className="absolute right-2 top-2">
           <StatusPill isPublished={row.isPublished} />
         </div>
-      </div>
+      </Link>
       <div className="flex flex-1 flex-col gap-2 p-4">
         <h3 className="line-clamp-2 text-sm font-semibold">{row.title}</h3>
         {showStorefrontPicker && storefronts.length > 1 && (
