@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { notFound, redirect } from "next/navigation";
-import { ChevronLeft, ExternalLink, Plus } from "lucide-react";
+import { ChevronLeft, ExternalLink } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import {
   getDefaultProfileForAuthUser,
@@ -342,17 +342,6 @@ export default async function EditListingPage({ params }: Props) {
               <ExternalLink className="h-3 w-3" />
             </Link>
           </div>
-          {product.design_id && (
-            <Button
-              render={<Link href={`/create?designId=${product.design_id}`} />}
-              variant="outline"
-              size="sm"
-              className="mt-1 gap-1.5"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add more products with this design
-            </Button>
-          )}
         </div>
       </div>
 

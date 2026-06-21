@@ -10,9 +10,10 @@
 - Moved "Start over" from the top of the Choose Your Merch step down to the bottom, so it's no longer easy to hit by mistake instead of Publish.
 - Reorganized the cluttered publish-step buttons into two clear rows: the primary Publish action on top, secondary/destructive actions below.
 
-### Adding more products to an existing design
-- Added an "Add more products with this design" button on each listing's edit page, so you can publish more product types for an existing design without recreating it.
-- Added a per-card "Add more" button on the listings page itself, so it's reachable without opening a listing first.
+### Adding more merch
+- Renamed the listings-page "Add an item" button to "Add merch", and it now returns you to the Choose Your Merch step with your last design still loaded (one hop back) instead of starting a blank new design.
+- Removed the confusing per-product "Add more" buttons (on the cards and the edit page) in favor of that single, clearer entry point.
+- After publishing, the design is kept but the just-published selection is cleared, so coming back to add more never republishes the same items.
 
 ### Mockups — making the preview match the print
 - The storefront grid now shows Printful's real rendered mockup instead of a browser-faked overlay that drifted off the product.

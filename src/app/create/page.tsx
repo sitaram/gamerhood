@@ -1457,7 +1457,41 @@ function CreatePageInner() {
         );
       }
       setPublishProgress(100);
-      clearMerchDraft();
+      // Keep the design so "Add merch" returns the seller to the Choose Your
+      // Merch step (one hop back) to add more products — but drop the
+      // just-published selection so re-entering never republishes the same
+      // items. Fall back to a full clear if we somehow have no design.
+      try {
+        const draftImage = uploadDataUrlRef.current ?? generatedImage;
+        if (draftImage) {
+          const resumeDraft: CreateMerchDraft = {
+            version: 1,
+            savedAtMs: Date.now(),
+            prompt,
+            style,
+            step: "products",
+            generatedImage: draftImage,
+            imageSource,
+            hasTransparency,
+            uploadedAsSvg,
+            placeholderNotice,
+            selectedProducts: [],
+            printPlacement,
+            placementOverrides,
+            listingDescription: "",
+            productTags: "",
+            productCategory: "",
+            merchPricing: {},
+            selectedStorefrontIds,
+            savedDesignId,
+          };
+          window.localStorage.setItem(MERCH_DRAFT_STORAGE_KEY, JSON.stringify(resumeDraft));
+        } else {
+          clearMerchDraft();
+        }
+      } catch {
+        clearMerchDraft();
+      }
       setHasAttemptedMerch(false);
       router.push("/dashboard/listings");
     } catch (err) {

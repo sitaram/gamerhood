@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Search, Pencil, ExternalLink, Sparkles, Wand2, Filter, ChevronDown, Plus } from "lucide-react";
+import { Search, Pencil, ExternalLink, Sparkles, Wand2, Filter, ChevronDown } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -406,22 +406,6 @@ function ListingCard({
             <ExternalLink className="h-3.5 w-3.5" />
             View
           </Button>
-          {row.designId && (
-            <Button
-              render={
-                <Link
-                  href={`/create?designId=${row.designId}`}
-                  aria-label={`Add more products with the ${row.title} design`}
-                />
-              }
-              size="sm"
-              variant="ghost"
-              className="gap-1.5"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add more
-            </Button>
-          )}
         </div>
       </div>
     </Card>
