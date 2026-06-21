@@ -14,17 +14,18 @@
 - Added an "Add more products with this design" button on each listing's edit page, so you can publish more product types for an existing design without recreating it.
 - Added a per-card "Add more" button on the listings page itself, so it's reachable without opening a listing first.
 
-### Mockups (so the preview matches what actually prints)
+### Mockups — making the preview match the print
 - The storefront grid now shows Printful's real rendered mockup instead of a browser-faked overlay that drifted off the product.
 - Made the dashboard listings page prefer the real mockup too (it was still forced to use the old browser overlay).
 - Made the listing edit page prefer the real mockup too.
 - Made the product detail page show the real mockup for the published color (other colors still composite live).
 - We now copy Printful's mockup into our own storage, since Printful's original URLs expire after a few days and would break the images.
-- The "Refresh from Printful" button on a listing now regenerates and backfills the real mockup, so existing listings can be fixed without re-publishing.
+- The "Refresh from Printful" button regenerates and backfills the real mockup, and now reports whether a mockup was actually produced (and the reason if not).
 - Mockup images are now resized and served as WebP instead of full-resolution files, so the storefront loads much faster.
 
-### Transparent artwork
+### Print accuracy & artwork handling
 - Uploaded designs are now trimmed of their transparent padding before printing, so the artwork is centered in the print area instead of floating off in a corner. (`trimPrintMargins` existed but was never being called.)
+- Added a guard against non-inch print-area values (some product lines like knitwear/embroidery report dimensions in other units, leaking absurd values like 784×599) that were corrupting the placement math and the "prints at N inches" size readout — these now fall back to the catalog default.
 
 ### Placement editor (lining up art on the merch)
 - Rebuilt the interaction: you now drag the artwork itself to move it (1:1 with the cursor) instead of nudging it slowly.
@@ -49,3 +50,7 @@
 - Added a `.vercelignore` so deploys stop trying to upload ~950MB of build artifacts, which was stalling them.
 - Updated the deploy scripts to use the globally-installed Vercel CLI, which works on machines behind the Socket Firewall.
 - Documented the Socket-Firewall deploy workaround in `RELEASE.md` so it's not a mystery next time.
+
+### Known issues / in progress
+- Real Printful mockups still aren't generating for some products at publish time, so those listings fall back to the (less accurate) live-composited preview. The "Refresh from Printful" button now surfaces the exact failure reason to help diagnose this.
+- Knitwear / embroidery / sublimation items (e.g., the pet sweater) don't fit the DTG "place a logo on a print area" model and currently render incorrectly — they likely need a separate flow or to be hidden until supported.
