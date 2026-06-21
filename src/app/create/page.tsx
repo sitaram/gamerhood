@@ -293,7 +293,13 @@ function CreatePageInner() {
   const [style, setStyle] = useState<DesignStyle>("anime");
   const [step, setStep] = useState<
     "prompt" | "generating" | "preview" | "placement" | "products"
-  >("prompt");
+  >(() =>
+    // Deep-links like "Add merch" (`?designId=…&step=products`) start on the
+    // merch step so we never flash the blank prompt before the design loads.
+    searchParams.get("designId") && searchParams.get("step") === "products"
+      ? "products"
+      : "prompt",
+  );
   /**
    * Latest SSE `status` step from /api/designs/generate. `null` means the
    * request is in flight but the first event hasn't landed yet (the progress
@@ -1567,6 +1573,14 @@ function CreatePageInner() {
       )}
 
       <div className="mt-12">
+        {/* Deep-link hydration (e.g. "Add merch"): show a calm spinner while
+            the design loads instead of the blank prompt or an empty grid. */}
+        {searchParams.get("designId") && !generatedImage && (
+          <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-muted-foreground">
+            <span className="h-7 w-7 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+            <p className="text-sm">Loading your design…</p>
+          </div>
+        )}
         <AnimatePresence mode="wait">
           {step === "prompt" && (
             <motion.div
