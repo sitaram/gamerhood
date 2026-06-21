@@ -979,6 +979,12 @@ function CreatePageInner() {
         setUploadedAsSvg(Boolean(data.uploadedAsSvg));
         setSavedDesignId(designId);
         setEditingPublishedDesign(Boolean(data.hasPublishedProducts));
+        // Reflect what's already on the storefront: pre-select the product
+        // types already published for this design so "Add merch" shows the
+        // real state (publish only inserts the newly-added delta server-side).
+        if (Array.isArray(data.publishedProductTypes) && data.publishedProductTypes.length > 0) {
+          setSelectedProducts(new Set(data.publishedProductTypes as ProductType[]));
+        }
         // "Add merch" deep-links with `step=products` to drop the seller
         // straight on Choose Your Merch (one hop back); other entry points
         // (e.g. editing a design) land on the preview step first.

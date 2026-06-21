@@ -474,7 +474,24 @@ export async function POST(request: NextRequest) {
         ? (body.pricesByType as Record<string, unknown>)
         : {};
 
+    // Delta publish: when adding to a design that already has listings (the
+    // "Add merch" flow), skip product types that are already on the storefront
+    // so re-publishing only inserts the newly-selected items — no duplicates.
+    const alreadyPublishedTypes = new Set<string>();
+    {
+      const { data: existing } = await supabase
+        .from("products")
+        .select("product_type")
+        .eq("design_id", designId)
+        .eq("is_published", true);
+      for (const r of existing ?? []) {
+        const t = (r as { product_type?: string }).product_type;
+        if (t) alreadyPublishedTypes.add(t);
+      }
+    }
+
     for (const productType of body.productTypes) {
+      if (alreadyPublishedTypes.has(productType)) continue;
       // The /create publish flow now ships the slider's selected price in
       // `pricesByType`. We trust the math but re-check the floor server-
       // side so a hand-crafted POST can't sell below break-even. Legacy

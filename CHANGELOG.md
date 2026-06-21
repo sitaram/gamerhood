@@ -14,6 +14,7 @@
 - Renamed the listings-page "Add an item" button to "Add merch", and it now loads your most recent design and jumps straight to the Choose Your Merch step (one hop back) instead of starting a blank new design at /create.
 - Removed the confusing per-product "Add more" buttons (on the cards and the edit page) in favor of that single, clearer entry point.
 - Smoothed the transition: the deep-link now opens directly on the merch step with a brief "Loading your design…" spinner, instead of flashing the blank prompt page and then swapping in the content.
+- Made it stateful: "Add merch" pre-selects the products already published for that design (matching the storefront), and publishing only inserts the newly-added items (the delta) — it never republishes/duplicates listings that already exist.
 
 ### Mockups — making the preview match the print
 - The storefront grid now shows Printful's real rendered mockup instead of a browser-faked overlay that drifted off the product.

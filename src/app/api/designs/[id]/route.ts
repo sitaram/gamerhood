@@ -26,11 +26,18 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const { count: publishedProductCount } = await supabase
+  const { data: publishedRows } = await supabase
     .from("products")
-    .select("id", { count: "exact", head: true })
+    .select("product_type")
     .eq("design_id", id)
     .eq("is_published", true);
+  const publishedProductTypes = Array.from(
+    new Set(
+      (publishedRows ?? [])
+        .map((r) => (r as { product_type?: string }).product_type)
+        .filter((t): t is string => Boolean(t)),
+    ),
+  );
 
   /**
    * Lazy backfill: pre-migration rows have `has_transparency = null`.
@@ -66,7 +73,8 @@ export async function GET(
     prompt: data.prompt,
     style: data.style,
     title: data.title,
-    hasPublishedProducts: (publishedProductCount ?? 0) > 0,
+    hasPublishedProducts: publishedProductTypes.length > 0,
+    publishedProductTypes,
     hasTransparency,
     uploadedAsSvg: Boolean(data.uploaded_as_svg),
   });
