@@ -312,7 +312,7 @@ export default async function EditListingPage({ params }: Props) {
             </Badge>
             {product.is_published ? (
               <Badge variant="outline" className="border-emerald-500/40 text-emerald-500 text-[10px]">
-                Live
+                Published
               </Badge>
             ) : (
               <Badge variant="outline" className="text-[10px] text-muted-foreground">

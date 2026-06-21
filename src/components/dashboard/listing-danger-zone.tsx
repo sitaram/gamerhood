@@ -97,7 +97,7 @@ export function ListingDangerZone({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
-            {isPublished ? "Live" : "Hidden"}
+            {isPublished ? "Published" : "Hidden"}
           </span>
           <Switch
             checked={!isPublished}

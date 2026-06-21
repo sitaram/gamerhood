@@ -165,7 +165,7 @@ export function ListingsManager({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="live">Live only</SelectItem>
+              <SelectItem value="live">Published only</SelectItem>
               <SelectItem value="hidden">Hidden only</SelectItem>
             </SelectContent>
           </Select>
@@ -429,7 +429,7 @@ function StatusPill({ isPublished }: { isPublished: boolean }) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-500 ring-1 ring-emerald-500/30">
         <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-        Live
+        Published
       </span>
     );
   }
