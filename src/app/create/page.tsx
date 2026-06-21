@@ -973,7 +973,10 @@ function CreatePageInner() {
         setUploadedAsSvg(Boolean(data.uploadedAsSvg));
         setSavedDesignId(designId);
         setEditingPublishedDesign(Boolean(data.hasPublishedProducts));
-        setStep("preview");
+        // "Add merch" deep-links with `step=products` to drop the seller
+        // straight on Choose Your Merch (one hop back); other entry points
+        // (e.g. editing a design) land on the preview step first.
+        setStep(searchParams.get("step") === "products" ? "products" : "preview");
       } catch {
         // ignore — user lands on blank prompt screen
       }
@@ -1457,41 +1460,7 @@ function CreatePageInner() {
         );
       }
       setPublishProgress(100);
-      // Keep the design so "Add merch" returns the seller to the Choose Your
-      // Merch step (one hop back) to add more products — but drop the
-      // just-published selection so re-entering never republishes the same
-      // items. Fall back to a full clear if we somehow have no design.
-      try {
-        const draftImage = uploadDataUrlRef.current ?? generatedImage;
-        if (draftImage) {
-          const resumeDraft: CreateMerchDraft = {
-            version: 1,
-            savedAtMs: Date.now(),
-            prompt,
-            style,
-            step: "products",
-            generatedImage: draftImage,
-            imageSource,
-            hasTransparency,
-            uploadedAsSvg,
-            placeholderNotice,
-            selectedProducts: [],
-            printPlacement,
-            placementOverrides,
-            listingDescription: "",
-            productTags: "",
-            productCategory: "",
-            merchPricing: {},
-            selectedStorefrontIds,
-            savedDesignId,
-          };
-          window.localStorage.setItem(MERCH_DRAFT_STORAGE_KEY, JSON.stringify(resumeDraft));
-        } else {
-          clearMerchDraft();
-        }
-      } catch {
-        clearMerchDraft();
-      }
+      clearMerchDraft();
       setHasAttemptedMerch(false);
       router.push("/dashboard/listings");
     } catch (err) {

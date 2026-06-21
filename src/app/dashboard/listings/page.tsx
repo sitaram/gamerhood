@@ -43,6 +43,13 @@ export default async function DashboardListingsPage() {
   const storefrontOptions = toManagedStorefrontOptions(storefronts);
   const storefrontNav = toCreatorStorefrontNav(storefronts);
   const listings = toManagedListings(rows, storefronts, storefrontIdsByProductId);
+  // "Add merch" returns to the Choose Your Merch step with the seller's most
+  // recent design loaded (one hop back), instead of starting from scratch.
+  // Rows are newest-first, so the first design id is the latest one.
+  const recentDesignId = rows.find((r) => r.design_id)?.design_id ?? null;
+  const addMerchHref = recentDesignId
+    ? `/create?designId=${recentDesignId}&step=products`
+    : "/create";
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6 lg:px-8">
@@ -65,7 +72,7 @@ export default async function DashboardListingsPage() {
           </p>
         </div>
         <Button
-          render={<Link href="/create" />}
+          render={<Link href={addMerchHref} />}
           className="shrink-0 gap-2 bg-primary hover:bg-primary/90"
         >
           <Plus className="h-4 w-4" />
