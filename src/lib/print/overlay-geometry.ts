@@ -147,9 +147,29 @@ export interface ComputedOverlay {
  * div positioned with `top/bottom/left/width` from `overlay.band`; the
  * design div inside the band positioned with `overlay.design`.
  */
+/**
+ * Largest believable print-area edge in inches. Printful's biggest blanks
+ * (blankets/posters) top out well under this. Some product lines (knitwear,
+ * embroidery) report `placement_dimensions` in non-inch units, which leaks
+ * absurd values like 784×599 — reject those and fall back to the catalog
+ * default so placement math and the size readout stay sane.
+ */
+const MAX_PLAUSIBLE_PRINT_AREA_IN = 80;
+
+function isPlausibleArea(a: { width: number; height: number } | null): boolean {
+  return Boolean(
+    a &&
+      a.width > 0 &&
+      a.height > 0 &&
+      a.width <= MAX_PLAUSIBLE_PRINT_AREA_IN &&
+      a.height <= MAX_PLAUSIBLE_PRINT_AREA_IN,
+  );
+}
+
 export function computeDesignOverlayBox(input: OverlayInput): ComputedOverlay {
   const fallback = input.defaultPrintAreaInches ?? { width: 12, height: 15 };
-  const area = input.printAreaInches ?? fallback;
+  const liveAreaUsable = isPlausibleArea(input.printAreaInches);
+  const area = liveAreaUsable ? input.printAreaInches! : fallback;
   const Aw = area.width;
   const Ah = area.height;
 
@@ -227,7 +247,7 @@ export function computeDesignOverlayBox(input: OverlayInput): ComputedOverlay {
       },
       designInches: { width: pf.width, height: pf.height },
       printAreaInches: { width: Aw, height: Ah },
-      printAreaSource: input.printAreaInches ? "printful-cache" : "default",
+      printAreaSource: liveAreaUsable ? "printful-cache" : "default",
       bandSource: "printful-pixel-rect",
       designPixelSize,
       inchesPerPixel,
@@ -240,7 +260,7 @@ export function computeDesignOverlayBox(input: OverlayInput): ComputedOverlay {
   } else if (
     input.garmentWidthInches &&
     input.garmentWidthInches > 0 &&
-    input.printAreaInches // only trust pure-geometry derivation when we have BOTH live values
+    liveAreaUsable // only trust pure-geometry derivation when we have BOTH live values
   ) {
     /**
      * Pure-geometry path: print band width = (W_print / W_garment) * garment-fraction-of-frame.
@@ -260,7 +280,7 @@ export function computeDesignOverlayBox(input: OverlayInput): ComputedOverlay {
      * area width. Keeps the box visually correct when the env-default
      * variant uses 14×14 but the variant being rendered ships 12×15.
      */
-    const ratio = input.printAreaInches ? Aw / fallback.width : 1;
+    const ratio = liveAreaUsable ? Aw / fallback.width : 1;
     bandWidthPct = input.layout.printMaxWidthPct * ratio;
   }
 
@@ -304,7 +324,7 @@ export function computeDesignOverlayBox(input: OverlayInput): ComputedOverlay {
     },
     designInches: { width: pf.width, height: pf.height },
     printAreaInches: { width: Aw, height: Ah },
-    printAreaSource: input.printAreaInches ? "printful-cache" : "default",
+    printAreaSource: liveAreaUsable ? "printful-cache" : "default",
     bandSource: "photo-band-fallback",
     designPixelSize,
     inchesPerPixel,
