@@ -93,11 +93,15 @@ export async function POST(
   // the accurate preview==print render. Idempotent: skips rows that already
   // have a re-hosted mockup. Best-effort — never fails the metadata refresh.
   let mockupUrl: string | null = null;
+  let mockupReason = "not-attempted";
   try {
-    mockupUrl = await refreshPrintfulListingMockupForProduct(getServiceClient(), productId);
+    const gen = await refreshPrintfulListingMockupForProduct(getServiceClient(), productId);
+    mockupUrl = gen.url;
+    mockupReason = gen.reason;
   } catch (err) {
+    mockupReason = `exception: ${err instanceof Error ? err.message : String(err)}`;
     console.warn("[refresh-printful] mockup refresh skipped:", err);
   }
 
-  return NextResponse.json({ product: updated, mockupUrl });
+  return NextResponse.json({ product: updated, mockupUrl, mockupReason });
 }

@@ -580,9 +580,14 @@ export async function POST(request: NextRequest) {
             designUrl: publicImageUrl,
             storedPlacement: storedPlacementForRow,
           });
-          if (pfListing) {
-            listingMockupUrl = pfListing;
-            printfulMockupToRehost = pfListing;
+          if (pfListing.url) {
+            listingMockupUrl = pfListing.url;
+            printfulMockupToRehost = pfListing.url;
+          } else {
+            console.warn("[Publish] no listing mockup:", {
+              productType,
+              reason: pfListing.reason,
+            });
           }
           await mockupThrottle();
         } catch (err) {

@@ -140,9 +140,7 @@ export function ListingSeoEditor({
     if (j.mockupUrl) {
       toast.success("Synced & regenerated the real product mockup — reload to see it.");
     } else {
-      toast.info(
-        "Synced sizing & description, but Printful didn't return a product mockup for this item.",
-      );
+      toast.info(`Synced, but no product mockup — reason: ${j.mockupReason ?? "unknown"}`);
     }
   }
 

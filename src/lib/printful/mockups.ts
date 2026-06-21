@@ -441,6 +441,12 @@ export function buildCatalogMockupProductPayload(opts: {
 /**
  * Ask Printful to render an official listing mockup (matches fulfillment geometry when layer.position is set).
  */
+export interface MockupGenResult {
+  url: string | null;
+  /** Machine/human-readable outcome for diagnostics (surfaced in the refresh toast). */
+  reason: string;
+}
+
 export async function generateListingMockupUrl(opts: {
   catalogProductId: number;
   catalogVariantId: number;
@@ -448,8 +454,8 @@ export async function generateListingMockupUrl(opts: {
   catalog: PrintfulCatalogConfig;
   designUrl: string;
   storedPlacement: StoredPrintPlacement | null;
-}): Promise<string | null> {
-  if (!isPrintfulConfigured()) return null;
+}): Promise<MockupGenResult> {
+  if (!isPrintfulConfigured()) return { url: null, reason: "printful-not-configured" };
 
   try {
     const groups = await fetchCatalogMockupStyles(opts.catalogProductId, opts.catalog.placement);
@@ -460,10 +466,9 @@ export async function generateListingMockupUrl(opts: {
       opts.catalogVariantId,
     );
     if (!picked) {
-      console.warn(
-        `[Printful mockups] No mockup style for catalog_product=${opts.catalogProductId} placement=${opts.catalog.placement}`,
-      );
-      return null;
+      const reason = `no-mockup-style (product=${opts.catalogProductId}, placement=${opts.catalog.placement}, technique=${opts.catalog.technique}, groups=${groups.length})`;
+      console.warn(`[Printful mockups] ${reason}`);
+      return { url: null, reason };
     }
 
     const pfPos = placementLayerForProduct(opts.productType, opts.catalog, opts.storedPlacement);
@@ -487,10 +492,12 @@ export async function generateListingMockupUrl(opts: {
     };
 
     const taskId = await createMockupGeneratorTask(payload);
-    return await waitForMockupTaskMockupUrl(taskId);
+    const url = await waitForMockupTaskMockupUrl(taskId);
+    return { url, reason: "ok" };
   } catch (e) {
+    const reason = `mockup-error: ${e instanceof Error ? e.message : String(e)}`;
     console.error("[Printful mockups] generateListingMockupUrl:", e);
-    return null;
+    return { url: null, reason };
   }
 }
 
@@ -521,8 +528,8 @@ type ProductMockupRefreshRow = {
 export async function refreshPrintfulListingMockupForProduct(
   supabase: SupabaseClient,
   productId: string,
-): Promise<string | null> {
-  if (!isPrintfulConfigured()) return null;
+): Promise<MockupGenResult> {
+  if (!isPrintfulConfigured()) return { url: null, reason: "printful-not-configured" };
 
   const { data: row, error } = await supabase
     .from("products")
@@ -534,26 +541,35 @@ export async function refreshPrintfulListingMockupForProduct(
 
   if (error || !row) {
     console.warn("[Printful mockups] refresh: product fetch failed", error?.message);
-    return null;
+    return { url: null, reason: "product-fetch-failed" };
   }
 
   const p = row as unknown as ProductMockupRefreshRow;
   const designUrl = p.designs?.image_url ?? null;
-  if (!designUrl || designUrl.startsWith("data:")) return null;
+  if (!designUrl || designUrl.startsWith("data:")) {
+    return { url: null, reason: "no-fetchable-design-url" };
+  }
 
-  if (!shouldReplaceListingMockupWithPrintful(p.mockup_url, designUrl)) return null;
+  if (!shouldReplaceListingMockupWithPrintful(p.mockup_url, designUrl)) {
+    return { url: p.mockup_url ?? null, reason: "keep-existing-mockup" };
+  }
 
   const variantId = p.printful_catalog_variant_id;
   const catalogProductId = p.printful_catalog_product_id;
-  if (!variantId || !catalogProductId) return null;
+  if (!variantId || !catalogProductId) {
+    return {
+      url: null,
+      reason: `missing-catalog-ids (variant=${variantId}, product=${catalogProductId})`,
+    };
+  }
 
   const productType = p.product_type as ProductType;
   const catalog = getCatalogConfig(productType);
-  if (!catalog) return null;
+  if (!catalog) return { url: null, reason: `no-catalog-config (${productType})` };
 
   const storedPlacement = parseStoredPlacement(p.print_placement);
 
-  const url = await generateListingMockupUrl({
+  const gen = await generateListingMockupUrl({
     catalogProductId,
     catalogVariantId: variantId,
     productType,
@@ -562,15 +578,15 @@ export async function refreshPrintfulListingMockupForProduct(
     storedPlacement,
   });
 
-  if (url) {
+  if (gen.url) {
     // Re-host onto our own Storage so the URL survives Printful's CDN expiry
     // and is safe to display directly. Fall back to the raw URL if re-hosting
     // fails — readers treat printful.com URLs as non-displayable anyway.
-    const hosted = await rehostListingMockupFromUrl(productId, url).catch(() => null);
-    const finalUrl = hosted ?? url;
+    const hosted = await rehostListingMockupFromUrl(productId, gen.url).catch(() => null);
+    const finalUrl = hosted ?? gen.url;
     await supabase.from("products").update({ mockup_url: finalUrl }).eq("id", productId);
-    return finalUrl;
+    return { url: finalUrl, reason: hosted ? "ok" : "ok-but-rehost-failed" };
   }
 
-  return url;
+  return gen;
 }
